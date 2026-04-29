@@ -1,0 +1,39 @@
+# 本地配置与密钥（仓库保留 config.example.ini）
+config/config.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# 运行数据与日志
+logs/
+snapshots/
+redis-data/
+minio-data/
+
+# 工具/IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 误下到仓库根目录的 HF 配置副本（应用使用 models/hf_smoking/ 等）
+/config.json
+
+# Ultralytics / 自训权重（体积大，不入库；运行时会自动下载或见 README）
+*.pt
+*.onnx
+models/hf_smoking/
+
+# 训练管线：数据集、缓存、运行产物与中间图（可本地保留，公开仓库不提交）
+training_system/data/
+training_system/runs/
+training_system/outputs/
+training_system/*.jpg
+training_system/**/*.cache

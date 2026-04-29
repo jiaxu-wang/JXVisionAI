@@ -1,0 +1,16 @@
+env/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.git/
+.gitignore
+logs/
+snapshots/
+*.log
+.DS_Store
+.idea/
+.vscode/
+training_system/runs/
+**/.pytest_cache/
