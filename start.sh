@@ -24,6 +24,12 @@ fi
 echo "正在启动 VisionAI 服务..."
 source env/bin/activate
 
+# 与 requirements.txt 保持同步（新增依赖后无需手动 pip）
+if ! pip install -q -r requirements.txt; then
+    echo "错误: pip install -r requirements.txt 失败，请检查网络与虚拟环境"
+    exit 1
+fi
+
 # 本机直跑时覆盖「Docker 专用」的 config（config.ini 里常有 redis:6379、/app/...）
 # 优先级：你手动 export 的环境变量 > 本脚本默认值 > config.ini
 # 确保宿主机上 Redis 已监听（如 compose 映射的 16379）：docker compose up -d redis

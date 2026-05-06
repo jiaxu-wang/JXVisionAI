@@ -23,15 +23,40 @@ from flask import (
     stream_with_context,
     url_for,
 )
+from flask_sock import Sock
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from visionai.config.settings import AUTO_REFRESH_INTERVAL, SECRET
+from visionai.config.settings import (
+    AUTO_REFRESH_INTERVAL,
+    PREVIEW_ANNOTATED_POLL_SEC,
+    PREVIEW_HLS_ENABLED,
+    PREVIEW_WEBRTC_ENABLED,
+    PREVIEW_WEBRTC_STUN_URLS,
+    PREVIEW_WS_MAX_FPS,
+    SECRET,
+    SMTP_ALERT_ENABLED,
+    SMTP_FROM,
+    SMTP_HOST,
+)
+from visionai.utils.alert_email import (
+    normalize_stream_alert_emails,
+    normalize_stream_alert_email_enabled,
+    smtp_is_configured,
+)
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.config.detection_catalog import catalog_items_for_api, normalize_detections
 from visionai.core import stream_sync
-from visionai.core.preview_cache import get_preview_jpeg
+from visionai.core.preview_cache import get_preview_jpeg, get_preview_jpeg_meta
+from visionai.core.preview_hls import (
+    ffmpeg_available,
+    safe_hls_basename,
+    session_dir,
+    start_session as hls_start_session,
+    stop_session as hls_stop_session,
+    touch_session as hls_touch_session,
+)
 
 # 导入流状态管理
 try:
@@ -53,8 +78,23 @@ except ImportError:
     def get_object_storage():  # type: ignore
         return None
 
+try:
+    from visionai.core import preview_webrtc
+except ImportError:
+    preview_webrtc = None  # type: ignore
+
+
+def _webrtc_preview_available() -> bool:
+    return bool(
+        PREVIEW_WEBRTC_ENABLED
+        and preview_webrtc is not None
+        and preview_webrtc.is_available()
+    )
+
+
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = SECRET
+sock = Sock(app)
 
 # 登录验证装饰器
 def login_required(f):
@@ -106,6 +146,9 @@ def get_streams():
         stream_copy = stream.copy()
         raw_det = stream_copy.get('detections')
         stream_copy['detections'] = normalize_detections(raw_det if isinstance(raw_det, dict) else None)
+        stream_copy['alert_email_enabled'] = normalize_stream_alert_email_enabled(
+            stream_copy.get('alert_email_enabled')
+        )
         # 添加状态信息
         if stream_status_lock:
             with stream_status_lock:
@@ -153,6 +196,10 @@ def save_streams():
                 stream['id'] = f"stream_{uuid.uuid4().hex[:8]}"
             d = stream.get('detections')
             stream['detections'] = normalize_detections(d if isinstance(d, dict) else None)
+            stream['alert_emails'] = normalize_stream_alert_emails(stream.get('alert_emails'))
+            stream['alert_email_enabled'] = normalize_stream_alert_email_enabled(
+                stream.get('alert_email_enabled')
+            )
         
         # 保存到Redis
         success = redis_manager.save_streams(streams)
@@ -177,7 +224,18 @@ def save_streams():
 def get_config():
     """获取系统配置"""
     return jsonify({
-        'auto_refresh_interval': AUTO_REFRESH_INTERVAL
+        'auto_refresh_interval': AUTO_REFRESH_INTERVAL,
+        'preview': {
+            'ffmpeg': ffmpeg_available(),
+            'hls_enabled': bool(PREVIEW_HLS_ENABLED and ffmpeg_available()),
+            'webrtc_enabled': _webrtc_preview_available(),
+        },
+        'smtp': {
+            'alert_enabled': bool(SMTP_ALERT_ENABLED),
+            'host_configured': bool(SMTP_HOST.strip()),
+            'from_configured': bool(SMTP_FROM.strip()),
+            'ready': smtp_is_configured(),
+        },
     })
 
 
@@ -258,7 +316,7 @@ def _mjpeg_frames_annotated(stream_id: str, rtsp_url: str):
                     + blob
                     + b"\r\n"
                 )
-                time.sleep(0.12)
+                time.sleep(PREVIEW_ANNOTATED_POLL_SEC)
                 continue
             c = ensure_cap()
             if not c.isOpened():
@@ -317,6 +375,180 @@ def stream_preview_mjpeg():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.route("/api/preview-webrtc/offer", methods=["POST"])
+@login_required
+def preview_webrtc_offer():
+    """浏览器 WebRTC offer → SDP answer；服务端用 aiortc MediaPlayer 拉 RTSP 推向浏览器。"""
+    if not _webrtc_preview_available():
+        return jsonify(
+            {
+                "success": False,
+                "message": "WebRTC 预览未启用（preview_webrtc_enabled）或未安装 aiortc",
+            }
+        ), 503
+    payload = request.get_json(silent=True) or {}
+    stream_id = (payload.get("stream_id") or "").strip()
+    sdp = payload.get("sdp")
+    typ = (payload.get("type") or "").strip()
+    if not stream_id or not isinstance(sdp, str) or not sdp.strip():
+        return jsonify({"success": False, "message": "缺少 stream_id 或 sdp"}), 400
+    if typ != "offer":
+        return jsonify({"success": False, "message": "type 须为 offer"}), 400
+    url = _stream_url_by_id(stream_id)
+    if not url:
+        return jsonify({"success": False, "message": "无效或未找到的 stream_id"}), 404
+    url = normalize_rtsp_url(url)
+    parsed = urlparse(url)
+    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
+        return jsonify({"success": False, "message": "不支持的流地址协议"}), 400
+    assert preview_webrtc is not None
+    result = preview_webrtc.handle_offer(
+        url, sdp.strip(), typ, PREVIEW_WEBRTC_STUN_URLS
+    )
+    code = 200 if result.get("success") else 500
+    return jsonify(result), code
+
+
+@app.route("/api/preview-webrtc/stop", methods=["POST"])
+@login_required
+def preview_webrtc_stop_api():
+    payload = request.get_json(silent=True) or {}
+    session_id = (payload.get("session_id") or "").strip()
+    if session_id and preview_webrtc is not None:
+        preview_webrtc.stop_session(session_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/preview-hls/start", methods=["POST"])
+@login_required
+def preview_hls_start():
+    """启动一路 FFmpeg→HLS 会话，返回 m3u8 相对路径（需携带登录 Cookie 拉取）。"""
+    if not PREVIEW_HLS_ENABLED:
+        return jsonify({"success": False, "message": "HLS 预览已在配置中关闭"}), 400
+    if not ffmpeg_available():
+        return jsonify({"success": False, "message": "服务器未检测到 ffmpeg"}), 503
+    payload = request.get_json(silent=True) or {}
+    stream_id = (payload.get("stream_id") or "").strip()
+    url = _stream_url_by_id(stream_id)
+    if not url:
+        return jsonify({"success": False, "message": "无效或未找到的 stream_id"}), 404
+    url = normalize_rtsp_url(url)
+    parsed = urlparse(url)
+    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
+        return jsonify({"success": False, "message": "不支持的流地址协议"}), 400
+    sid, playlist = hls_start_session(stream_id, url)
+    if not sid or not playlist:
+        return jsonify({"success": False, "message": "启动 HLS 转码失败，请查看服务器日志"}), 500
+    return jsonify({"success": True, "session_id": sid, "playlist": playlist})
+
+
+@app.route("/api/preview-hls/stop", methods=["POST"])
+@login_required
+def preview_hls_stop():
+    payload = request.get_json(silent=True) or {}
+    session_id = (payload.get("session_id") or "").strip()
+    if session_id:
+        hls_stop_session(session_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/preview-hls/data/<session_id>/<path:filename>")
+@login_required
+def preview_hls_data(session_id: str, filename: str):
+    if not safe_hls_basename(filename):
+        abort(404)
+    base = session_dir(session_id)
+    if base is None:
+        abort(404)
+    try:
+        root = base.resolve()
+        full = (base / filename).resolve()
+    except OSError:
+        abort(404)
+    if not full.is_relative_to(root) or not full.is_file():
+        abort(404)
+    hls_touch_session(session_id)
+    mimetype = (
+        "application/vnd.apple.mpegurl"
+        if filename.endswith(".m3u8")
+        else "video/MP2T"
+    )
+    return send_file(full, mimetype=mimetype)
+
+
+@sock.route("/ws/preview")
+def preview_ws(ws):
+    """低延迟二进制 JPEG：首条文本消息 JSON `{\"stream_id\":\"...\",\"annotated\":false}`。"""
+    if not session.get("logged_in"):
+        return
+    first = ws.receive()
+    if not first:
+        return
+    if isinstance(first, (bytes, bytearray)):
+        first = first.decode("utf-8", errors="replace")
+    try:
+        spec = json.loads(first)
+    except (json.JSONDecodeError, TypeError):
+        return
+    stream_id = (spec.get("stream_id") or "").strip()
+    annotated = bool(spec.get("annotated"))
+    url = _stream_url_by_id(stream_id)
+    if not url:
+        return
+    url = normalize_rtsp_url(url)
+    parsed = urlparse(url)
+    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
+        return
+
+    min_frame = 1.0 / float(PREVIEW_WS_MAX_FPS)
+    next_t = time.monotonic()
+    cap = None
+    last_ts = None
+    try:
+        if annotated:
+            while True:
+                meta = get_preview_jpeg_meta(stream_id)
+                if meta:
+                    blob, ts = meta
+                    if blob and ts != last_ts:
+                        ws.send(blob)
+                        last_ts = ts
+                time.sleep(PREVIEW_ANNOTATED_POLL_SEC)
+        else:
+            cap = cv2.VideoCapture(url)
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
+            if not cap.isOpened():
+                return
+            consecutive_fail = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    consecutive_fail += 1
+                    if consecutive_fail > 80:
+                        break
+                    time.sleep(0.04)
+                    continue
+                consecutive_fail = 0
+                enc_ok, jpg = cv2.imencode(
+                    ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72]
+                )
+                if enc_ok:
+                    ws.send(jpg.tobytes())
+                now = time.monotonic()
+                next_t = max(next_t + min_frame, now)
+                sleep_for = next_t - now
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+    except Exception:
+        pass
+    finally:
+        if cap is not None:
+            cap.release()
 
 
 @app.route('/api/stats/alerts-today', methods=['GET'])

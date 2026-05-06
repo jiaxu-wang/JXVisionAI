@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from typing import List
 
 import cv2
 import numpy as np
@@ -37,6 +38,7 @@ from visionai.core.behaviors import BehaviorContext, run_behaviors
 from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
+from visionai.utils.alert_email import notify_alert_by_email
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,8 @@ class Detector:
         self.last_save_time = 0
         self._gather_since = None
         self._behavior_state: dict = {}
+        self.alert_emails: List[str] = []
+        self.alert_email_enabled: bool = True
         self._load_model()
 
     def _load_model(self):
@@ -476,7 +480,7 @@ class Detector:
                     f"[{self.stream_name}] 检测到: {', '.join(info)}，存储: {where}"
                 )
 
-            redis_manager.save_detection(
+            rec_id = redis_manager.save_detection(
                 stream_name=self.stream_name,
                 detection_types=detection_types,
                 image_path=path_for_redis,
@@ -484,6 +488,19 @@ class Detector:
                 object_key=object_key,
                 storage_kind=storage_kind,
             )
+            if rec_id and self.alert_emails and self.alert_email_enabled:
+                img_for_mail = (
+                    path_for_redis
+                    if path_for_redis and os.path.isfile(path_for_redis)
+                    else None
+                )
+                notify_alert_by_email(
+                    stream_name=self.stream_name,
+                    recipients=self.alert_emails,
+                    detection_types=detection_types,
+                    image_path=img_for_mail,
+                    timestamp=now,
+                )
             return True
         except Exception as e:
             logger.error(f"[{self.stream_name}] 保存截图失败: {e}")

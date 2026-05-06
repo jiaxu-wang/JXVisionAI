@@ -178,14 +178,14 @@ class SmokingBehaviorPlugin:
                 gate_info = ""
                 if cigarette_boxes is not None:
                     gate_info = f" cigarette_gate=yes n_cig={len(cigarette_boxes)}"
-                logger.info(
-                    "[%s] 吸烟置信度 thr=%.3f dur>=%.2fs | %s | alert=%s pids=%s%s",
-                    ctx.stream_name,
-                    SMOKING_CONF_THRESHOLD,
-                    SMOKING_MIN_DURATION_SEC,
-                    ", ".join(parts),
-                    out["alert"],
-                    alerting,
-                    gate_info,
-                )
+                # logger.info(
+                #     "[%s] 吸烟置信度 thr=%.3f dur>=%.2fs | %s | alert=%s pids=%s%s",
+                #     ctx.stream_name,
+                #     SMOKING_CONF_THRESHOLD,
+                #     SMOKING_MIN_DURATION_SEC,
+                #     ", ".join(parts),
+                #     out["alert"],
+                #     alerting,
+                #     gate_info,
+                # )
         return out

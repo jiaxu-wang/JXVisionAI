@@ -25,6 +25,15 @@ def get_preview_jpeg(stream_id: str) -> Optional[bytes]:
         return row[0]
 
 
+def get_preview_jpeg_meta(stream_id: str) -> Optional[tuple[bytes, float]]:
+    """返回 (jpeg_bytes, monotonic_ts)，用于 WebSocket 仅在帧更新时推送。"""
+    with _lock:
+        row = _jpeg_by_stream.get(stream_id)
+        if not row:
+            return None
+        return row[0], row[1]
+
+
 def preview_age_sec(stream_id: str) -> Optional[float]:
     with _lock:
         row = _jpeg_by_stream.get(stream_id)

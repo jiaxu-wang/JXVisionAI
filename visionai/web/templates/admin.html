@@ -4,6 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VisionAI 管理平台</title>
+    <script>
+        (function () {
+            // 在 document 捕获阶段优先处理侧栏导航，避免浏览器扩展在 document 上 stopPropagation
+            // 导致点击无法到达侧边栏 button、内联 onclick 永远不触发。
+            document.addEventListener('click', function (e) {
+                var t = e.target;
+                if (t && t.nodeType !== 1) {
+                    t = t.parentElement;
+                }
+                if (!t || typeof t.closest !== 'function') {
+                    return;
+                }
+                var btn = t.closest('.menu-nav-btn[data-page]');
+                if (!btn) {
+                    return;
+                }
+                var fn = window.__visionaiGoPage;
+                var key = btn.getAttribute('data-page');
+                if (typeof fn !== 'function' || !key) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                fn(key, btn);
+            }, true);
+        })();
+    </script>
     <style>
         * {
             margin: 0;
@@ -22,7 +50,7 @@
         .modal {
             display: none;
             position: fixed;
-            z-index: 1000;
+            z-index: 1300;
             left: 0;
             top: 0;
             width: 100%;
@@ -182,6 +210,8 @@
             border-right: 1px solid #e9ecef;
             padding: 30px 0;
             box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+            position: relative;
+            z-index: 1200;
         }
         
         .logo {
@@ -209,6 +239,35 @@
         
         .menu-item {
             margin-bottom: 8px;
+        }
+        
+        .menu-item .menu-nav-btn {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #495057;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 500;
+            width: 100%;
+            text-align: left;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+            font-family: inherit;
+        }
+        
+        .menu-item .menu-nav-btn:hover {
+            background: #f8f9fa;
+            color: #2196F3;
+            transform: translateX(5px);
+        }
+        
+        .menu-item .menu-nav-btn.active {
+            background: #e3f2fd;
+            color: #2196F3;
         }
         
         .menu-item a {
@@ -780,31 +839,31 @@
             </div>
             <ul class="menu">
                 <li class="menu-item">
-                    <a href="#" class="active" data-page="overview">
+                    <button type="button" class="menu-nav-btn active" data-page="overview" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">📊</span>
                         状态概览
-                    </a>
+                    </button>
                 </li>
                 <li class="menu-item">
-                    <a href="#" data-page="video">
+                    <button type="button" class="menu-nav-btn" data-page="video" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">🎥</span>
                         检测配置
-                    </a>
+                    </button>
                 </li>
                 <li class="menu-item">
-                    <a href="#" data-page="alerts">
+                    <button type="button" class="menu-nav-btn" data-page="alerts" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">🚨</span>
                         历史告警
-                    </a>
+                    </button>
                 </li>
                 <li class="menu-item">
-                    <a href="#" data-page="settings">
+                    <button type="button" class="menu-nav-btn" data-page="settings" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">⚙️</span>
                         系统设置
-                    </a>
+                    </button>
                 </li>
                 <li class="menu-item" style="margin-top: 40px; border-top: 1px solid #e9ecef; padding-top: 20px;">
-                    <a href="#" onclick="logout()">
+                    <a href="javascript:void(0)" onclick="logout(); return false;">
                         <span class="menu-icon">🚪</span>
                         退出登录
                     </a>
@@ -977,19 +1036,32 @@
             </div>
             <div class="config-modal-body">
                 <p id="streamPreviewHint" style="font-size: 13px; color: #495057; margin: 0 0 10px 0;">
-                    默认<strong>实时</strong>画面（服务器持续从 RTSP 拉流转 MJPEG）。勾选「检测框」后改为与告警一致的带标注帧，按检测周期刷新，观感接近截图轮播。关闭窗口即停止拉流。
+                    <strong>传输方式</strong>：<strong>WebRTC</strong>（需 <code>pip install aiortc</code>）走 SRTP，延迟通常低于 JPEG/WebSocket 与 HLS；<strong>WebSocket / MJPEG</strong> 为逐帧 JPEG；<strong>HLS</strong> 依赖 <code>ffmpeg</code> 二次转码（约 1～4 秒）。勾选「检测框」仅对 MJPEG / WebSocket 生效；WebRTC 与 HLS 为<strong>原画</strong>。关闭窗口会结束 WebRTC / WebSocket 并释放 HLS 转码。
                 </p>
-                <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; margin-bottom: 12px; cursor: pointer; user-select: none;">
-                    <input type="checkbox" id="streamPreviewAnnotated" style="width: auto;">
-                    显示检测框（与检测间隔同步，非实时）
-                </label>
+                <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 12px;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
+                        <span>预览方式</span>
+                        <select id="streamPreviewMode" style="min-width: 240px; padding: 4px 8px;">
+                            <option value="webrtc" selected>WebRTC（推荐，超低延迟）</option>
+                            <option value="ws">WebSocket（JPEG）</option>
+                            <option value="mjpeg">MJPEG（兼容）</option>
+                            <option value="hls">HLS（需 ffmpeg）</option>
+                        </select>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="streamPreviewAnnotated" style="width: auto;">
+                        显示检测框（仅 MJPEG / WebSocket；WebRTC / HLS 无效）
+                    </label>
+                </div>
                 <div style="background: #000; border-radius: 8px; overflow: hidden; min-height: 200px; display: flex; align-items: center; justify-content: center;">
                     <img id="streamPreviewImg" alt="视频预览" style="max-width: 100%; max-height: 72vh; display: block;">
+                    <video id="streamPreviewVideo" playsinline muted controls style="display: none; max-width: 100%; max-height: 72vh;"></video>
                 </div>
             </div>
         </div>
     </div>
     
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <script>
         function escapeHtml(text) {
             if (text == null || text === undefined) return '';
@@ -998,16 +1070,296 @@
             return d.innerHTML;
         }
         
-        function rebuildStreamPreviewSrc() {
+        let streamPreviewHls = null;
+        let streamPreviewHlsSession = null;
+        let streamPreviewWs = null;
+        let streamPreviewObjectUrl = null;
+        let streamPreviewWebrtcSession = null;
+        let streamPreviewPc = null;
+        let streamPreviewCapabilities = { ffmpeg: false, hls_enabled: false, webrtc_enabled: false };
+        let detectionConfigTargetItem = null;
+        let detectionModalDraft = null;
+
+        async function refreshPreviewCapabilities() {
+            try {
+                const r = await fetch('/api/config');
+                const j = await r.json();
+                const p = j.preview || {};
+                streamPreviewCapabilities = {
+                    ffmpeg: !!p.ffmpeg,
+                    hls_enabled: !!p.hls_enabled,
+                    webrtc_enabled: !!p.webrtc_enabled,
+                };
+                const sel = document.getElementById('streamPreviewMode');
+                const optHls = sel ? sel.querySelector('option[value="hls"]') : null;
+                const optRtc = sel ? sel.querySelector('option[value="webrtc"]') : null;
+                if (optHls) {
+                    optHls.disabled = !streamPreviewCapabilities.hls_enabled;
+                    optHls.title = streamPreviewCapabilities.hls_enabled
+                        ? ''
+                        : '需要服务器安装 ffmpeg 并在配置中启用 HLS（preview_hls_enabled）';
+                }
+                if (optRtc) {
+                    optRtc.disabled = !streamPreviewCapabilities.webrtc_enabled;
+                    optRtc.title = streamPreviewCapabilities.webrtc_enabled
+                        ? ''
+                        : '需要 pip install aiortc，且 preview_webrtc_enabled=true';
+                }
+                if (sel && optHls && optHls.disabled && sel.value === 'hls') {
+                    sel.value = 'ws';
+                }
+                if (sel && optRtc && optRtc.disabled && sel.value === 'webrtc') {
+                    sel.value = 'ws';
+                }
+            } catch (e) {
+                console.warn(e);
+            }
+        }
+
+        function stopStreamPreviewPipeline() {
+            if (streamPreviewPc) {
+                try {
+                    streamPreviewPc.close();
+                } catch (e) {
+                    /* ignore */
+                }
+                streamPreviewPc = null;
+            }
+            if (streamPreviewWebrtcSession) {
+                fetch('/api/preview-webrtc/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: streamPreviewWebrtcSession }),
+                    credentials: 'same-origin',
+                }).catch(function () {});
+                streamPreviewWebrtcSession = null;
+            }
+            if (streamPreviewHls) {
+                try {
+                    streamPreviewHls.destroy();
+                } catch (e) {
+                    /* ignore */
+                }
+                streamPreviewHls = null;
+            }
+            if (streamPreviewHlsSession) {
+                fetch('/api/preview-hls/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: streamPreviewHlsSession }),
+                    credentials: 'same-origin',
+                }).catch(function () {});
+                streamPreviewHlsSession = null;
+            }
+            const vid = document.getElementById('streamPreviewVideo');
+            if (vid) {
+                vid.pause();
+                vid.removeAttribute('src');
+                if (vid.srcObject) {
+                    vid.srcObject = null;
+                }
+                vid.load();
+                vid.style.display = 'none';
+            }
+            if (streamPreviewWs) {
+                try {
+                    streamPreviewWs.close();
+                } catch (e) {
+                    /* ignore */
+                }
+                streamPreviewWs = null;
+            }
+            if (streamPreviewObjectUrl) {
+                URL.revokeObjectURL(streamPreviewObjectUrl);
+                streamPreviewObjectUrl = null;
+            }
             const img = document.getElementById('streamPreviewImg');
+            if (img) {
+                img.src = '';
+                img.style.display = 'block';
+            }
+        }
+
+        function waitIceGatheringComplete(pc) {
+            return new Promise(function (resolve) {
+                if (pc.iceGatheringState === 'complete') {
+                    resolve();
+                    return;
+                }
+                var t = setTimeout(function () {
+                    resolve();
+                }, 2500);
+                pc.addEventListener(
+                    'icegatheringstatechange',
+                    function onIce() {
+                        if (pc.iceGatheringState === 'complete') {
+                            clearTimeout(t);
+                            pc.removeEventListener('icegatheringstatechange', onIce);
+                            resolve();
+                        }
+                    }
+                );
+            });
+        }
+
+        function rebuildStreamPreview() {
+            const img = document.getElementById('streamPreviewImg');
+            if (!img) {
+                return;
+            }
             const sid = img.dataset.streamId;
             if (!sid) return;
+            const modeEl = document.getElementById('streamPreviewMode');
+            const mode = modeEl ? modeEl.value : 'ws';
             const ann = document.getElementById('streamPreviewAnnotated');
-            let url = '/api/preview?stream_id=' + encodeURIComponent(sid);
-            if (ann && ann.checked) {
-                url += '&annotated=1';
+            const annotated = !!(ann && ann.checked);
+            stopStreamPreviewPipeline();
+            if (mode === 'webrtc') {
+                if (annotated && ann) {
+                    showMessage('WebRTC 仅原画，不支持检测框；已取消勾选', 'error');
+                    ann.checked = false;
+                }
+                const vid = document.getElementById('streamPreviewVideo');
+                if (!vid) return;
+                if (typeof RTCPeerConnection === 'undefined') {
+                    showMessage('当前浏览器不支持 WebRTC', 'error');
+                    return;
+                }
+                img.style.display = 'none';
+                vid.style.display = 'block';
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+                });
+                streamPreviewPc = pc;
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.ontrack = function (ev) {
+                    if (ev.streams && ev.streams[0]) {
+                        vid.srcObject = ev.streams[0];
+                        vid.play().catch(function () {});
+                    }
+                };
+                pc.oniceconnectionstatechange = function () {
+                    if (pc.iceConnectionState === 'failed') {
+                        showMessage('WebRTC 连接失败（可检查防火墙/NAT 或改用 WebSocket）', 'error');
+                    }
+                };
+                pc.createOffer({ offerToReceiveVideo: true })
+                    .then(function (offer) {
+                        return pc.setLocalDescription(offer);
+                    })
+                    .then(function () {
+                        return waitIceGatheringComplete(pc);
+                    })
+                    .then(function () {
+                        return fetch('/api/preview-webrtc/offer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({
+                                stream_id: sid,
+                                sdp: pc.localDescription.sdp,
+                                type: pc.localDescription.type,
+                            }),
+                        });
+                    })
+                    .then(function (r) {
+                        return r.json().then(function (data) {
+                            if (!r.ok || !data.success) {
+                                throw new Error(data.message || 'HTTP ' + r.status);
+                            }
+                            return data;
+                        });
+                    })
+                    .then(function (data) {
+                        streamPreviewWebrtcSession = data.session_id;
+                        return pc.setRemoteDescription(
+                            new RTCSessionDescription({ type: data.type, sdp: data.sdp })
+                        );
+                    })
+                    .catch(function (err) {
+                        showMessage(
+                            'WebRTC 预览失败: ' + (err && err.message ? err.message : err),
+                            'error'
+                        );
+                        stopStreamPreviewPipeline();
+                        img.style.display = 'block';
+                        vid.style.display = 'none';
+                    });
+                return;
             }
-            img.src = url;
+            if (mode === 'mjpeg') {
+                let url = '/api/preview?stream_id=' + encodeURIComponent(sid);
+                if (annotated) url += '&annotated=1';
+                img.style.display = 'block';
+                img.src = url;
+                return;
+            }
+            if (mode === 'ws') {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(proto + '//' + location.host + '/ws/preview');
+                streamPreviewWs = ws;
+                ws.binaryType = 'arraybuffer';
+                img.style.display = 'block';
+                ws.onopen = function () {
+                    ws.send(JSON.stringify({ stream_id: sid, annotated: annotated }));
+                };
+                ws.onmessage = function (ev) {
+                    const buf = ev.data;
+                    if (streamPreviewObjectUrl) URL.revokeObjectURL(streamPreviewObjectUrl);
+                    streamPreviewObjectUrl = URL.createObjectURL(
+                        new Blob([buf], { type: 'image/jpeg' })
+                    );
+                    img.src = streamPreviewObjectUrl;
+                };
+                return;
+            }
+            if (mode === 'hls') {
+                const vid = document.getElementById('streamPreviewVideo');
+                if (!vid) return;
+                img.style.display = 'none';
+                vid.style.display = 'block';
+                fetch('/api/preview-hls/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ stream_id: sid }),
+                })
+                    .then(function (r) {
+                        return r.json();
+                    })
+                    .then(function (data) {
+                        if (!data.success || !data.playlist) {
+                            showMessage(data.message || 'HLS 启动失败', 'error');
+                            vid.style.display = 'none';
+                            img.style.display = 'block';
+                            return;
+                        }
+                        streamPreviewHlsSession = data.session_id;
+                        const src = data.playlist;
+                        if (window.Hls && window.Hls.isSupported()) {
+                            streamPreviewHls = new Hls({
+                                enableWorker: true,
+                                lowLatencyMode: true,
+                                liveSyncDurationCount: 2,
+                                liveMaxLatencyDurationCount: 5,
+                                xhrSetup: function (xhr) {
+                                    xhr.withCredentials = true;
+                                },
+                            });
+                            streamPreviewHls.loadSource(src);
+                            streamPreviewHls.attachMedia(vid);
+                            streamPreviewHls.on(Hls.Events.ERROR, function () {});
+                        } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+                            vid.src = src;
+                            vid.play().catch(function () {});
+                        } else {
+                            showMessage('当前浏览器不支持 HLS 播放', 'error');
+                        }
+                    })
+                    .catch(function () {
+                        showMessage('HLS 请求失败', 'error');
+                    });
+            }
         }
         
         function openStreamPreview(streamId, streamName) {
@@ -1017,66 +1369,132 @@
             }
             const modal = document.getElementById('streamPreviewModal');
             const img = document.getElementById('streamPreviewImg');
-            document.getElementById('streamPreviewTitle').textContent =
-                streamName ? ('预览 · ' + streamName) : '流预览';
+            if (!modal || !img) {
+                showMessage('预览组件未加载', 'error');
+                return;
+            }
+            const titleEl = document.getElementById('streamPreviewTitle');
+            if (titleEl) {
+                titleEl.textContent = streamName ? ('预览 · ' + streamName) : '流预览';
+            }
             img.dataset.streamId = streamId;
             const ann = document.getElementById('streamPreviewAnnotated');
             if (ann) ann.checked = false;
-            rebuildStreamPreviewSrc();
+            const modeEl = document.getElementById('streamPreviewMode');
+            refreshPreviewCapabilities().then(function () {
+                if (modeEl) {
+                    if (streamPreviewCapabilities.webrtc_enabled) {
+                        modeEl.value = 'webrtc';
+                    } else {
+                        modeEl.value = 'ws';
+                    }
+                }
+                rebuildStreamPreview();
+            });
             modal.classList.add('show');
             modal.setAttribute('aria-hidden', 'false');
         }
         
         function closeStreamPreview() {
+            stopStreamPreviewPipeline();
             const img = document.getElementById('streamPreviewImg');
-            img.src = '';
-            delete img.dataset.streamId;
+            if (img) {
+                img.src = '';
+                delete img.dataset.streamId;
+            }
             const modal = document.getElementById('streamPreviewModal');
-            modal.classList.remove('show');
-            modal.setAttribute('aria-hidden', 'true');
+            if (modal) {
+                modal.classList.remove('show');
+                modal.setAttribute('aria-hidden', 'true');
+            }
         }
         
-        // 页面切换
-        document.querySelectorAll('.menu-item a').forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                
-                // 移除所有激活状态
-                document.querySelectorAll('.menu-item a').forEach(item => {
+        function safeCloseModalsForNav() {
+            try {
+                stopStreamPreviewPipeline();
+            } catch (err) {
+                console.warn('VisionAI: stopStreamPreviewPipeline', err);
+            }
+            const img = document.getElementById('streamPreviewImg');
+            if (img) {
+                img.src = '';
+                try {
+                    delete img.dataset.streamId;
+                } catch (e) { /* ignore */ }
+            }
+            const spm = document.getElementById('streamPreviewModal');
+            if (spm) {
+                spm.classList.remove('show');
+                spm.setAttribute('aria-hidden', 'true');
+            }
+            const dcm = document.getElementById('detectionConfigModal');
+            if (dcm) {
+                dcm.classList.remove('show');
+                dcm.setAttribute('aria-hidden', 'true');
+            }
+            detectionConfigTargetItem = null;
+            detectionModalDraft = null;
+            const im = document.getElementById('imageModal');
+            if (im) {
+                im.style.display = 'none';
+            }
+        }
+
+        function applyVisionaiMainPage(pageKey, navEl) {
+            if (!pageKey) {
+                return;
+            }
+            try {
+                safeCloseModalsForNav();
+                document.querySelectorAll('.menu-nav-btn[data-page]').forEach(function (item) {
                     item.classList.remove('active');
                 });
-                
-                // 添加当前激活状态
-                this.classList.add('active');
-                
-                // 隐藏所有页面
-                document.querySelectorAll('.page-content').forEach(page => {
+                if (navEl) {
+                    navEl.classList.add('active');
+                }
+                document.querySelectorAll('.page-content').forEach(function (page) {
                     page.style.display = 'none';
                 });
-                
-                // 显示对应页面
-                const pageId = this.getAttribute('data-page') + 'Page';
-                document.getElementById(pageId).style.display = 'block';
-                
-                // 更新页面标题
-                document.getElementById('pageTitle').textContent = this.textContent.trim();
-                
-                // 如果是状态概览页面，加载状态数据
-                if (pageId === 'overviewPage') {
+                const pageEl = document.getElementById(pageKey + 'Page');
+                if (!pageEl) {
+                    console.warn('VisionAI: missing #' + pageKey + 'Page');
+                    return;
+                }
+                pageEl.style.display = 'block';
+                const pt = document.getElementById('pageTitle');
+                if (pt && navEl) {
+                    pt.textContent = navEl.textContent.trim();
+                }
+                if (pageKey === 'overview') {
                     loadStatusData();
-                }
-                
-                // 如果是历史告警页面，加载告警数据
-                if (pageId === 'alertsPage') {
+                } else if (pageKey === 'alerts') {
                     loadAlertsData();
-                }
-                
-                if (pageId === 'videoPage') {
+                } else if (pageKey === 'video') {
                     loadStreams();
                 }
-            });
-        });
-        
+            } catch (err) {
+                console.error('VisionAI: navigation error', err);
+            }
+        }
+
+        window.__visionaiGoPage = applyVisionaiMainPage;
+
+        function visionaiMenuActivate(event, el) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            if (!el) {
+                return false;
+            }
+            const pageKey = el.getAttribute('data-page');
+            if (!pageKey) {
+                return false;
+            }
+            applyVisionaiMainPage(pageKey, el);
+            return false;
+        }
+
         // 加载状态数据
         async function loadStatusData() {
             try {
@@ -1167,8 +1585,6 @@
         let configRefreshInterval = 20000; // 默认20秒
         
         let detectionCatalog = [];
-        let detectionConfigTargetItem = null;
-        let detectionModalDraft = null;
         
         function defaultAllOffDetections() {
             const d = { call: false, phone_play: false, gather: false, smoking: false };
@@ -1321,8 +1737,11 @@
         }
         
         function closeDetectionConfigModal() {
-            document.getElementById('detectionConfigModal').classList.remove('show');
-            document.getElementById('detectionConfigModal').setAttribute('aria-hidden', 'true');
+            const el = document.getElementById('detectionConfigModal');
+            if (el) {
+                el.classList.remove('show');
+                el.setAttribute('aria-hidden', 'true');
+            }
             detectionConfigTargetItem = null;
             detectionModalDraft = null;
         }
@@ -1524,17 +1943,17 @@
         }
         
         // 全选/取消全选
-        document.getElementById('selectAll').addEventListener('change', function() {
+        document.getElementById('selectAll')?.addEventListener('change', function() {
             const checkboxes = document.querySelectorAll('.alert-checkbox');
             checkboxes.forEach(checkbox => {
                 checkbox.checked = this.checked;
             });
         });
         
-        document.getElementById('alertFilterApply').addEventListener('click', function() {
+        document.getElementById('alertFilterApply')?.addEventListener('click', function() {
             loadAlertsData(1);
         });
-        document.getElementById('alertFilterReset').addEventListener('click', function() {
+        document.getElementById('alertFilterReset')?.addEventListener('click', function() {
             document.getElementById('alertFilterStart').value = '';
             document.getElementById('alertFilterEnd').value = '';
             document.getElementById('alertFilterStream').value = '';
@@ -1543,7 +1962,7 @@
         });
         
         // 删除选中的告警
-        document.getElementById('alertsPageSizeSelect').addEventListener('change', function() {
+        document.getElementById('alertsPageSizeSelect')?.addEventListener('change', function() {
             const n = parseInt(this.value, 10);
             if (!ALERTS_PAGE_SIZE_OPTIONS.includes(n)) {
                 this.value = '5';
@@ -1554,7 +1973,7 @@
             loadAlertsData(1);
         });
         
-        document.getElementById('deleteSelectedBtn').addEventListener('click', async function() {
+        document.getElementById('deleteSelectedBtn')?.addEventListener('click', async function() {
             const selectedCheckboxes = document.querySelectorAll('.alert-checkbox:checked');
             if (selectedCheckboxes.length === 0) {
                 showMessage('请先选择要删除的检测记录', 'error');
@@ -1595,15 +2014,44 @@
                 container.innerHTML = '';
                 
                 streams.forEach((stream, index) => {
-                    addStreamItem(stream.name, stream.url, stream.detections, index, stream.status, stream.id, stream.enabled !== false);
+                    addStreamItem(
+                        stream.name,
+                        stream.url,
+                        stream.detections,
+                        index,
+                        stream.status,
+                        stream.id,
+                        stream.enabled !== false,
+                        stream.alert_emails,
+                        stream.alert_email_enabled !== false
+                    );
                 });
+                await refreshSmtpHintForStreamForm();
             } catch (error) {
                 showMessage('加载视频流配置失败', 'error');
             }
         }
         
+        async function refreshSmtpHintForStreamForm() {
+            try {
+                const r = await fetch('/api/config');
+                const cfg = await r.json();
+                const ready = cfg.smtp && cfg.smtp.ready;
+                const text = ready
+                    ? '全局 SMTP 已就绪：告警将按上方向外发（频率与截图间隔 save_interval 一致）。'
+                    : '提示：请先在服务器配置 SMTP（smtp_alert_enabled、smtp_host、smtp_from 等，见 config.example.ini），否则仅填写邮箱不会发信。';
+                document.querySelectorAll('.stream-smtp-hint').forEach(el => {
+                    el.style.display = 'block';
+                    el.textContent = text;
+                    el.style.color = ready ? '#155724' : '#856404';
+                });
+            } catch (e) {
+                /* ignore */
+            }
+        }
+
         // 添加视频流项（新增源默认关闭全部检测项）
-        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true) {
+        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true) {
             const container = document.getElementById('streamContainer');
             const streamItem = document.createElement('div');
             streamItem.className = 'stream-item';
@@ -1633,8 +2081,28 @@
                     </div>
                     <button type="button" class="btn-save" onclick="openDetectionConfig(this)" style="padding: 10px 18px;">检测类型配置</button>
                 </div>
+                <div class="stream-alert-emails-row" style="margin-top: 12px;">
+                    <label style="display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: #343a40; margin-bottom: 8px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" class="stream-alert-email-enabled" ${alertEmailEnabled ? 'checked' : ''} style="width: auto; margin: 0;">
+                        <span>启用邮件告警（本路流独立开关）</span>
+                    </label>
+                    <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">告警外发邮箱（多个用逗号、分号或换行）</label>
+                    <textarea class="stream-alert-emails" rows="2" placeholder="例：ops@example.com&#10;duty@example.com" style="width: 100%; max-width: 720px; padding: 8px; border-radius: 6px; border: 1px solid #ced4da; font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
+                    <p class="stream-smtp-hint" style="font-size: 12px; margin: 6px 0 0 0; display: none;"></p>
+                </div>
             `;
             container.appendChild(streamItem);
+            const ta = streamItem.querySelector('.stream-alert-emails');
+            if (ta) {
+                let em = alertEmails;
+                if (typeof em === 'string') {
+                    ta.value = em;
+                } else if (Array.isArray(em) && em.length) {
+                    ta.value = em.join('\n');
+                } else {
+                    ta.value = '';
+                }
+            }
             updateStreamDetectionSummary(streamItem);
         }
         
@@ -1676,14 +2144,18 @@
                             : defaultAllOffDetections();
                         
                         const streamData = { name, url, detections };
-                        // 保留流ID（如果有）
+                        const taMail = item.querySelector('.stream-alert-emails');
+                        const rawMail = taMail ? taMail.value.trim() : '';
+                        streamData.alert_emails = rawMail
+                            ? rawMail.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
+                            : [];
+                        const mailSw = item.querySelector('.stream-alert-email-enabled');
+                        streamData.alert_email_enabled = !!(mailSw && mailSw.checked);
+                        // 保留流 ID（若有，来自服务端）
                         if (item.dataset.id) {
                             streamData.id = item.dataset.id;
                         }
-                        
-                        // 保存启用状态
                         streamData.enabled = item.dataset.enabled === 'true';
-                        
                         streams.push(streamData);
                     }
                 }
@@ -1741,6 +2213,9 @@
         // 显示消息
         function showMessage(text, type) {
             const message = document.getElementById('message');
+            if (!message) {
+                return;
+            }
             message.textContent = text;
             message.className = `message ${type}`;
             message.style.display = 'block';
@@ -1758,13 +2233,13 @@
         }
         
         // 事件监听器
-        document.getElementById('addStreamBtn').addEventListener('click', () => {
+        document.getElementById('addStreamBtn')?.addEventListener('click', () => {
             addStreamItem();
         });
         
-        document.getElementById('saveStreamsBtn').addEventListener('click', saveStreams);
+        document.getElementById('saveStreamsBtn')?.addEventListener('click', saveStreams);
         
-        document.getElementById('restartBtn').addEventListener('click', restartService);
+        document.getElementById('restartBtn')?.addEventListener('click', restartService);
         
         // 图片预览功能
         const modal = document.getElementById('imageModal');
@@ -1773,8 +2248,10 @@
         
         document.addEventListener('click', function(e) {
             if (e.target && e.target.classList.contains('alert-image')) {
-                modal.style.display = 'block';
-                modalImg.src = e.target.src;
+                if (modal && modalImg) {
+                    modal.style.display = 'block';
+                    modalImg.src = e.target.src;
+                }
             }
         });
         
@@ -1798,18 +2275,22 @@
             }
         });
         
-        document.getElementById('streamPreviewCloseBtn').addEventListener('click', closeStreamPreview);
+        document.getElementById('streamPreviewCloseBtn')?.addEventListener('click', closeStreamPreview);
         const streamPreviewAnn = document.getElementById('streamPreviewAnnotated');
         if (streamPreviewAnn) {
-            streamPreviewAnn.addEventListener('change', rebuildStreamPreviewSrc);
+            streamPreviewAnn.addEventListener('change', rebuildStreamPreview);
+        }
+        const streamPreviewMode = document.getElementById('streamPreviewMode');
+        if (streamPreviewMode) {
+            streamPreviewMode.addEventListener('change', rebuildStreamPreview);
         }
         
-        document.getElementById('detectionConfigModalCloseBtn').addEventListener('click', closeDetectionConfigModal);
-        document.getElementById('detectionConfigCancelBtn').addEventListener('click', closeDetectionConfigModal);
-        document.getElementById('detectionConfigSearch').addEventListener('input', function() {
+        document.getElementById('detectionConfigModalCloseBtn')?.addEventListener('click', closeDetectionConfigModal);
+        document.getElementById('detectionConfigCancelBtn')?.addEventListener('click', closeDetectionConfigModal);
+        document.getElementById('detectionConfigSearch')?.addEventListener('input', function() {
             renderDetectionModalList(this.value);
         });
-        document.getElementById('detectionConfigSaveBtn').addEventListener('click', function() {
+        document.getElementById('detectionConfigSaveBtn')?.addEventListener('click', function() {
             if (!detectionConfigTargetItem || !detectionModalDraft) {
                 closeDetectionConfigModal();
                 return;

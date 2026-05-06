@@ -10,6 +10,10 @@ from visionai.core.detector import Detector
 from visionai.core.preview_cache import set_preview_jpeg
 from visionai.core.stream_handler import StreamHandler
 from visionai.utils.logger import setup_logger
+from visionai.utils.alert_email import (
+    normalize_stream_alert_emails,
+    normalize_stream_alert_email_enabled,
+)
 from visionai.config.settings import SAVE_DIR
 from visionai.config.detection_catalog import normalize_detections
 from visionai.web.app import app
@@ -116,6 +120,12 @@ def run_video_processing(stream_info):
                 if latest.get("id"):
                     detector.stream_id = latest["id"]
                 detector.detections = normalize_detections(latest.get("detections"))
+                detector.alert_emails = normalize_stream_alert_emails(
+                    latest.get("alert_emails")
+                )
+                detector.alert_email_enabled = normalize_stream_alert_email_enabled(
+                    latest.get("alert_email_enabled")
+                )
                 # 执行检测
                 results = detector.detect(frame)
                 # 处理结果

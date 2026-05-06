@@ -155,6 +155,35 @@ DETECTION_RETENTION_DAYS = max(1, _cfg_int("DETECTION_RETENTION_DAYS", 1))
 # 管理端
 AUTO_REFRESH_INTERVAL = _cfg_int("AUTO_REFRESH_INTERVAL", 20)
 
+# 流预览：MJPEG/WS 带标注轮询（秒，愈小愈跟手略增 CPU）
+PREVIEW_ANNOTATED_POLL_SEC = max(0.02, _cfg_float("PREVIEW_ANNOTATED_POLL_SEC", 0.05))
+# HLS：FFmpeg 中转码输出目录（相对运行目录）、分片时长、列表窗口、空闲停止秒数
+PREVIEW_HLS_ENABLED = _cfg_bool("PREVIEW_HLS_ENABLED", True)
+PREVIEW_HLS_ROOT = _cfg_str("PREVIEW_HLS_ROOT", "./hls-preview")
+PREVIEW_HLS_SEGMENT_SEC = max(0.3, min(4.0, _cfg_float("PREVIEW_HLS_SEGMENT_SEC", 0.5)))
+PREVIEW_HLS_LIST_SIZE = max(3, min(20, _cfg_int("PREVIEW_HLS_LIST_SIZE", 6)))
+PREVIEW_HLS_IDLE_SEC = max(30, _cfg_int("PREVIEW_HLS_IDLE_SEC", 120))
+# WebSocket 实时原画上限 FPS（愈高延迟愈低、带宽/CPU 愈高）
+PREVIEW_WS_MAX_FPS = max(5, min(60, _cfg_int("PREVIEW_WS_MAX_FPS", 30)))
+# WebRTC：服务端 aiortc + MediaPlayer（依赖 PyAV/FFmpeg）；逗号分隔多个 stun:url
+PREVIEW_WEBRTC_ENABLED = _cfg_bool("PREVIEW_WEBRTC_ENABLED", True)
+PREVIEW_WEBRTC_STUN_URLS = _cfg_str(
+    "PREVIEW_WEBRTC_STUN_URLS",
+    "stun:stun.l.google.com:19302",
+).strip()
+
+# 告警外发邮件（全局 SMTP；每路收件人与是否发信在 Redis：alert_emails、alert_email_enabled）
+SMTP_ALERT_ENABLED = _cfg_bool("SMTP_ALERT_ENABLED", True)
+SMTP_HOST = _cfg_str("SMTP_HOST", "").strip()
+SMTP_PORT = max(1, min(65535, _cfg_int("SMTP_PORT", 587)))
+SMTP_USER = _cfg_str("SMTP_USER", "").strip()
+SMTP_PASSWORD = _cfg_str("SMTP_PASSWORD", "")
+SMTP_FROM = _cfg_str("SMTP_FROM", "").strip()
+SMTP_USE_TLS = _cfg_bool("SMTP_USE_TLS", True)
+SMTP_USE_SSL = _cfg_bool("SMTP_USE_SSL", False)
+SMTP_TIMEOUT = max(5, _cfg_int("SMTP_TIMEOUT", 30))
+SMTP_ALERT_ATTACH_MAX_BYTES = max(100_000, _cfg_int("SMTP_ALERT_ATTACH_MAX_BYTES", 5242880))
+
 # 对象存储（S3 兼容：MinIO / AWS S3 / 其他）
 OBJECT_STORAGE_ENABLED = _cfg_bool("OBJECT_STORAGE_ENABLED", False)
 # 开启上传后是否仍写本地盘（推荐 True，便于本机调试用；仅对象存储时可为 False）
