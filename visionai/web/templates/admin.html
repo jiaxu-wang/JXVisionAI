@@ -394,14 +394,22 @@
             color: #721c24;
         }
         
-        /* 检测配置页 */
+        /* 事件监控页（视频流列表） */
         .stream-item {
-            background: white;
+            background: #ffffff;
             border: 1px solid #e9ecef;
             border-radius: 12px;
             padding: 20px;
             margin-bottom: 20px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: background-color 0.15s ease, border-color 0.15s ease,
+                box-shadow 0.15s ease;
+        }
+
+        #streamContainer > .stream-item:nth-child(even) {
+            background: #eef4fb;
+            border-color: #d8e6f5;
+            box-shadow: 0 2px 8px rgba(31, 86, 138, 0.07);
         }
         
         .stream-inputs {
@@ -410,6 +418,12 @@
             align-items: center;
             flex-wrap: wrap;
             margin-bottom: 15px;
+        }
+        
+        .stream-inputs .stream-detection-config-btn,
+        .stream-inputs > .status,
+        .stream-inputs > button {
+            flex-shrink: 0;
         }
         
         .stream-item input {
@@ -427,8 +441,27 @@
         }
         
         .stream-url {
-            flex: 2 !important;
-            min-width: 300px !important;
+            flex: 1 1 auto !important;
+            min-width: 200px !important;
+            max-width: 400px !important;
+        }
+        
+        .stream-alert-email-enable-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #343a40;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .stream-alert-email-enable-row input[type="checkbox"] {
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 0;
+            margin: 0;
         }
         
         .stream-item input:focus {
@@ -823,7 +856,7 @@
                 align-items: stretch;
             }
             
-            .stream-item input {
+            .stream-item input:not([type="checkbox"]) {
                 width: 100%;
             }
         }
@@ -847,7 +880,7 @@
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="video" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">🎥</span>
-                        检测配置
+                        事件监控
                     </button>
                 </li>
                 <li class="menu-item">
@@ -911,10 +944,10 @@
                     </div>
                 </div>
                 
-                <!-- 检测配置页面 -->
+                <!-- 事件监控页面 -->
                 <div id="videoPage" class="page-content" style="display: none;">
                     <div class="card">
-                        <h2>视频流配置</h2>
+                        <h2>监控配置</h2>
                         <div id="streamContainer">
                             <!-- 视频流列表将通过JavaScript动态生成 -->
                         </div>
@@ -2023,7 +2056,9 @@
                         stream.id,
                         stream.enabled !== false,
                         stream.alert_emails,
-                        stream.alert_email_enabled !== false
+                        stream.alert_email_enabled !== false,
+                        stream.alert_webhook_urls,
+                        stream.alert_webhook_enabled === true
                     );
                 });
                 await refreshSmtpHintForStreamForm();
@@ -2051,7 +2086,7 @@
         }
 
         // 添加视频流项（新增源默认关闭全部检测项）
-        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true) {
+        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true, alertWebhookUrls = null, alertWebhookEnabled = false) {
             const container = document.getElementById('streamContainer');
             const streamItem = document.createElement('div');
             streamItem.className = 'stream-item';
@@ -2070,8 +2105,9 @@
                 <div class="stream-inputs">
                     <input type="text" placeholder="流名称" value="${name.replace(/"/g, '&quot;')}" class="stream-name">
                     <input type="text" placeholder="RTSP地址" value="${url.replace(/"/g, '&quot;')}" class="stream-url">
-                    <span class="status ${statusClass}" style="margin-right: 10px;">${status}</span>
-                    <button type="button" class="${enabledClass}" onclick="toggleStreamEnabled(this)" style="padding: 8px 12px; margin-right: 8px;">${enabledText}</button>
+                    <span class="status ${statusClass}">${status}</span>
+                    <button type="button" class="btn-save stream-detection-config-btn" onclick="openDetectionConfig(this)" style="padding: 8px 14px;">检测类型配置</button>
+                    <button type="button" class="${enabledClass}" onclick="toggleStreamEnabled(this)" style="padding: 8px 12px;">${enabledText}</button>
                     <button type="button" class="btn-delete" onclick="deleteStream(this)">删除</button>
                 </div>
                 <div class="stream-detection-row">
@@ -2079,16 +2115,24 @@
                         <span class="badge-supported">系统支持 · COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 吸烟</span>
                         <div class="stream-detection-summary"></div>
                     </div>
-                    <button type="button" class="btn-save" onclick="openDetectionConfig(this)" style="padding: 10px 18px;">检测类型配置</button>
                 </div>
                 <div class="stream-alert-emails-row" style="margin-top: 12px;">
-                    <label style="display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: #343a40; margin-bottom: 8px; cursor: pointer; user-select: none;">
-                        <input type="checkbox" class="stream-alert-email-enabled" ${alertEmailEnabled ? 'checked' : ''} style="width: auto; margin: 0;">
-                        <span>启用邮件告警（本路流独立开关）</span>
+                    <label class="stream-alert-email-enable-row">
+                        <input type="checkbox" class="stream-alert-email-enabled" ${alertEmailEnabled ? 'checked' : ''}>
+                        <span>启用邮件告警</span>
                     </label>
                     <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">告警外发邮箱（多个用逗号、分号或换行）</label>
                     <textarea class="stream-alert-emails" rows="2" placeholder="例：ops@example.com&#10;duty@example.com" style="width: 100%; max-width: 720px; padding: 8px; border-radius: 6px; border: 1px solid #ced4da; font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
                     <p class="stream-smtp-hint" style="font-size: 12px; margin: 6px 0 0 0; display: none;"></p>
+                </div>
+                <div class="stream-alert-webhooks-row" style="margin-top: 12px;">
+                    <label class="stream-alert-email-enable-row">
+                        <input type="checkbox" class="stream-alert-webhook-enabled" ${alertWebhookEnabled ? 'checked' : ''}>
+                        <span>启用告警 Webhook</span>
+                    </label>
+                    <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">回调 URL（多个用逗号、分号或换行；仅 http/https）</label>
+                    <textarea class="stream-alert-webhooks" rows="2" placeholder="例：https://api.example.com/hooks/visionai&#10;https://backup.example.com/alert" style="width: 100%; max-width: 720px; padding: 8px; border-radius: 6px; border: 1px solid #ced4da; font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
+                    <p style="font-size: 12px; margin: 6px 0 0 0; color: #6c757d;">告警写入 Redis 后向每个 URL 依次 POST JSON（频率与截图间隔 save_interval 一致）。</p>
                 </div>
             `;
             container.appendChild(streamItem);
@@ -2101,6 +2145,17 @@
                     ta.value = em.join('\n');
                 } else {
                     ta.value = '';
+                }
+            }
+            const taWh = streamItem.querySelector('.stream-alert-webhooks');
+            if (taWh) {
+                let wh = alertWebhookUrls;
+                if (typeof wh === 'string') {
+                    taWh.value = wh;
+                } else if (Array.isArray(wh) && wh.length) {
+                    taWh.value = wh.join('\n');
+                } else {
+                    taWh.value = '';
                 }
             }
             updateStreamDetectionSummary(streamItem);
@@ -2151,6 +2206,13 @@
                             : [];
                         const mailSw = item.querySelector('.stream-alert-email-enabled');
                         streamData.alert_email_enabled = !!(mailSw && mailSw.checked);
+                        const taWh = item.querySelector('.stream-alert-webhooks');
+                        const rawWh = taWh ? taWh.value.trim() : '';
+                        streamData.alert_webhook_urls = rawWh
+                            ? rawWh.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
+                            : [];
+                        const whSw = item.querySelector('.stream-alert-webhook-enabled');
+                        streamData.alert_webhook_enabled = !!(whSw && whSw.checked);
                         // 保留流 ID（若有，来自服务端）
                         if (item.dataset.id) {
                             streamData.id = item.dataset.id;
@@ -2307,6 +2369,20 @@
             await loadDetectionCatalog();
             loadStreams();
             loadStatusData();
+            syncAlertsPageSizeSelect();
+            
+            // 定时刷新状态数据（每10秒）
+            setInterval(() => {
+                loadStatusData();
+            }, 10000);
+            
+            // 启动检测记录自动刷新
+            startAutoRefresh();
+        });
+    </script>
+</body>
+</html>
+          loadStatusData();
             syncAlertsPageSizeSelect();
             
             // 定时刷新状态数据（每10秒）

@@ -14,6 +14,10 @@ from visionai.utils.alert_email import (
     normalize_stream_alert_emails,
     normalize_stream_alert_email_enabled,
 )
+from visionai.utils.alert_webhook import (
+    normalize_stream_alert_webhook_enabled,
+    normalize_stream_webhook_urls,
+)
 from visionai.config.settings import SAVE_DIR
 from visionai.config.detection_catalog import normalize_detections
 from visionai.web.app import app
@@ -125,6 +129,12 @@ def run_video_processing(stream_info):
                 )
                 detector.alert_email_enabled = normalize_stream_alert_email_enabled(
                     latest.get("alert_email_enabled")
+                )
+                detector.alert_webhook_urls = normalize_stream_webhook_urls(
+                    latest.get("alert_webhook_urls")
+                )
+                detector.alert_webhook_enabled = normalize_stream_alert_webhook_enabled(
+                    latest.get("alert_webhook_enabled")
                 )
                 # 执行检测
                 results = detector.detect(frame)

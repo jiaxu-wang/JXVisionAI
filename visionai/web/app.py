@@ -45,6 +45,10 @@ from visionai.utils.alert_email import (
     normalize_stream_alert_email_enabled,
     smtp_is_configured,
 )
+from visionai.utils.alert_webhook import (
+    normalize_stream_alert_webhook_enabled,
+    normalize_stream_webhook_urls,
+)
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.config.detection_catalog import catalog_items_for_api, normalize_detections
 from visionai.core import stream_sync
@@ -149,6 +153,12 @@ def get_streams():
         stream_copy['alert_email_enabled'] = normalize_stream_alert_email_enabled(
             stream_copy.get('alert_email_enabled')
         )
+        stream_copy['alert_webhook_urls'] = normalize_stream_webhook_urls(
+            stream_copy.get('alert_webhook_urls')
+        )
+        stream_copy['alert_webhook_enabled'] = normalize_stream_alert_webhook_enabled(
+            stream_copy.get('alert_webhook_enabled')
+        )
         # 添加状态信息
         if stream_status_lock:
             with stream_status_lock:
@@ -199,6 +209,12 @@ def save_streams():
             stream['alert_emails'] = normalize_stream_alert_emails(stream.get('alert_emails'))
             stream['alert_email_enabled'] = normalize_stream_alert_email_enabled(
                 stream.get('alert_email_enabled')
+            )
+            stream['alert_webhook_urls'] = normalize_stream_webhook_urls(
+                stream.get('alert_webhook_urls')
+            )
+            stream['alert_webhook_enabled'] = normalize_stream_alert_webhook_enabled(
+                stream.get('alert_webhook_enabled')
             )
         
         # 保存到Redis

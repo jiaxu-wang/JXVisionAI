@@ -39,6 +39,7 @@ from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
 from visionai.utils.alert_email import notify_alert_by_email
+from visionai.utils.alert_webhook import notify_alert_by_webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,8 @@ class Detector:
         self._behavior_state: dict = {}
         self.alert_emails: List[str] = []
         self.alert_email_enabled: bool = True
+        self.alert_webhook_urls: List[str] = []
+        self.alert_webhook_enabled: bool = False
         self._load_model()
 
     def _load_model(self):
@@ -499,6 +502,18 @@ class Detector:
                     recipients=self.alert_emails,
                     detection_types=detection_types,
                     image_path=img_for_mail,
+                    timestamp=now,
+                )
+            if rec_id and self.alert_webhook_enabled and self.alert_webhook_urls:
+                notify_alert_by_webhooks(
+                    stream_name=self.stream_name,
+                    stream_id=(self.stream_id or "").strip() or None,
+                    webhook_urls=self.alert_webhook_urls,
+                    detection_types=detection_types,
+                    image_path=path_for_redis or None,
+                    object_key=object_key,
+                    storage_kind=storage_kind,
+                    detection_id=rec_id,
                     timestamp=now,
                 )
             return True

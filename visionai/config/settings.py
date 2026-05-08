@@ -173,6 +173,7 @@ PREVIEW_WEBRTC_STUN_URLS = _cfg_str(
 ).strip()
 
 # 告警外发邮件（全局 SMTP；每路收件人与是否发信在 Redis：alert_emails、alert_email_enabled）
+# Webhook：每路 alert_webhook_urls、alert_webhook_enabled（仅 Redis，见 visionai/utils/alert_webhook.py）
 SMTP_ALERT_ENABLED = _cfg_bool("SMTP_ALERT_ENABLED", True)
 SMTP_HOST = _cfg_str("SMTP_HOST", "").strip()
 SMTP_PORT = max(1, min(65535, _cfg_int("SMTP_PORT", 587)))
