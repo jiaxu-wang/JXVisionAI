@@ -37,3 +37,6 @@ training_system/runs/
 training_system/outputs/
 training_system/*.jpg
 training_system/**/*.cache
+
+# Web 训练实验室：截图与标注、训练作业（本地数据不入库）
+training_lab_data/

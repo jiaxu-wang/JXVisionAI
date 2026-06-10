@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # 与 ultralytics/cfg/datasets/coco.yaml 一致
 COCO_NAMES: Dict[int, str] = {
@@ -190,14 +190,122 @@ CALL_KEY = "call"
 PHONE_PLAY_KEY = "phone_play"
 GATHER_KEY = "gather"
 SMOKE_KEY = "smoking"
+FACE_KEY = "face"
+FALL_KEY = "fall"
+FLAME_KEY = "flame"
+LICENSE_PLATE_KEY = "license_plate"
+MASK_KEY = "mask"
+REFLECTIVE_VEST_KEY = "reflective_vest"
+ROAD_WATERLOGGING_KEY = "road_waterlogging"
+SAFETY_HELMET_KEY = "safety_helmet"
+SLEEPING_KEY = "sleeping"
+
+EXTENSION_KEYS: Tuple[str, ...] = (
+    CALL_KEY,
+    PHONE_PLAY_KEY,
+    GATHER_KEY,
+    SMOKE_KEY,
+    FACE_KEY,
+    FALL_KEY,
+    FLAME_KEY,
+    LICENSE_PLATE_KEY,
+    MASK_KEY,
+    REFLECTIVE_VEST_KEY,
+    ROAD_WATERLOGGING_KEY,
+    SAFETY_HELMET_KEY,
+    SLEEPING_KEY,
+)
+
+EXTENSION_LABELS_ZH: Dict[str, str] = {
+    CALL_KEY: "打电话",
+    PHONE_PLAY_KEY: "玩手机",
+    GATHER_KEY: "人员聚集",
+    SMOKE_KEY: "吸烟",
+    FACE_KEY: "人脸",
+    FALL_KEY: "跌倒",
+    FLAME_KEY: "火焰",
+    LICENSE_PLATE_KEY: "车牌",
+    MASK_KEY: "未戴口罩",
+    REFLECTIVE_VEST_KEY: "未穿反光衣",
+    ROAD_WATERLOGGING_KEY: "道路积水",
+    SAFETY_HELMET_KEY: "未戴安全帽",
+    SLEEPING_KEY: "睡觉",
+}
+
+EXTENSION_CATALOG_META: List[Dict[str, str]] = [
+    {
+        "key": CALL_KEY,
+        "name_en": "calling (make_call.onnx dedicated detector)",
+        "name_zh": "打电话（make_call.onnx）",
+    },
+    {
+        "key": PHONE_PLAY_KEY,
+        "name_en": "playing with phone (YOLO+COCO overlap + pose)",
+        "name_zh": EXTENSION_LABELS_ZH[PHONE_PLAY_KEY],
+    },
+    {
+        "key": GATHER_KEY,
+        "name_en": "crowd gathering (min persons in frame)",
+        "name_zh": EXTENSION_LABELS_ZH[GATHER_KEY],
+    },
+    {
+        "key": SMOKE_KEY,
+        "name_en": "smoking (smoking_detection.pt dedicated detector)",
+        "name_zh": "吸烟（smoking_detection.pt）",
+    },
+    {"key": FACE_KEY, "name_en": "face detection", "name_zh": EXTENSION_LABELS_ZH[FACE_KEY]},
+    {"key": FALL_KEY, "name_en": "fall detection", "name_zh": EXTENSION_LABELS_ZH[FALL_KEY]},
+    {"key": FLAME_KEY, "name_en": "fire and smoke", "name_zh": EXTENSION_LABELS_ZH[FLAME_KEY]},
+    {
+        "key": LICENSE_PLATE_KEY,
+        "name_en": "license plate detection",
+        "name_zh": EXTENSION_LABELS_ZH[LICENSE_PLATE_KEY],
+    },
+    {
+        "key": MASK_KEY,
+        "name_en": "face without mask",
+        "name_zh": EXTENSION_LABELS_ZH[MASK_KEY],
+    },
+    {
+        "key": REFLECTIVE_VEST_KEY,
+        "name_en": "person without reflective vest",
+        "name_zh": EXTENSION_LABELS_ZH[REFLECTIVE_VEST_KEY],
+    },
+    {
+        "key": ROAD_WATERLOGGING_KEY,
+        "name_en": "road waterlogging / puddle",
+        "name_zh": EXTENSION_LABELS_ZH[ROAD_WATERLOGGING_KEY],
+    },
+    {
+        "key": SAFETY_HELMET_KEY,
+        "name_en": "person without safety helmet",
+        "name_zh": EXTENSION_LABELS_ZH[SAFETY_HELMET_KEY],
+    },
+    {"key": SLEEPING_KEY, "name_en": "sleeping", "name_zh": EXTENSION_LABELS_ZH[SLEEPING_KEY]},
+]
+
+PERSON_BEHAVIOR_KEYS: Tuple[str, ...] = (
+    CALL_KEY,
+    SMOKE_KEY,
+    FALL_KEY,
+    MASK_KEY,
+    REFLECTIVE_VEST_KEY,
+    SAFETY_HELMET_KEY,
+    SLEEPING_KEY,
+)
+
+SCENE_BEHAVIOR_KEYS: Tuple[str, ...] = (
+    FACE_KEY,
+    FLAME_KEY,
+    LICENSE_PLATE_KEY,
+    ROAD_WATERLOGGING_KEY,
+)
 
 
 def default_detections_dict() -> Dict[str, bool]:
     d = {str(i): False for i in range(NUM_COCO_CLASSES)}
-    d[CALL_KEY] = False
-    d[PHONE_PLAY_KEY] = False
-    d[GATHER_KEY] = False
-    d[SMOKE_KEY] = False
+    for key in EXTENSION_KEYS:
+        d[key] = False
     return d
 
 
@@ -210,14 +318,8 @@ def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
         if v is None:
             continue
         key = str(k)
-        if key == CALL_KEY:
-            out[CALL_KEY] = bool(v)
-        elif key == PHONE_PLAY_KEY:
-            out[PHONE_PLAY_KEY] = bool(v)
-        elif key == GATHER_KEY:
-            out[GATHER_KEY] = bool(v)
-        elif key == SMOKE_KEY:
-            out[SMOKE_KEY] = bool(v)
+        if key in EXTENSION_KEYS:
+            out[key] = bool(v)
         elif key in out and key.isdigit():
             out[key] = bool(v)
         elif key in _LEGACY_DETECTION_KEY_TO_CLASS_ID:
@@ -226,6 +328,10 @@ def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
         elif key.isdigit() and 0 <= int(key) < NUM_COCO_CLASSES:
             out[key] = bool(v)
     return out
+
+
+def label_zh_for_extension(key: str) -> str:
+    return EXTENSION_LABELS_ZH.get(key, key)
 
 
 def catalog_items_for_api() -> List[Dict[str, Any]]:
@@ -240,42 +346,16 @@ def catalog_items_for_api() -> List[Dict[str, Any]]:
                 "supported": True,
             }
         )
-    items.append(
-        {
-            "key": CALL_KEY,
-            "class_id": None,
-            "name_en": "calling (YOLO+COCO overlap + pose: phone near ear/head)",
-            "name_zh": "打电话",
-            "supported": True,
-        }
-    )
-    items.append(
-        {
-            "key": PHONE_PLAY_KEY,
-            "class_id": None,
-            "name_en": "playing with phone (same overlap + pose: hands/in front)",
-            "name_zh": "玩手机",
-            "supported": True,
-        }
-    )
-    items.append(
-        {
-            "key": GATHER_KEY,
-            "class_id": None,
-            "name_en": "crowd gathering (min persons in frame)",
-            "name_zh": "人员聚集",
-            "supported": True,
-        }
-    )
-    items.append(
-        {
-            "key": SMOKE_KEY,
-            "class_id": None,
-            "name_en": "smoking (person crop + ONNX classifier)",
-            "name_zh": "吸烟",
-            "supported": True,
-        }
-    )
+    for meta in EXTENSION_CATALOG_META:
+        items.append(
+            {
+                "key": meta["key"],
+                "class_id": None,
+                "name_en": meta["name_en"],
+                "name_zh": meta["name_zh"],
+                "supported": True,
+            }
+        )
     return items
 
 

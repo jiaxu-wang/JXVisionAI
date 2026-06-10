@@ -15,17 +15,25 @@ from ultralytics import YOLO
 from visionai.config.detection_catalog import (
     CALL_KEY,
     COCO_NAMES,
+    EXTENSION_KEYS,
     GATHER_KEY,
     NUM_COCO_CLASSES,
+    PERSON_BEHAVIOR_KEYS,
     PHONE_PLAY_KEY,
+    SCENE_BEHAVIOR_KEYS,
     SMOKE_KEY,
     normalize_detections,
     label_zh_for_class,
+    label_zh_for_extension,
 )
 from visionai.config.settings import (
     CONF_THRESHOLD,
     GATHER_MIN_DURATION_SEC,
     GATHER_MIN_PERSONS,
+    MAKE_CALL_MODEL_PATH,
+    MAKE_CALL_REQUIRE_PERSON_OVERLAP,
+    MAKE_CALL_USE_DEDICATED,
+    SMOKING_REQUIRE_PERSON_OVERLAP,
     OBJECT_STORAGE_KEEP_LOCAL,
     POSE_FOR_PHONE_ENABLED,
     SAVE_DIR,
@@ -40,6 +48,7 @@ from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
 from visionai.utils.alert_email import notify_alert_by_email
 from visionai.utils.alert_webhook import notify_alert_by_webhooks
+from visionai.utils.frame_draw import draw_labeled_box, put_text
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +65,21 @@ def _bgr_for_class(class_id: int):
 def _center_xyxy(box: tuple[int, int, int, int]) -> tuple[float, float]:
     x1, y1, x2, y2 = box
     return (x1 + x2) * 0.5, (y1 + y2) * 0.5
+
+
+_BEHAVIOR_COLORS = {
+    CALL_KEY: (0, 0, 255),
+    SMOKE_KEY: (60, 180, 255),
+    "fall": (0, 140, 255),
+    "mask": (180, 80, 255),
+    "reflective_vest": (0, 200, 200),
+    "safety_helmet": (0, 215, 255),
+    "sleeping": (200, 160, 60),
+    "face": (80, 200, 255),
+    "flame": (0, 80, 255),
+    "license_plate": (255, 180, 0),
+    "road_waterlogging": (255, 120, 0),
+}
 
 
 def _boxes_overlap_xyxy(box_a, box_b) -> bool:
@@ -140,11 +164,33 @@ class Detector:
         phone_play_on = self.detections.get(PHONE_PLAY_KEY, False)
         gather_on = self.detections.get(GATHER_KEY, False)
         smoke_on = self.detections.get(SMOKE_KEY, False)
-        collect_person = (
-            alarm_person or call_on or gather_on or smoke_on or phone_play_on
+        person_behavior_on = any(self.detections.get(k, False) for k in PERSON_BEHAVIOR_KEYS)
+        scene_behavior_on = any(self.detections.get(k, False) for k in SCENE_BEHAVIOR_KEYS)
+        use_dedicated_call = (
+            call_on
+            and MAKE_CALL_USE_DEDICATED
+            and bool((MAKE_CALL_MODEL_PATH or "").strip())
         )
-        collect_phone = alarm_phone or call_on or phone_play_on
-        behavior_src = frame.copy() if smoke_on else None
+        need_coco_for_call = call_on and (
+            not use_dedicated_call or MAKE_CALL_REQUIRE_PERSON_OVERLAP
+        )
+        need_coco_for_smoke = smoke_on and SMOKING_REQUIRE_PERSON_OVERLAP
+        other_person_behaviors = any(
+            self.detections.get(k, False)
+            for k in PERSON_BEHAVIOR_KEYS
+            if k not in (CALL_KEY, SMOKE_KEY)
+        )
+        collect_person = (
+            alarm_person
+            or gather_on
+            or phone_play_on
+            or need_coco_for_call
+            or need_coco_for_smoke
+            or other_person_behaviors
+        )
+        collect_phone = alarm_phone or (call_on and not use_dedicated_call) or phone_play_on
+        behavior_needed = smoke_on or person_behavior_on or scene_behavior_on
+        behavior_src = frame.copy() if behavior_needed else None
 
         for result in results:
             if result.boxes is None:
@@ -191,7 +237,7 @@ class Detector:
         persons_in_play: set[int] = set()
         phones_in_play: set[int] = set()
 
-        if (call_on or phone_play_on) and persons and cell_phones:
+        if (phone_play_on or (call_on and not use_dedicated_call)) and persons and cell_phones:
             raw_pairs = []
             for pi, person in enumerate(persons):
                 pb = person["box"]
@@ -245,7 +291,7 @@ class Detector:
             self._gather_since = None
 
         behaviors_out: dict = {}
-        if behavior_src is not None and smoke_on:
+        if behavior_src is not None:
             ctx = BehaviorContext(
                 frame_source=behavior_src,
                 persons=persons,
@@ -255,20 +301,75 @@ class Detector:
             )
             behaviors_out = run_behaviors(ctx, self._behavior_state, self.detections)
 
+        call_result = behaviors_out.get(CALL_KEY, {})
+        if use_dedicated_call and call_result.get("alert"):
+            if call_result.get("standalone"):
+                for eb in call_result.get("event_boxes") or []:
+                    calls.append(
+                        {
+                            "person": None,
+                            "phone": eb,
+                            "person_idx": -1,
+                            "phone_idx": -1,
+                            "confidence": float(eb.get("confidence", 0.0)),
+                        }
+                    )
+            else:
+                for pi in call_result.get("person_indices") or []:
+                    pi = int(pi)
+                    if pi < 0 or pi >= len(persons):
+                        continue
+                    persons_in_call.add(pi)
+                    sc = float(call_result.get("scores", {}).get(str(pi), 0.0))
+                    calls.append(
+                        {
+                            "person": persons[pi],
+                            "phone": None,
+                            "person_idx": pi,
+                            "phone_idx": -1,
+                            "confidence": sc,
+                        }
+                    )
+
         smoke_result = behaviors_out.get(SMOKE_KEY, {})
         smoking_alert = bool(smoke_result.get("alert"))
-        smoking_indices = set(smoke_result.get("person_indices", []))
+        smoking_indices = (
+            set()
+            if smoke_result.get("standalone")
+            else set(smoke_result.get("person_indices", []))
+        )
+        person_behavior_alerts: dict[str, set[int]] = {}
+        for bk in PERSON_BEHAVIOR_KEYS:
+            if bk == SMOKE_KEY:
+                continue
+            if bk == CALL_KEY and not use_dedicated_call:
+                continue
+            if not self.detections.get(bk, False):
+                continue
+            br = behaviors_out.get(bk, {})
+            if br.get("alert"):
+                person_behavior_alerts[bk] = set(int(i) for i in br.get("person_indices") or [])
 
         gather_cluster_set = set(gather_cluster_indices)
 
+        def _person_should_draw(idx: int) -> bool:
+            if alarm_person:
+                return True
+            if call_on and idx in persons_in_call:
+                return True
+            if phone_play_on and idx in persons_in_play:
+                return True
+            if gather_on and gathering_alert and idx in gather_cluster_set:
+                return True
+            if smoke_on and smoking_alert and idx in smoking_indices:
+                return True
+            for bk, pset in person_behavior_alerts.items():
+                if idx in pset:
+                    return True
+            return False
+
         for i, person in enumerate(persons):
-            if not (
-                alarm_person
-                or (call_on and i in persons_in_call)
-                or (phone_play_on and i in persons_in_play)
-                or (gather_on and gathering_alert and i in gather_cluster_set)
-                or (smoke_on and smoking_alert and i in smoking_indices)
-            ):
+            if not _person_should_draw(i):
                 continue
             x1, y1, x2, y2 = person["box"]
             conf = person["confidence"]
@@ -331,8 +432,8 @@ class Detector:
                 2,
             )
 
-        if smoking_alert and smoke_on and smoking_indices:
-            color_smoke = (60, 180, 255)
+        if smoking_alert and smoke_on:
+            color_smoke = _BEHAVIOR_COLORS[SMOKE_KEY]
             for si in smoking_indices:
                 if si < 0 or si >= len(persons):
                     continue
@@ -347,6 +448,79 @@ class Detector:
                     color_smoke,
                     2,
                 )
+            ev_boxes = smoke_result.get("event_boxes") or smoke_result.get("smoking_boxes") or []
+            for sb in ev_boxes:
+                nm = str(sb.get("name") or "smoking")
+                sconf = float(sb.get("confidence", 0.0))
+                label = (
+                    f"{label_zh_for_extension(SMOKE_KEY)}: {sconf:.2f}"
+                    if smoke_result.get("standalone")
+                    else f"{nm}: {sconf:.2f}"
+                )
+                draw_labeled_box(frame, sb.get("box"), label, color_smoke)
+
+        if use_dedicated_call and call_on and call_result.get("alert"):
+            color_call = _BEHAVIOR_COLORS[CALL_KEY]
+            for pi in call_result.get("person_indices") or []:
+                pi = int(pi)
+                if pi < 0 or pi >= len(persons):
+                    continue
+                pb = persons[pi]["box"]
+                sc = float(call_result.get("scores", {}).get(str(pi), 0.0))
+                cv2.putText(
+                    frame,
+                    f"CALLING: {sc:.2f}",
+                    (pb[0], pb[1] - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    color_call,
+                    2,
+                )
+            for eb in call_result.get("event_boxes") or []:
+                nm = str(eb.get("name") or "phone")
+                sconf = float(eb.get("confidence", 0.0))
+                label = (
+                    f"{label_zh_for_extension(CALL_KEY)}: {sconf:.2f}"
+                    if call_result.get("standalone")
+                    else f"{nm}: {sconf:.2f}"
+                )
+                draw_labeled_box(frame, eb.get("box"), label, color_call)
+
+        for bk, pset in person_behavior_alerts.items():
+            if bk == CALL_KEY:
+                continue
+            br = behaviors_out.get(bk, {})
+            color = _BEHAVIOR_COLORS.get(bk, (200, 200, 0))
+            tag = label_zh_for_extension(bk)
+            for pi in pset:
+                if pi < 0 or pi >= len(persons):
+                    continue
+                pb = persons[pi]["box"]
+                sc = float(br.get("scores", {}).get(str(pi), 0.0))
+                put_text(
+                    frame,
+                    f"{tag}: {sc:.2f}",
+                    (pb[0], pb[1] - 20),
+                    color,
+                    font_scale=0.6,
+                )
+            for eb in br.get("event_boxes") or []:
+                nm = str(eb.get("name") or bk)
+                sconf = float(eb.get("confidence", 0.0))
+                draw_labeled_box(frame, eb.get("box"), f"{nm}: {sconf:.2f}", color)
+
+        for sk in SCENE_BEHAVIOR_KEYS:
+            if not self.detections.get(sk, False):
+                continue
+            sr = behaviors_out.get(sk, {})
+            if not sr.get("alert"):
+                continue
+            color = _BEHAVIOR_COLORS.get(sk, (180, 180, 0))
+            tag = label_zh_for_extension(sk)
+            for bx in sr.get("boxes") or []:
+                nm = str(bx.get("name") or tag)
+                sconf = float(bx.get("confidence", 0.0))
+                draw_labeled_box(frame, bx.get("box"), f"{nm}: {sconf:.2f}", color)
 
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
@@ -408,7 +582,8 @@ class Detector:
 
         if self.detections.get(CALL_KEY, False) and detections.get("calls"):
             should_save = True
-            info.append(f"打电话: {len(detections['calls'])}")
+            n_call = len(detections["calls"])
+            info.append(f"打电话: {n_call}")
             detection_types.append("打电话")
 
         if self.detections.get(PHONE_PLAY_KEY, False) and detections.get("phone_play"):
@@ -422,16 +597,35 @@ class Detector:
             info.append(f"人员聚集: {n_g}")
             detection_types.append("人员聚集")
 
-        if self.detections.get(SMOKE_KEY, False) and detections.get("behaviors", {}).get(
-            SMOKE_KEY, {}
-        ).get("alert"):
+        behaviors_saved = detections.get("behaviors", {}) or {}
+        smoke_saved = behaviors_saved.get(SMOKE_KEY, {})
+        if self.detections.get(SMOKE_KEY, False) and smoke_saved.get("alert"):
             should_save = True
-            n_s = len(
-                detections.get("behaviors", {}).get(SMOKE_KEY, {}).get("person_indices")
-                or []
-            )
+            if smoke_saved.get("standalone"):
+                n_s = len(smoke_saved.get("event_boxes") or [])
+            else:
+                n_s = len(smoke_saved.get("person_indices") or [])
             info.append(f"吸烟: {n_s}")
             detection_types.append("吸烟")
+
+        for ek in EXTENSION_KEYS:
+            if ek in (SMOKE_KEY,):
+                continue
+            if not self.detections.get(ek, False):
+                continue
+            br = behaviors_saved.get(ek, {})
+            if not br.get("alert"):
+                continue
+            should_save = True
+            zh = label_zh_for_extension(ek)
+            if br.get("standalone"):
+                n = len(br.get("event_boxes") or [])
+            elif ek in PERSON_BEHAVIOR_KEYS or ek == CALL_KEY:
+                n = len(br.get("person_indices") or [])
+            else:
+                n = int(br.get("count") or len(br.get("boxes") or []))
+            info.append(f"{zh}: {n}")
+            detection_types.append(zh)
 
         if not should_save:
             return False

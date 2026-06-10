@@ -895,6 +895,12 @@
                         系统设置
                     </button>
                 </li>
+                <li class="menu-item">
+                    <a href="/training" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
+                        <span class="menu-icon">🧪</span>
+                        训练实验室
+                    </a>
+                </li>
                 <li class="menu-item" style="margin-top: 40px; border-top: 1px solid #e9ecef; padding-top: 20px;">
                     <a href="javascript:void(0)" onclick="logout(); return false;">
                         <span class="menu-icon">🚪</span>
@@ -1620,8 +1626,18 @@
         let detectionCatalog = [];
         
         function defaultAllOffDetections() {
-            const d = { call: false, phone_play: false, gather: false, smoking: false };
+            const d = {};
             for (let i = 0; i < 80; i++) d[String(i)] = false;
+            if (Array.isArray(detectionCatalog)) {
+                detectionCatalog.forEach(function (it) {
+                    if (it && it.class_id === null && it.key) d[it.key] = false;
+                });
+            } else {
+                d.call = false;
+                d.phone_play = false;
+                d.gather = false;
+                d.smoking = false;
+            }
             return d;
         }
         
@@ -1632,10 +1648,14 @@
                 const k = String(i);
                 if (Object.prototype.hasOwnProperty.call(raw, k)) d[k] = !!raw[k];
             }
-            if (Object.prototype.hasOwnProperty.call(raw, 'call')) d.call = !!raw.call;
-            if (Object.prototype.hasOwnProperty.call(raw, 'phone_play')) d.phone_play = !!raw.phone_play;
-            if (Object.prototype.hasOwnProperty.call(raw, 'gather')) d.gather = !!raw.gather;
-            if (Object.prototype.hasOwnProperty.call(raw, 'smoking')) d.smoking = !!raw.smoking;
+            if (Array.isArray(detectionCatalog)) {
+                detectionCatalog.forEach(function (it) {
+                    if (!it || it.class_id !== null || !it.key) return;
+                    if (Object.prototype.hasOwnProperty.call(raw, it.key)) {
+                        d[it.key] = !!raw[it.key];
+                    }
+                });
+            }
             return d;
         }
         

@@ -45,6 +45,7 @@ docker compose up -d --build
 | 吸烟 | 人体裁剪 + ONNX；可选香烟 YOLO 门控减轻误报（见「检测与模型」） |
 | 告警 | 写 Redis 后按 `save_interval` 触发 **SMTP**（全局 `SMTP_*`，每路 `alert_emails` / `alert_email_enabled`）与 **Webhook**（`alert_webhook_urls`，实现见 `visionai/utils/alert_webhook.py`） |
 | Web | 状态概览、事件监控（流/检测项/告警配置 → Redis）、历史告警、流预览 |
+| 训练实验室（MVP） | **`/training`**：RTSP 截帧 → YOLO 画框标注 → Web 训练；**验证**：上传图或 RTSP 单次/循环（默认 5s）推理、`best.pt` 可选下拉；日志含检测 JSON 与带框快照（数据在 `training_lab_data/`，已忽略） |
 
 流配置只在 **Redis** 里维护（Web「事件监控」），不再使用 `settings.py` 硬编码列表。保存检测项与告警后一般**下一轮检测即可生效**，大改可先 **重启进程**。
 
@@ -72,6 +73,7 @@ VisionAI/
 ├── config/                      # config.example.ini → config.ini
 ├── scripts/
 ├── training_system/
+├── training_lab_data/           # Web 训练实验室数据（本地，不入库）
 ├── snapshots/   logs/
 ├── Dockerfile   docker-compose.yaml
 └── start.sh     stop.sh
@@ -132,7 +134,8 @@ S3 兼容：`OBJECT_STORAGE_ENABLED`、`S3_*`、`S3_PATH_PREFIX`。`OBJECT_STORA
 **流与记录**：`GET/POST /api/streams`、`GET /api/stream-status`、`GET /api/detection-catalog`、`GET /api/detections`（支持时间/流/类型/分页）、`DELETE /api/detections/<id>`、`DELETE /api/detections/batch`。  
 **告警与图**：`GET /snapshots/<path>`、`GET /api/alert-image/<id>`、`GET /api/stats/alerts-today`。  
 **运维**：`POST /api/restart`（依赖本机 `start.sh`/`env` 布局；Docker 请自行重启容器）、`GET /api/config`（含预览与 `smtp.ready`）。  
-**预览**：`GET /api/preview?stream_id=`（MJPEG）、`WS /ws/preview`、`POST /api/preview-webrtc/*`、`POST /api/preview-hls/*`、`GET /api/preview-hls/data/...`。
+**预览**：`GET /api/preview?stream_id=`（MJPEG）、`WS /ws/preview`、`POST /api/preview-webrtc/*`、`POST /api/preview-hls/*`、`GET /api/preview-hls/data/...`。  
+**训练实验室**：`GET /training`；`GET/DELETE /api/training/projects`；`GET .../weights`；`POST .../validate/{upload,run-once,start,stop}`；`GET .../validate/{logs,status,snap/…}`；以及截帧、标注、训练、任务日志等 API。
 
 ---
 
@@ -157,4 +160,5 @@ S3 兼容：`OBJECT_STORAGE_ENABLED`、`S3_*`、`S3_PATH_PREFIX`。`OBJECT_STORA
 ## 路线图（节选）
 
 - [x] 多路流、Web、Redis、历史告警、COCO 按流、Compose、预览多模式、吸烟、邮件、Webhook  
-- [ ] 更多业务类别（安全帽等需自训类别表）、生产 **TURN**、系统设置页扩展
+- [x] Web 训练实验室 MVP（`/training`：RTSP 截帧 + 标注 + 触发训练 + 下载权重）  
+- [ ] 更多业务类别（安全帽等需自训类别表）、上传图片/视频标注、生产 **TURN**、系统设置页扩展

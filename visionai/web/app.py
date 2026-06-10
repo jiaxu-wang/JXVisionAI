@@ -741,5 +741,10 @@ def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
 
+
+from visionai.web.training_routes import init_training_lab  # noqa: E402
+
+init_training_lab(app)
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

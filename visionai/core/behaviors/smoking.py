@@ -1,4 +1,4 @@
-"""吸烟：person 裁剪 + ONNX 二分类；状态在 registry 传入的 state dict 中维护。"""
+"""吸烟：YOLO 专模直连 或 person 裁剪 + ONNX 二分类。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ from visionai.config.settings import (
     SMOKING_PERSON_PAD_RATIO,
     SMOKING_POSITIVE_CLASS_INDEX,
     SMOKING_PREPROCESS,
+    SMOKING_REQUIRE_PERSON_OVERLAP,
+    SMOKING_YOLO_DIRECT,
+)
+from visionai.core.behaviors.common import (
+    apply_duration_alert,
+    apply_keyed_duration_alert,
+    overlap_boxes_for_persons,
+    top_persons,
 )
 from visionai.core.behaviors.context import BehaviorContext
 from visionai.core.behaviors import onnx_person_clf as ort_clf
@@ -48,18 +56,129 @@ def _crop_person_bgr(
 class SmokingBehaviorPlugin:
     key = SMOKE_KEY
 
-    def evaluate(self, ctx: BehaviorContext, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _evaluate_yolo_direct(
+        self, ctx: BehaviorContext, state: Dict[str, Any]
+    ) -> Dict[str, Any]:
         out: Dict[str, Any] = {
             "alert": False,
             "person_indices": [],
             "scores": {},
+            "smoking_boxes": [],
+            "event_boxes": [],
+            "standalone": not SMOKING_REQUIRE_PERSON_OVERLAP,
+            "alert_keys": [],
+        }
+        alerting_keys: List[str] = []
+        alerting: List[int] = []
+        if not cig_gate.gate_enabled():
+            if not state.get("_warned_yolo_direct_no_path"):
+                logger.warning(
+                    "[%s] smoking_yolo_direct=true 但未配置 smoking_cigarette_detector_path",
+                    ctx.stream_name,
+                )
+                state["_warned_yolo_direct_no_path"] = True
+            return out
+        if cig_gate.ensure_model() is None:
+            return out
+
+        smoking_boxes = cig_gate.infer_cigarette_boxes(ctx.frame_source)
+        scores: Dict[str, float] = {}
+        if SMOKING_REQUIRE_PERSON_OVERLAP:
+            indexed = top_persons(ctx.persons, SMOKING_MAX_PERSONS_PER_FRAME)
+            for pi, person in indexed:
+                box = tuple(int(x) for x in person["box"][:4])
+                sc = cig_gate.best_overlap_conf(box, smoking_boxes)
+                if sc > 0:
+                    scores[str(pi)] = round(sc, 4)
+            alerting, alert = apply_duration_alert(
+                indexed,
+                scores,
+                state,
+                ctx.now,
+                score_threshold=SMOKING_CONF_THRESHOLD,
+                min_duration_sec=SMOKING_MIN_DURATION_SEC,
+            )
+            out["person_indices"] = alerting
+            out["standalone"] = False
+            if alert:
+                ev = overlap_boxes_for_persons(indexed, alerting, smoking_boxes)
+                out["smoking_boxes"] = ev
+                out["event_boxes"] = ev
+        else:
+            indexed = []
+            for i, d in enumerate(smoking_boxes):
+                scores[str(i)] = round(float(d.get("confidence", 0.0)), 4)
+            alerting_keys, alert = apply_keyed_duration_alert(
+                scores,
+                state,
+                ctx.now,
+                score_threshold=SMOKING_CONF_THRESHOLD,
+                min_duration_sec=SMOKING_MIN_DURATION_SEC,
+            )
+            out["person_indices"] = []
+            out["standalone"] = True
+            out["alert_keys"] = alerting_keys
+            if alert:
+                want = set(alerting_keys)
+                ev = [
+                    {
+                        "box": d["box"],
+                        "confidence": d["confidence"],
+                        "name": d.get("name", "smoking"),
+                        "class_id": d.get("class_id"),
+                    }
+                    for i, d in enumerate(smoking_boxes)
+                    if str(i) in want
+                ]
+                out["smoking_boxes"] = ev
+                out["event_boxes"] = ev
+
+        out["scores"] = scores
+        out["alert"] = alert
+
+        if SMOKING_LOG_SCORES:
+            if not scores:
+                logger.info(
+                    "[%s] 吸烟 YOLO 直连: 本帧 smoking 框 %d 个%s",
+                    ctx.stream_name,
+                    len(smoking_boxes),
+                    "，与人物均无重叠" if SMOKING_REQUIRE_PERSON_OVERLAP else "，未达阈值",
+                )
+            else:
+                prefix = "pid" if SMOKING_REQUIRE_PERSON_OVERLAP else "evt"
+                parts = [
+                    f"{prefix}{k}={scores[k]:.4f}"
+                    for k in sorted(scores.keys(), key=lambda x: int(x))
+                ]
+                hits = alerting if SMOKING_REQUIRE_PERSON_OVERLAP else alerting_keys
+                logger.info(
+                    "[%s] 吸烟 YOLO 直连 thr=%.3f dur>=%.2fs | %s | alert=%s hits=%s | n_smoking=%d",
+                    ctx.stream_name,
+                    SMOKING_CONF_THRESHOLD,
+                    SMOKING_MIN_DURATION_SEC,
+                    ", ".join(parts),
+                    alert,
+                    hits,
+                    len(smoking_boxes),
+                )
+        return out
+
+    def _evaluate_onnx(
+        self, ctx: BehaviorContext, state: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            "alert": False,
+            "person_indices": [],
+            "scores": {},
+            "smoking_boxes": [],
+            "event_boxes": [],
         }
         path = (SMOKING_MODEL_PATH or "").strip()
         if not path:
             if not state.get("_warned_no_path"):
                 logger.warning(
-                    "[%s] 吸烟检测已开启但未配置 smoking_model_path（或环境变量 SMOKING_MODEL_PATH），"
-                    "不会运行 ONNX 推理；请在 config.ini 的 [visionai] 中设置有效的 .onnx 路径后重启",
+                    "[%s] 吸烟检测已开启但未配置 smoking_model_path；"
+                    "可配置 smoking_yolo_direct=true + smoking_cigarette_detector_path 使用专训 YOLO",
                     ctx.stream_name,
                 )
                 state["_warned_no_path"] = True
@@ -67,7 +186,7 @@ class SmokingBehaviorPlugin:
         if not ort_clf.ort_available():
             if not state.get("_warned_no_ort"):
                 logger.warning(
-                    "[%s] 未安装 onnxruntime，吸烟检测不可用：请使用 ./env/bin/pip install onnxruntime",
+                    "[%s] 未安装 onnxruntime，吸烟检测不可用",
                     ctx.stream_name,
                 )
                 state["_warned_no_ort"] = True
@@ -75,7 +194,7 @@ class SmokingBehaviorPlugin:
         if not ort_clf.load_session(path):
             if not state.get("_warned_load_fail"):
                 logger.error(
-                    "[%s] 加载吸烟 ONNX 失败（路径不存在或格式错误）: %s",
+                    "[%s] 加载吸烟 ONNX 失败: %s",
                     ctx.stream_name,
                     path,
                 )
@@ -83,11 +202,7 @@ class SmokingBehaviorPlugin:
             return out
 
         h0, w0 = ort_clf.get_resolved_input_hw(SMOKING_INPUT_SIZE)
-
-        persons = ctx.persons
-        indexed: List[Tuple[int, Dict[str, Any]]] = list(enumerate(persons))
-        indexed.sort(key=lambda t: float(t[1].get("confidence", 0.0)), reverse=True)
-        indexed = indexed[: max(1, SMOKING_MAX_PERSONS_PER_FRAME)]
+        indexed = top_persons(ctx.persons, SMOKING_MAX_PERSONS_PER_FRAME)
 
         cigarette_boxes: Optional[List[Dict[str, Any]]] = None
         if cig_gate.gate_enabled() and cig_gate.ensure_model() is not None:
@@ -124,68 +239,31 @@ class SmokingBehaviorPlugin:
             prob = ort_clf.positive_prob_from_logits(outs[0], SMOKING_POSITIVE_CLASS_INDEX)
             scores[str(pi)] = round(prob, 4)
 
+        alerting, alert = apply_duration_alert(
+            indexed,
+            scores,
+            state,
+            ctx.now,
+            score_threshold=SMOKING_CONF_THRESHOLD,
+            min_duration_sec=SMOKING_MIN_DURATION_SEC,
+        )
         out["scores"] = scores
-        since_map: Dict[str, float] = state.setdefault("person_since", {})
-
-        alerting: List[int] = []
-        now = ctx.now
-        dur = SMOKING_MIN_DURATION_SEC
-        active_keys = set()
-        for pi, person in indexed:
-            pk = str(pi)
-            if pk not in scores:
-                if pk in since_map:
-                    del since_map[pk]
-                continue
-            active_keys.add(pk)
-            if scores[pk] < SMOKING_CONF_THRESHOLD:
-                if pk in since_map:
-                    del since_map[pk]
-                continue
-            if pk not in since_map:
-                since_map[pk] = now
-            if now - since_map[pk] >= dur:
-                alerting.append(pi)
-
-        for pk in list(since_map.keys()):
-            if pk not in active_keys:
-                del since_map[pk]
-
         out["person_indices"] = alerting
-        out["alert"] = len(alerting) > 0
+        out["alert"] = alert
+        if alert and cigarette_boxes:
+            ev = overlap_boxes_for_persons(indexed, alerting, cigarette_boxes)
+            out["smoking_boxes"] = ev
+            out["event_boxes"] = ev
 
-        if SMOKING_LOG_SCORES:
-            if not scores:
-                if cigarette_boxes is not None:
-                    logger.info(
-                        "[%s] 吸烟推理: 无分数（香烟门控：本帧 %d 个候选烟框均未与任一待检人物重叠，"
-                        "或人物裁剪过小；person=%d）",
-                        ctx.stream_name,
-                        len(cigarette_boxes),
-                        len(persons),
-                    )
-                else:
-                    logger.info(
-                        "[%s] 吸烟推理: 无分数 (YOLO person=%d，可能无人/框过小未送 ONNX)",
-                        ctx.stream_name,
-                        len(persons),
-                    )
-            else:
-                parts = [
-                    f"pid{k}={scores[k]:.4f}"
-                    for k in sorted(scores.keys(), key=lambda x: int(x))
-                ]
-                gate_info = ""
-                if cigarette_boxes is not None:
-                    gate_info = f" cigarette_gate=yes n_cig={len(cigarette_boxes)}"
-                # logger.info(
-                #     "[%s] 吸烟置信度 thr=%.3f dur>=%.2fs | %s | alert=%s pids=%s%s",
-                #     ctx.stream_name,
-                #     SMOKING_CONF_THRESHOLD,
-                #     SMOKING_MIN_DURATION_SEC,
-                #     ", ".join(parts),
-                #     out["alert"],
-                #     alerting,
-                #     gate_info,
-                # )
+        if SMOKING_LOG_SCORES and not scores and cigarette_boxes is not None:
+            logger.info(
+                "[%s] 吸烟 ONNX: 门控本帧 %d 个候选框均未与人物重叠",
+                ctx.stream_name,
+                len(cigarette_boxes),
+            )
         return out
+
+    def evaluate(self, ctx: BehaviorContext, state: Dict[str, Any]) -> Dict[str, Any]:
+        if SMOKING_YOLO_DIRECT and cig_gate.gate_enabled():
+            return self._evaluate_yolo_direct(ctx, state)
+        return self._evaluate_onnx(ctx, state)

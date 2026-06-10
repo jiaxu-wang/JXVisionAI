@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>训练实验室 · VisionAI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='training_lab.css') }}">
+</head>
+<body>
+    <header class="tl-header">
+        <div class="tl-brand">
+            <h1>训练实验室</h1>
+            <p class="tl-sub">RTSP 截帧 → 画框标注 → Web 训练 YOLOv8 → 验证推理（MVP）</p>
+        </div>
+        <div class="tl-header-actions">
+            <a href="/" class="tl-btn tl-btn-secondary">返回管理平台</a>
+            <a href="/logout" class="tl-btn tl-btn-ghost">退出</a>
+        </div>
+    </header>
+
+    <main class="tl-main">
+        <section class="tl-panel tl-projects">
+            <h2>项目</h2>
+            <button type="button" id="btn-new-project" class="tl-btn tl-btn-primary">新建项目</button>
+            <ul id="project-list" class="tl-list"></ul>
+        </section>
+
+        <section class="tl-panel tl-workspace">
+            <h2>工作区 <span id="current-project-label" class="tl-muted"></span></h2>
+
+            <div class="tl-grid">
+                <div class="tl-block">
+                    <h3>1. RTSP</h3>
+                    <select id="stream-picker" class="tl-input"><option value="">— 可选：Redis 中的流 —</option></select>
+                    <input type="text" id="rtsp-url" class="tl-input" placeholder="rtsp://user:pass@host:554/...">
+                    <div class="tl-row">
+                        <button type="button" id="btn-preview" class="tl-btn tl-btn-secondary">预览一帧</button>
+                        <button type="button" id="btn-capture" class="tl-btn tl-btn-primary" disabled>截帧到数据集</button>
+                    </div>
+                    <img id="preview-img" alt="预览" class="tl-preview" crossorigin="anonymous">
+                </div>
+
+                <div class="tl-block">
+                    <h3>2. 样本列表</h3>
+                    <p class="tl-hint">绿点表示已保存标注。点击图片进入标注画布。</p>
+                    <ul id="sample-list" class="tl-samples"></ul>
+                </div>
+            </div>
+
+            <div class="tl-block tl-annotate">
+                <h3>3. 标注 <span id="annotate-filename" class="tl-muted"></span></h3>
+                <p class="tl-hint">拖拽画矩形；选中类别后在图上拖框。双击删除框。<code>S</code> 保存标注。</p>
+                <select id="class-picker" class="tl-input tl-class-picker"></select>
+                <canvas id="anno-canvas" class="tl-canvas"></canvas>
+                <div class="tl-row">
+                    <button type="button" id="btn-save-labels" class="tl-btn tl-btn-primary">保存标注</button>
+                    <span id="label-status" class="tl-muted"></span>
+                </div>
+            </div>
+
+            <div class="tl-block">
+                <h3>4. 训练（后台子进程）</h3>
+                <div class="tl-train-fields">
+                    <label>epochs <input type="number" id="train-epochs" value="30" min="1" max="500" class="tl-input tl-num"></label>
+                    <label>batch <input type="number" id="train-batch" value="8" min="1" max="128" class="tl-input tl-num"></label>
+                    <label>imgsz <input type="number" id="train-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
+                    <label>device <input type="text" id="train-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
+                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolov8n.pt" class="tl-input"></label>
+                </div>
+                <div class="tl-row">
+                    <button type="button" id="btn-train" class="tl-btn tl-btn-primary">开始训练</button>
+                    <span id="train-status" class="tl-muted"></span>
+                </div>
+                <div id="train-job-panel" class="tl-hidden">
+                    <p>任务 <code id="job-id"></code> <span id="job-status"></span></p>
+                    <div class="tl-row">
+                        <a id="job-log-link" href="#" target="_blank" class="tl-link">查看日志</a>
+                        <a id="job-weights-link" href="#" class="tl-link tl-hidden">下载 best.pt</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tl-block tl-validate">
+                <h3>5. 验证模型</h3>
+                <p class="tl-hint">对已训练的 <code>best.pt</code> 做推理：可上传静态图，或用上方 RTSP 单次/循环（默认 5s）。日志含<strong>显示阈值内命中</strong>与<strong>低阈值候选框及每条 conf</strong>（便于排查「有框但被高阈值滤掉」）。仅 5 张图时模型往往泛化差，可先试把 conf 降到 0.2～0.35。</p>
+                <select id="val-weights" class="tl-input"><option value="">— 选择本项目已训练权重 —</option></select>
+                <input type="text" id="val-weights-manual" class="tl-input" placeholder="可选：粘贴权重绝对路径（须在本项目目录下）">
+                <div class="tl-row tl-val-radio">
+                    <label><input type="radio" name="val-src" value="upload" /> 单次：上传图片</label>
+                    <label><input type="radio" name="val-src" value="rtsp_once" checked /> 单次：当前 RTSP 截一帧</label>
+                </div>
+                <input type="file" id="val-file" class="tl-input tl-file-input" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
+                <p id="val-upload-status" class="tl-muted tl-hint"></p>
+                <div class="tl-train-fields tl-val-fields">
+                    <label>置信度 conf <input type="number" id="val-conf" value="0.25" min="0.05" max="0.95" step="0.05" class="tl-input tl-num" title="画框与「命中」用；日志会另附 conf≥0.001 的候选及分数"></label>
+                    <label>imgsz <input type="number" id="val-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
+                    <label>推理 device <input type="text" id="val-device" value="" class="tl-input tl-device-w" placeholder="空=沿用配置"></label>
+                    <label>循环间隔(s) <input type="number" id="val-interval" value="5" min="1" max="120" class="tl-input tl-num"></label>
+                </div>
+                <div class="tl-row tl-val-actions">
+                    <button type="button" id="btn-val-once" class="tl-btn tl-btn-secondary">执行单次验证</button>
+                    <button type="button" id="btn-val-start" class="tl-btn tl-btn-primary">开启 RTSP 循环验证</button>
+                    <button type="button" id="btn-val-stop" class="tl-btn tl-btn-secondary" disabled>停止循环验证</button>
+                    <button type="button" id="btn-val-logs-refresh" class="tl-btn tl-btn-secondary">刷新日志</button>
+                </div>
+                <p id="val-cycle-status" class="tl-muted"></p>
+                <div id="val-log" class="tl-val-log"></div>
+            </div>
+        </section>
+    </main>
+
+    <div id="modal-new" class="tl-modal tl-hidden">
+        <div class="tl-modal-inner">
+            <h3>新建训练项目</h3>
+            <label>标题 <input type="text" id="np-title" class="tl-input" placeholder="例如 仓库安全帽"></label>
+            <label>类别（英文或中文，逗号分隔） <input type="text" id="np-classes" class="tl-input" placeholder="person, helmet"></label>
+            <div class="tl-row tl-modal-actions">
+                <button type="button" id="np-cancel" class="tl-btn tl-btn-secondary">取消</button>
+                <button type="button" id="np-create" class="tl-btn tl-btn-primary">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='training_lab.js') }}"></script>
+</body>
+</html>

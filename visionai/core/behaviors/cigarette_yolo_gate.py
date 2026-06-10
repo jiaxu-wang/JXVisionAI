@@ -61,10 +61,7 @@ def ensure_model() -> Optional[Any]:
         _load_attempted = True
         try:
             _yolo = YOLO(path)
-            logger.info(
-                "吸烟-香烟门控：已加载 YOLO 权重 %s（人物与香烟框重叠后才做吸烟二分类）",
-                path,
-            )
+            logger.info("吸烟专模已加载: %s", path)
         except Exception as ex:  # noqa: BLE001
             if not _warned_fail:
                 _warned_fail = True
@@ -168,3 +165,25 @@ def person_has_overlapping_cigarette(
 
 def gate_enabled() -> bool:
     return bool((SMOKING_CIGARETTE_DETECTOR_PATH or "").strip())
+
+
+def best_overlap_conf(
+    person_box: Tuple[int, int, int, int],
+    detections: Sequence[Dict[str, Any]],
+    *,
+    margin_ratio: float = 0.08,
+) -> float:
+    """人物与检测框有关联时，返回关联框中的最高置信度，否则 0。"""
+    if not detections:
+        return 0.0
+    best = 0.0
+    pb = tuple(int(x) for x in person_box[:4])
+    for d in detections:
+        cb = d.get("box")
+        if not cb or len(cb) < 4:
+            continue
+        b = (int(cb[0]), int(cb[1]), int(cb[2]), int(cb[3]))
+        if _boxes_intersect_area(pb, b) <= 0 and not _cigar_center_in_person(pb, b, margin_ratio):
+            continue
+        best = max(best, float(d.get("confidence", 0.0)))
+    return best
