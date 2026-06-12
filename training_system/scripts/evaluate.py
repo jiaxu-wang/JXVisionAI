@@ -34,8 +34,14 @@ def evaluate_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.4
     print(f"mAP@0.5:0.95: {results.box.map:.4f}")
     print(f"精确率 (Precision): {results.box.mp:.4f}")
     print(f"召回率 (Recall): {results.box.mr:.4f}")
-    
-    return results
+
+    metrics = {
+        "map50": float(results.box.map50),
+        "map50_95": float(results.box.map),
+        "precision": float(results.box.mp),
+        "recall": float(results.box.mr),
+    }
+    return results, metrics
 
 
 def test_on_image(model_path, image_path, conf_threshold=0.25, output_path=None):
@@ -116,6 +122,7 @@ def main():
     eval_parser.add_argument('--conf', type=float, default=0.25, help='置信度阈值')
     eval_parser.add_argument('--iou', type=float, default=0.45, help='IoU阈值')
     eval_parser.add_argument('--device', type=str, default='0', help='设备 (0=cpu, cpu=cpu)')
+    eval_parser.add_argument('--json-out', type=str, default='', help='将指标写入 JSON 文件')
     
     # 测试图像命令
     test_img_parser = subparsers.add_parser('test_img', help='测试单张图像')
@@ -141,7 +148,13 @@ def main():
     args = parser.parse_args()
     
     if args.command == 'eval':
-        evaluate_model(args.model, args.data, args.conf, args.iou, args.device)
+        _results, metrics = evaluate_model(args.model, args.data, args.conf, args.iou, args.device)
+        if args.json_out:
+            out = Path(args.json_out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with open(out, 'w', encoding='utf-8') as f:
+                json.dump(metrics, f, ensure_ascii=False, indent=2)
+            print(f"指标已写入: {out}")
     elif args.command == 'test_img':
         test_on_image(args.model, args.image, args.conf, args.output)
     elif args.command == 'test_video':

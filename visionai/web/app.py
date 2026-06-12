@@ -51,6 +51,11 @@ from visionai.utils.alert_webhook import (
 )
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.config.detection_catalog import catalog_items_for_api, normalize_detections
+from visionai.config.ini_manager import (
+    config_meta,
+    patch_config_updates,
+    read_structured_units,
+)
 from visionai.core import stream_sync
 from visionai.core.preview_cache import get_preview_jpeg, get_preview_jpeg_meta
 from visionai.core.preview_hls import (
@@ -132,6 +137,46 @@ def login():
 def get_detection_catalog():
     """COCO 80 类 + 打电话，供前端展示「系统支持」与配置项。"""
     return jsonify(catalog_items_for_api())
+
+
+@app.route('/api/system/config', methods=['GET'])
+@login_required
+def get_system_config():
+    """结构化配置单元（可编辑字段 + 只读说明/当前生效值）。"""
+    try:
+        return jsonify(
+            {
+                "success": True,
+                "meta": config_meta(),
+                "units": read_structured_units(),
+            }
+        )
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+@app.route('/api/system/config', methods=['PUT'])
+@login_required
+def put_system_config():
+    """按字段更新 config.ini（保留注释与其余内容，全配置重启后生效）。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        updates = data.get("updates")
+        if not isinstance(updates, dict):
+            return jsonify({"success": False, "message": "缺少 updates 对象"}), 400
+        path = patch_config_updates(updates)
+        return jsonify(
+            {
+                "success": True,
+                "message": "已保存到 config.ini，请重启服务后全配置生效",
+                "path": path,
+                "restart_required": True,
+            }
+        )
+    except ValueError as ex:
+        return jsonify({"success": False, "message": str(ex)}), 400
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
 
 
 @app.route('/api/streams', methods=['GET'])
@@ -705,16 +750,12 @@ def restart_service():
         # 获取项目根目录
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
-        # 创建重启脚本，先停止所有旧进程再启动新进程
+        # 使用项目脚本重启，保留 start.sh 中的环境变量设置
         restart_script = f'''#!/bin/bash
-# 停止所有VisionAI进程
-pkill -f "python3 -m visionai"
-sleep 1
-
-# 启动新服务
 cd {project_root}
-source env/bin/activate
-nohup python3 -m visionai > /dev/null 2>&1 &
+./stop.sh
+sleep 2
+./start.sh
 '''
         
         script_path = '/tmp/restart_visionai.sh'

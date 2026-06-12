@@ -658,6 +658,189 @@
             background: #f57c00;
             transform: translateY(-2px);
         }
+
+        .settings-hint {
+            color: #6c757d;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+
+        .settings-meta {
+            font-size: 13px;
+            color: #495057;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            word-break: break-all;
+        }
+
+        .settings-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .settings-tab {
+            padding: 8px 16px;
+            border: 1px solid #dee2e6;
+            background: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .settings-tab.active {
+            background: #e3f2fd;
+            border-color: #2196F3;
+            color: #1565c0;
+            font-weight: 600;
+        }
+
+        .config-units-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 68vh;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .config-unit-card {
+            border: 1px solid #e3e6ea;
+            border-radius: 10px;
+            padding: 14px 16px;
+            background: #fff;
+        }
+
+        .config-unit-card h3 {
+            margin: 0 0 6px;
+            font-size: 16px;
+            color: #212529;
+        }
+
+        .config-unit-desc {
+            margin: 0 0 12px;
+            font-size: 13px;
+            color: #6c757d;
+        }
+
+        .config-field-row {
+            display: grid;
+            grid-template-columns: minmax(140px, 200px) 1fr;
+            gap: 8px 14px;
+            align-items: start;
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f3f5;
+        }
+
+        .config-field-row:last-child {
+            border-bottom: none;
+        }
+
+        .config-field-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #495057;
+            padding-top: 8px;
+        }
+
+        .config-field-body {
+            min-width: 0;
+        }
+
+        .config-field-comment {
+            font-size: 12px;
+            color: #868e96;
+            margin-bottom: 6px;
+            line-height: 1.45;
+        }
+
+        .config-field-input {
+            width: 100%;
+            max-width: 520px;
+            padding: 8px 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+
+        .config-field-readonly {
+            font-size: 13px;
+            color: #495057;
+            padding: 8px 0;
+            word-break: break-all;
+        }
+
+        .config-field-effective {
+            font-size: 12px;
+            color: #1976d2;
+            margin-top: 4px;
+        }
+
+        .config-field-badge {
+            display: inline-block;
+            font-size: 11px;
+            color: #e67700;
+            background: #fff3bf;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+
+        .effective-config-wrap {
+            max-height: 520px;
+            overflow: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 8px 12px;
+            background: #fafbfc;
+        }
+
+        .effective-group {
+            margin-bottom: 16px;
+        }
+
+        .effective-group h4 {
+            margin: 8px 0;
+            font-size: 15px;
+            color: #343a40;
+        }
+
+        .effective-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .effective-table th,
+        .effective-table td {
+            border-bottom: 1px solid #e9ecef;
+            padding: 6px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .effective-table th {
+            color: #6c757d;
+            font-weight: 600;
+            width: 42%;
+        }
+
+        .effective-table td {
+            word-break: break-all;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
         
         .btn-preview {
             padding: 8px 16px;
@@ -1033,7 +1216,17 @@
                 <div id="settingsPage" class="page-content" style="display: none;">
                     <div class="card">
                         <h2>系统设置</h2>
-                        <p>预留后续扩展功能</p>
+                        <p class="settings-hint">
+                            按配置单元修改字段，保存后写入 <code>config/config.ini</code>（保留文件内注释与其余内容）。
+                            每项含<strong>可编辑值</strong>与<strong>当前进程生效值</strong>（只读）；<strong>保存后需重启</strong>方全配置生效。
+                        </p>
+                        <p id="settingsMeta" class="settings-meta"></p>
+                        <div id="configUnitsWrap" class="config-units-wrap">加载中…</div>
+                        <div class="settings-actions">
+                            <button type="button" class="btn-save" id="saveConfigIniBtn" onclick="saveSystemConfig()">💾 保存全部修改</button>
+                            <button type="button" class="btn-restart" onclick="reloadSystemSettings()">↺ 重新加载</button>
+                            <button type="button" class="btn-restart" onclick="restartVisionAIService()">🔄 重启服务生效</button>
+                        </div>
                     </div>
                 </div>
                 
@@ -1510,6 +1703,8 @@
                     loadAlertsData();
                 } else if (pageKey === 'video') {
                     loadStreams();
+                } else if (pageKey === 'settings') {
+                    loadSystemSettings();
                 }
             } catch (err) {
                 console.error('VisionAI: navigation error', err);
@@ -2293,6 +2488,175 @@
         }
         
         // 显示消息
+        let settingsFormDirty = false;
+
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function renderSettingsMeta(meta) {
+            const el = document.getElementById('settingsMeta');
+            if (!el || !meta) return;
+            const parts = [
+                '路径: ' + (meta.path || ''),
+                meta.mtime ? ('最后修改: ' + meta.mtime) : '',
+                meta.priority || '',
+            ];
+            if (meta.env_config_override) {
+                parts.push('环境变量 VISIONAI_CONFIG=' + meta.env_config_override);
+            }
+            el.textContent = parts.filter(Boolean).join(' · ');
+        }
+
+        function renderConfigFieldInput(field) {
+            const key = field.key;
+            const val = field.value == null ? '' : String(field.value);
+            const type = field.type || 'text';
+            if (field.readonly || !field.editable) {
+                return '<div class="config-field-readonly">' + escapeHtml(val) + '</div>';
+            }
+            if (type === 'bool') {
+                const checked = ['true', '1', 'yes', 'on'].includes(val.toLowerCase());
+                return '<label><input type="checkbox" class="cfg-input" data-cfg-key="' + escapeHtml(key) + '" ' + (checked ? 'checked' : '') + '> 启用</label>';
+            }
+            const inputType = (type === 'password') ? 'password' : ((type === 'int' || type === 'float') ? 'text' : 'text');
+            return '<input type="' + inputType + '" class="config-field-input cfg-input" data-cfg-key="' + escapeHtml(key) + '" value="' + escapeHtml(val) + '">';
+        }
+
+        function renderConfigUnits(units) {
+            const wrap = document.getElementById('configUnitsWrap');
+            if (!wrap) return;
+            if (!units || !units.length) {
+                wrap.textContent = '无配置项';
+                return;
+            }
+            wrap.innerHTML = units.map(function (unit) {
+                const fieldsHtml = (unit.fields || []).map(function (field) {
+                    let badge = '';
+                    if (field.commented_only) {
+                        badge = '<span class="config-field-badge">ini 中已注释</span>';
+                    }
+                    let effectiveHtml = '';
+                    if (field.effective_value != null && field.effective_value !== '' && !field.readonly) {
+                        effectiveHtml = '<div class="config-field-effective">当前进程生效（只读）: ' + escapeHtml(String(field.effective_value)) + '</div>';
+                    }
+                    const commentHtml = field.comment
+                        ? '<div class="config-field-comment">' + escapeHtml(field.comment) + '</div>'
+                        : '';
+                    return (
+                        '<div class="config-field-row">' +
+                        '<div class="config-field-label">' + escapeHtml(field.label || field.key) + badge + '</div>' +
+                        '<div class="config-field-body">' + commentHtml + renderConfigFieldInput(field) + effectiveHtml + '</div>' +
+                        '</div>'
+                    );
+                }).join('');
+                const desc = unit.description
+                    ? '<p class="config-unit-desc">' + escapeHtml(unit.description) + '</p>'
+                    : '';
+                return (
+                    '<section class="config-unit-card" data-unit-id="' + escapeHtml(unit.id || '') + '">' +
+                    '<h3>' + escapeHtml(unit.title || '') + '</h3>' + desc + fieldsHtml +
+                    '</section>'
+                );
+            }).join('');
+            wrap.querySelectorAll('.cfg-input').forEach(function (el) {
+                el.addEventListener('change', function () { settingsFormDirty = true; });
+                el.addEventListener('input', function () { settingsFormDirty = true; });
+            });
+            settingsFormDirty = false;
+        }
+
+        function collectConfigUpdates() {
+            const updates = {};
+            document.querySelectorAll('.cfg-input').forEach(function (el) {
+                const key = el.getAttribute('data-cfg-key');
+                if (!key) return;
+                if (el.type === 'checkbox') {
+                    updates[key] = el.checked ? 'true' : 'false';
+                } else {
+                    updates[key] = el.value;
+                }
+            });
+            return updates;
+        }
+
+        async function reloadSystemSettings() {
+            if (settingsFormDirty && !confirm('有未保存的修改，重新加载将丢弃，是否继续？')) {
+                return;
+            }
+            await loadSystemSettings();
+        }
+
+        async function loadSystemSettings() {
+            const wrap = document.getElementById('configUnitsWrap');
+            if (wrap) wrap.textContent = '加载中…';
+            try {
+                const res = await fetch('/api/system/config');
+                const data = await res.json();
+                if (!data.success) {
+                    showMessage(data.message || '加载配置失败', 'error');
+                    if (wrap) wrap.textContent = '加载失败';
+                    return;
+                }
+                renderSettingsMeta(data.meta);
+                renderConfigUnits(data.units || []);
+            } catch (err) {
+                showMessage('加载配置失败: ' + err, 'error');
+                if (wrap) wrap.textContent = '加载失败';
+            }
+        }
+
+        async function saveSystemConfig() {
+            if (settingsFormDirty === false) {
+                showMessage('没有修改需要保存', 'success');
+                return;
+            }
+            const btn = document.getElementById('saveConfigIniBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const updates = collectConfigUpdates();
+                const res = await fetch('/api/system/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ updates: updates }),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    showMessage(data.message || '保存失败', 'error');
+                    return;
+                }
+                settingsFormDirty = false;
+                showMessage(data.message || '保存成功', 'success');
+                await loadSystemSettings();
+            } catch (err) {
+                showMessage('保存失败: ' + err, 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function restartVisionAIService() {
+            if (!confirm('确定重启 VisionAI 服务？重启期间检测与页面会短暂中断。')) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/restart', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showMessage('服务正在重启，约 10～20 秒后请刷新页面', 'success');
+                    setTimeout(function () { window.location.reload(); }, 12000);
+                } else {
+                    showMessage(data.message || '重启失败', 'error');
+                }
+            } catch (err) {
+                showMessage('重启请求失败: ' + err, 'error');
+            }
+        }
+
         function showMessage(text, type) {
             const message = document.getElementById('message');
             if (!message) {

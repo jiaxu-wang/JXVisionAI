@@ -26,8 +26,22 @@ import cv2
 from flask import Blueprint, Response, abort, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
-from visionai.config.settings import yolo_inference_device
+from visionai.config.settings import SAVE_DIR, yolo_inference_device
 from visionai.utils.rtsp_url import normalize_rtsp_url
+from visionai.web.training_lab_core import (
+    DEPLOY_TARGETS,
+    TRAINING_TEMPLATES,
+    check_dataset_health,
+    deploy_weights_to_production,
+    detect_train_device,
+    import_snapshots_to_project,
+    list_labeled_stems,
+    list_production_snapshots,
+    materialize_yolo_split,
+    prelabel_project_images,
+    run_evaluate_subprocess,
+    suggest_thresholds_from_val,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -483,87 +497,6 @@ def _validate_rtsp_worker(
             break
 
 
-def _list_labeled_stems(project_dir: Path) -> List[str]:
-    img_dir = project_dir / "images"
-    lbl_dir = project_dir / "labels"
-    if not img_dir.is_dir():
-        return []
-    stems: List[str] = []
-    for p in img_dir.iterdir():
-        if p.suffix.lower() not in (".jpg", ".jpeg", ".png"):
-            continue
-        stem = p.stem
-        lf = lbl_dir / f"{stem}.txt"
-        if lf.is_file() and lf.stat().st_size > 0:
-            stems.append(stem)
-    return sorted(stems)
-
-
-def materialize_yolo_split(project_dir: Path, val_ratio: float = 0.2, seed: int = 42) -> Path:
-    """
-    将 project images/labels 拆到 _yolo_staging/（标准 YOLOv8  layout），返回 data.yaml 路径。
-    """
-    stems = _list_labeled_stems(project_dir)
-    if not stems:
-        raise ValueError("没有已标注图片（labels 下需有对应非空 .txt）")
-
-    meta = _read_meta(project_dir)
-    classes: List[str] = meta.get("classes") or []
-    if not classes:
-        raise ValueError("项目缺少类别列表")
-
-    staging = project_dir / "_yolo_staging"
-    if staging.is_dir():
-        shutil.rmtree(staging)
-    for sub in ("images/train", "images/val", "labels/train", "labels/val"):
-        (staging / sub).mkdir(parents=True, exist_ok=True)
-
-    rnd = random.Random(seed)
-    shuffled = stems[:]
-    rnd.shuffle(shuffled)
-    n = len(shuffled)
-    n_val = max(1, int(round(n * val_ratio))) if n > 1 else 1
-    if n == 1:
-        val_stems = shuffled[:]
-        train_stems = shuffled[:]
-    else:
-        n_val = min(n_val, n - 1)
-        val_stems = shuffled[:n_val]
-        train_stems = shuffled[n_val:]
-
-    def _copy(stem_list: List[str], split: str) -> None:
-        for stem in stem_list:
-            src_i = None
-            for ext in (".jpg", ".jpeg", ".png"):
-                cand = project_dir / "images" / f"{stem}{ext}"
-                if cand.is_file():
-                    src_i = cand
-                    break
-            if src_i is None:
-                continue
-            ext = src_i.suffix.lower()
-            shutil.copy2(src_i, staging / "images" / split / f"{stem}{ext}")
-            shutil.copy2(
-                project_dir / "labels" / f"{stem}.txt",
-                staging / "labels" / split / f"{stem}.txt",
-            )
-
-    _copy(train_stems, "train")
-    _copy(val_stems, "val")
-
-    root_abs = staging.resolve()
-    yaml_path = staging / "data.yaml"
-    names_lines = "\n".join(f"  {i}: {name}" for i, name in enumerate(classes))
-    content = f"""path: {root_abs.as_posix()}
-train: images/train
-val: images/val
-
-names:\n{names_lines}
-"""
-    yaml_path.write_text(content, encoding="utf-8")
-    return yaml_path
-
-
 def _run_training_job(
     *,
     job_id: str,
@@ -602,7 +535,7 @@ def _run_training_job(
         return
 
     try:
-        yaml_path = materialize_yolo_split(project_dir)
+        yaml_path = materialize_yolo_split(project_dir, _read_meta(project_dir))
     except ValueError as e:
         with open(job_path, "w", encoding="utf-8") as f:
             json.dump(
@@ -663,14 +596,29 @@ def _run_training_job(
 
     weights = out_base / "web_train" / "weights" / "best.pt"
     status = "completed" if rc == 0 and weights.is_file() else "failed"
-    payload = {
+    payload: Dict[str, Any] = {
         "status": status,
         "returncode": rc,
         "project_id": project_id,
         "log": str(log_fp.resolve()),
         "weights": str(weights.resolve()) if weights.is_file() else None,
         "finished_at": time.time(),
+        "evaluation": None,
     }
+    if status == "completed" and weights.is_file():
+        dev = device.strip() or detect_train_device()
+        eval_metrics = run_evaluate_subprocess(
+            _repo_root(),
+            model_path=str(weights.resolve()),
+            data_yaml=str(yaml_path.resolve()),
+            device=dev,
+            log_fp=log_fp,
+        )
+        payload["evaluation"] = eval_metrics
+        if eval_metrics.get("ok"):
+            payload["map50"] = eval_metrics.get("map50")
+            payload["precision"] = eval_metrics.get("precision")
+            payload["recall"] = eval_metrics.get("recall")
     with open(job_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -724,6 +672,42 @@ def _register_api_routes(app):
         resp.headers["Expires"] = "0"
         return resp
 
+    @app.route("/api/training/templates", methods=["GET"])
+    @login_required
+    def training_templates_list():
+        items = []
+        for tid, tpl in TRAINING_TEMPLATES.items():
+            items.append(
+                {
+                    "id": tid,
+                    "title": tpl.get("title"),
+                    "description": tpl.get("description"),
+                    "classes": tpl.get("classes") or [],
+                    "deploy_target": tpl.get("deploy_target"),
+                    "defaults": {
+                        "epochs": tpl.get("default_epochs"),
+                        "batch": tpl.get("default_batch"),
+                        "imgsz": tpl.get("default_imgsz"),
+                        "pretrained": tpl.get("default_pretrained"),
+                    },
+                    "recommended_labeled": tpl.get("recommended_labeled"),
+                }
+            )
+        return jsonify(items)
+
+    @app.route("/api/training/deploy-targets", methods=["GET"])
+    @login_required
+    def training_deploy_targets():
+        return jsonify(
+            {
+                k: {
+                    "model_filename": v.get("model_filename"),
+                    "config_keys": list((v.get("config_updates") or {}).keys()),
+                }
+                for k, v in DEPLOY_TARGETS.items()
+            }
+        )
+
     @app.route("/api/training/projects", methods=["GET"])
     @login_required
     def training_projects_list():
@@ -733,14 +717,18 @@ def _register_api_routes(app):
             if not d.is_dir() or not _PID_RE.match(d.name):
                 continue
             meta = _read_meta(d)
+            health = check_dataset_health(d, meta)
             items.append(
                 {
                     "id": d.name,
                     "title": meta.get("title", d.name),
                     "classes": meta.get("classes", []),
+                    "template_id": meta.get("template_id"),
+                    "deploy_target": meta.get("deploy_target"),
                     "created_at": meta.get("created_at"),
                     "image_count": len(list((d / "images").glob("*"))) if (d / "images").is_dir() else 0,
-                    "labeled_count": len(_list_labeled_stems(d)),
+                    "labeled_count": health.labeled_images,
+                    "can_train": health.can_train,
                 }
             )
         return jsonify(items)
@@ -749,16 +737,19 @@ def _register_api_routes(app):
     @login_required
     def training_projects_create():
         data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "").strip() or "未命名训练"
+        template_id = (data.get("template_id") or "custom").strip()
+        tpl = TRAINING_TEMPLATES.get(template_id, TRAINING_TEMPLATES["custom"])
+
+        title = (data.get("title") or "").strip() or tpl.get("title") or "未命名训练"
         raw_classes = data.get("classes")
-        if isinstance(raw_classes, str):
+        if isinstance(raw_classes, str) and raw_classes.strip():
             classes = [c.strip() for c in raw_classes.replace("，", ",").split(",") if c.strip()]
-        elif isinstance(raw_classes, list):
+        elif isinstance(raw_classes, list) and raw_classes:
             classes = [str(c).strip() for c in raw_classes if str(c).strip()]
         else:
-            classes = []
+            classes = list(tpl.get("classes") or [])
         if not classes:
-            return jsonify({"success": False, "message": "至少填写一个类别"}), 400
+            return jsonify({"success": False, "message": "至少填写一个类别或选择有效场景模板"}), 400
 
         pid = uuid.uuid4().hex[:12]
         pdir = _projects_base() / pid
@@ -767,10 +758,26 @@ def _register_api_routes(app):
         meta = {
             "title": title,
             "classes": classes,
+            "template_id": template_id,
+            "deploy_target": tpl.get("deploy_target"),
             "created_at": time.time(),
+            "train_defaults": {
+                "epochs": tpl.get("default_epochs"),
+                "batch": tpl.get("default_batch"),
+                "imgsz": tpl.get("default_imgsz"),
+                "pretrained": tpl.get("default_pretrained"),
+            },
         }
         _write_meta(pdir, meta)
         return jsonify({"success": True, "project": {"id": pid, **meta}})
+
+    @app.route("/api/training/projects/<pid>/dataset-health", methods=["GET"])
+    @login_required
+    def training_dataset_health(pid):
+        project_dir = _pid_path(pid)
+        meta = _read_meta(project_dir)
+        health = check_dataset_health(project_dir, meta)
+        return jsonify(health.to_dict())
 
     @app.route("/api/training/projects/<pid>", methods=["DELETE"])
     @login_required
@@ -812,7 +819,7 @@ def _register_api_routes(app):
         img_dir = project_dir / "images"
         if not img_dir.is_dir():
             return jsonify([])
-        labeled = set(_list_labeled_stems(project_dir))
+        labeled = set(list_labeled_stems(project_dir))
         out = []
         for p in sorted(img_dir.iterdir(), key=lambda x: x.name):
             if p.suffix.lower() not in (".jpg", ".jpeg", ".png"):
@@ -915,13 +922,29 @@ def _register_api_routes(app):
     @app.route("/api/training/projects/<pid>/train", methods=["POST"])
     @login_required
     def training_start_train(pid):
-        _pid_path(pid)  # validate
+        project_dir = _pid_path(pid)
+        meta = _read_meta(project_dir)
         data = request.get_json(silent=True) or {}
-        epochs = int(data.get("epochs") or 30)
-        batch_size = int(data.get("batch_size") or 8)
-        img_size = int(data.get("img_size") or 640)
-        device = str(data.get("device") or "cpu").strip()
-        pretrained = str(data.get("pretrained_model") or "yolov8n.pt").strip()
+        force = bool(data.get("force"))
+
+        health = check_dataset_health(project_dir, meta)
+        if not health.can_train and not force:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "未达开训门槛",
+                    "health": health.to_dict(),
+                }
+            ), 400
+
+        defaults = meta.get("train_defaults") or {}
+        epochs = int(data.get("epochs") or defaults.get("epochs") or 30)
+        batch_size = int(data.get("batch_size") or defaults.get("batch") or 8)
+        img_size = int(data.get("img_size") or defaults.get("imgsz") or 640)
+        device = str(data.get("device") or detect_train_device()).strip()
+        pretrained = str(
+            data.get("pretrained_model") or defaults.get("pretrained") or "yolov8n.pt"
+        ).strip()
 
         epochs = max(1, min(epochs, 500))
         batch_size = max(1, min(batch_size, 128))
@@ -1219,6 +1242,133 @@ def _register_api_routes(app):
         if not str(fp).startswith(str(d.resolve()) + os.sep) or not fp.is_file():
             abort(404)
         return send_from_directory(d, fn, max_age=0)
+
+    @app.route("/api/training/projects/<pid>/deploy", methods=["POST"])
+    @login_required
+    def training_deploy(pid):
+        project_dir = _pid_path(pid)
+        meta = _read_meta(project_dir)
+        data = request.get_json(silent=True) or {}
+        target = (data.get("target") or meta.get("deploy_target") or "").strip()
+        if not target:
+            return jsonify({"success": False, "message": "请指定部署目标 target（如 smoking）"}), 400
+
+        wkey = (data.get("weights_path") or data.get("weights") or data.get("job_id") or "").strip()
+        wp: Optional[Path] = None
+        if wkey and re.match(r"^[a-f0-9]{16}$", wkey):
+            jp = _jobs_base() / f"{wkey}.json"
+            if jp.is_file():
+                doc = json.loads(jp.read_text(encoding="utf-8"))
+                w = doc.get("weights")
+                if w and Path(w).is_file():
+                    wp = Path(w)
+        if wp is None:
+            wp = _resolve_weights_in_project(project_dir, wkey)
+        if wp is None or not wp.is_file():
+            return jsonify({"success": False, "message": "无效权重路径"}), 400
+
+        result = deploy_weights_to_production(
+            _repo_root(),
+            weights_path=wp,
+            target=target,
+            backup=bool(data.get("backup", True)),
+            patch_config=bool(data.get("patch_config", True)),
+        )
+        status = 200 if result.get("success") else 400
+        return jsonify(result), status
+
+    @app.route("/api/training/snapshots", methods=["GET"])
+    @login_required
+    def training_list_snapshots():
+        stream = request.args.get("stream", "")
+        det = request.args.get("detection_type", "")
+        try:
+            limit = int(request.args.get("limit", "40"))
+        except ValueError:
+            limit = 40
+        limit = max(1, min(limit, 200))
+        items = list_production_snapshots(
+            Path(SAVE_DIR),
+            stream=stream,
+            detection_type=det,
+            limit=limit,
+        )
+        return jsonify(items)
+
+    @app.route("/api/training/projects/<pid>/import-snapshots", methods=["POST"])
+    @login_required
+    def training_import_snapshots(pid):
+        project_dir = _pid_path(pid)
+        data = request.get_json(silent=True) or {}
+        paths = data.get("paths") or []
+        if not isinstance(paths, list) or not paths:
+            return jsonify({"success": False, "message": "请提供 paths 数组"}), 400
+        result = import_snapshots_to_project(project_dir, paths, Path(SAVE_DIR))
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/training/projects/<pid>/prelabel", methods=["POST"])
+    @login_required
+    def training_prelabel(pid):
+        project_dir = _pid_path(pid)
+        data = request.get_json(silent=True) or {}
+        wkey = (data.get("weights_path") or data.get("weights") or "").strip()
+        wp = _resolve_weights_in_project(project_dir, wkey)
+        if wp is None:
+            return jsonify({"success": False, "message": "无效权重路径"}), 400
+        conf = float(data.get("conf") or 0.25)
+        conf = max(0.05, min(conf, 0.95))
+        only_unlabeled = bool(data.get("only_unlabeled", True))
+        result = prelabel_project_images(
+            project_dir,
+            weights_path=str(wp),
+            conf=conf,
+            only_unlabeled=only_unlabeled,
+            device=data.get("device"),
+        )
+        status = 200 if result.get("success") else 400
+        return jsonify(result), status
+
+    @app.route("/api/training/projects/<pid>/threshold-suggest", methods=["POST"])
+    @login_required
+    def training_threshold_suggest(pid):
+        project_dir = _pid_path(pid)
+        data = request.get_json(silent=True) or {}
+        wkey = (data.get("weights_path") or data.get("weights") or "").strip()
+        wp = _resolve_weights_in_project(project_dir, wkey)
+        if wp is None:
+            return jsonify({"success": False, "message": "无效权重路径"}), 400
+        try:
+            meta = _read_meta(project_dir)
+            yaml_path = materialize_yolo_split(project_dir, meta)
+        except ValueError as e:
+            return jsonify({"success": False, "message": str(e)}), 400
+        class_index = int(data.get("class_index") or 0)
+        spec = DEPLOY_TARGETS.get(meta.get("deploy_target") or "")
+        if spec and spec.get("single_class_index") is not None:
+            class_index = int(spec["single_class_index"])
+        result = suggest_thresholds_from_val(
+            str(wp),
+            yaml_path,
+            project_dir / "_yolo_staging",
+            class_index=class_index,
+        )
+        if not result.get("ok"):
+            return jsonify({"success": False, **result}), 400
+        # 可选写入 config.ini（吸烟相关键）
+        apply = bool(data.get("apply_config"))
+        if apply and meta.get("deploy_target") == "smoking":
+            from visionai.config.ini_manager import patch_config_updates
+
+            patch_config_updates(
+                {
+                    "smoking_cigarette_detector_conf": str(result["suggested_detector_conf"]),
+                    "smoking_conf_threshold": str(result["suggested_alert_conf"]),
+                    "smoking_min_duration_sec": str(result.get("suggested_min_duration_sec", 1.5)),
+                }
+            )
+            result["config_patched"] = True
+            result["restart_required"] = True
+        return jsonify({"success": True, **result})
 
 
 def init_training_lab(app):

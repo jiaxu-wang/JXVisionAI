@@ -20,24 +20,10 @@ def resize_image(image, target_size=640):
 
 
 def augment_image(image):
-    """数据增强：随机翻转、亮度调整等"""
-    # 随机水平翻转
-    if random.random() > 0.5:
-        image = cv2.flip(image, 1)
-    
-    # 随机亮度调整
-    if random.random() > 0.5:
-        alpha = random.uniform(0.8, 1.2)
-        image = cv2.convertScaleAbs(image, alpha=alpha, beta=0)
-    
-    # 随机旋转（小角度）
-    if random.random() > 0.7:
-        h, w = image.shape[:2]
-        center = (w // 2, h // 2)
-        angle = random.uniform(-10, 10)
-        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image = cv2.warpAffine(image, M, (w, h))
-    
+    """
+    已禁用：翻转/旋转未同步变换 YOLO 标注，会污染训练集。
+    请使用 Ultralytics 训练内置增强（train.py mosaic 等）。
+    """
     return image
 
 
@@ -69,8 +55,30 @@ def split_dataset(image_files, train_ratio=0.7, val_ratio=0.2):
     return train_files, val_files, test_files
 
 
-def remap_label_lines(src_label_path):
-    """解析 raw 标注，返回两类别 YOLO 行列表（0=person，1=cigarette）。"""
+def remap_label_lines_smoking(src_label_path):
+    """
+    将 raw 标注转为单类 smoking(0)。
+    原约定：0=person（丢弃），1=smoking，2=cigarette → 均映射为 0=smoking。
+    """
+    lines_out = []
+    with open(src_label_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            cls = int(float(parts[0]))
+            rest = " ".join(parts[1:])
+            if cls == 0:
+                continue
+            lines_out.append(f"0 {rest}")
+    return lines_out
+
+
+def remap_label_lines_legacy_person_cigarette(src_label_path):
+    """旧版两类别 person(0)+cigarette(1)，仅用于 --remap-person-cigarette 兼容。"""
     lines_out = []
     with open(src_label_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -91,13 +99,9 @@ def remap_label_lines(src_label_path):
     return lines_out
 
 
-def remap_label_person_cigarette(src_label_path, dst_label_path):
-    """
-    将旧版三类别标注转为两类别：0=person，1=cigarette。
-    原约定：0=person，1=smoking（与人物框重复，丢弃），2=cigarette。
-    返回写入后是否至少有一个检测框。
-    """
-    lines_out = remap_label_lines(src_label_path)
+def remap_label_to_smoking(src_label_path, dst_label_path):
+    """单类 smoking 映射；返回是否至少有一个框。"""
+    lines_out = remap_label_lines_smoking(src_label_path)
     text = "\n".join(lines_out)
     if text:
         text += "\n"
@@ -106,8 +110,19 @@ def remap_label_person_cigarette(src_label_path, dst_label_path):
     return len(lines_out) > 0
 
 
-def list_trainable_images(raw_dir, remap_person_cigarette=False):
-    """仅保留存在标注且标注有效的图像文件名。"""
+def remap_label_person_cigarette(src_label_path, dst_label_path):
+    """兼容旧参数：person+cigarette 两类别。"""
+    lines_out = remap_label_lines_legacy_person_cigarette(src_label_path)
+    text = "\n".join(lines_out)
+    if text:
+        text += "\n"
+    with open(dst_label_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return len(lines_out) > 0
+
+
+def list_trainable_images(raw_dir, remap_mode=None):
+    """仅保留存在标注且标注有效的图像文件名。remap_mode: smoking | person_cigarette | None"""
     names = []
     for img_file in os.listdir(raw_dir):
         if not img_file.endswith(('.jpg', '.png', '.jpeg')):
@@ -116,9 +131,11 @@ def list_trainable_images(raw_dir, remap_person_cigarette=False):
         src_label = os.path.join(raw_dir, label_file)
         if not os.path.exists(src_label) or os.path.getsize(src_label) == 0:
             continue
-        if remap_person_cigarette:
-            lines_out = remap_label_lines(src_label)
-            if not lines_out:
+        if remap_mode == "smoking":
+            if not remap_label_lines_smoking(src_label):
+                continue
+        elif remap_mode == "person_cigarette":
+            if not remap_label_lines_legacy_person_cigarette(src_label):
                 continue
         names.append(img_file)
     return names
@@ -126,10 +143,7 @@ def list_trainable_images(raw_dir, remap_person_cigarette=False):
 
 def process_images(raw_dir, images_dir, labels_dir, config):
     """处理图像并复制到对应目录"""
-    image_files = list_trainable_images(
-        raw_dir,
-        remap_person_cigarette=config.get('remap_person_cigarette', False),
-    )
+    image_files = list_trainable_images(raw_dir, remap_mode=config.get('remap_mode'))
     if not image_files:
         print("错误: 没有可用的已标注图像，请检查 raw 目录中的 .jpg 与 .txt")
         return
@@ -150,7 +164,11 @@ def process_images(raw_dir, images_dir, labels_dir, config):
 
             if not os.path.exists(src_label):
                 continue
-            if config.get('remap_person_cigarette', False):
+            remap_mode = config.get('remap_mode')
+            if remap_mode == 'smoking':
+                if not remap_label_to_smoking(src_label, dst_label):
+                    continue
+            elif remap_mode == 'person_cigarette':
                 if not remap_label_person_cigarette(src_label, dst_label):
                     continue
             else:
@@ -162,7 +180,10 @@ def process_images(raw_dir, images_dir, labels_dir, config):
                 if img is not None:
                     img = resize_image(img, config.get('target_size', 640))
                     if config.get('augment', False) and split == 'train':
-                        img = augment_image(img)
+                        print(
+                            "警告: --augment 已禁用（不更新标注框）；"
+                            "请依赖 Ultralytics 训练时内置增强。"
+                        )
                     cv2.imwrite(dst_img, img)
             else:
                 shutil.copy2(src_img, dst_img)
@@ -177,14 +198,23 @@ def main():
     parser.add_argument('--config', type=str, default='configs/default.yaml', help='配置文件路径')
     parser.add_argument('--raw_dir', type=str, default='data/raw', help='原始数据目录')
     parser.add_argument('--preprocess', action='store_true', help='是否预处理图像')
-    parser.add_argument('--augment', action='store_true', help='是否数据增强（仅训练集）')
+    parser.add_argument(
+        '--augment',
+        action='store_true',
+        help='已禁用：请使用 Ultralytics 训练内置增强',
+    )
     parser.add_argument('--target_size', type=int, default=640, help='目标图像大小')
     parser.add_argument('--train_ratio', type=float, default=0.7, help='训练集比例')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='验证集比例')
     parser.add_argument(
+        '--remap-to-smoking',
+        action='store_true',
+        help='将 raw 中 1=smoking / 2=cigarette 转为单类 smoking(0)，丢弃 person(0)',
+    )
+    parser.add_argument(
         '--remap-person-cigarette',
         action='store_true',
-        help='将 raw 中 0/1/2 类标注转为 person(0)+cigarette(1)，并跳过无有效框的样本',
+        help='（旧）转为 person(0)+cigarette(1)',
     )
     parser.add_argument(
         '--clean',
@@ -194,14 +224,22 @@ def main():
     
     args = parser.parse_args()
     
+    remap_mode = None
+    if args.remap_to_smoking:
+        remap_mode = 'smoking'
+    elif args.remap_person_cigarette:
+        remap_mode = 'person_cigarette'
+
     config = {
         'preprocess': args.preprocess,
-        'augment': args.augment,
+        'augment': False,
         'target_size': args.target_size,
         'train_ratio': args.train_ratio,
         'val_ratio': args.val_ratio,
-        'remap_person_cigarette': args.remap_person_cigarette,
+        'remap_mode': remap_mode,
     }
+    if args.augment:
+        print("警告: --augment 已忽略，请使用 train.py 内置增强。")
     
     base_dir = Path(__file__).parent.parent
     raw_dir = base_dir / args.raw_dir

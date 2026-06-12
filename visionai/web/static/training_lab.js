@@ -4,15 +4,21 @@
   const state = {
     projectId: null,
     projectClasses: [],
+    deployTarget: null,
+    templateId: null,
     imageName: null,
     naturalW: 0,
     naturalH: 0,
     boxes: [],
     drag: null,
     jobPoll: null,
+    lastJobId: null,
     validatePollTimer: null,
     validateRunning: false,
     lastUploadedValidateFile: null,
+    snapItems: [],
+    snapSelected: new Set(),
+    templates: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -232,6 +238,87 @@
     $('preview-img').classList.remove('show');
   });
 
+  function setProjectActionButtons(enabled) {
+    var ids = [
+      'btn-capture',
+      'btn-prelabel',
+      'btn-refresh-health',
+      'btn-snap-list',
+      'btn-snap-import',
+      'btn-threshold-suggest',
+    ];
+    ids.forEach(function (id) {
+      var el = $(id);
+      if (el) el.disabled = !enabled;
+    });
+  }
+
+  async function refreshDatasetHealth() {
+    if (!state.projectId) return;
+    var r = await api('/api/training/projects/' + state.projectId + '/dataset-health');
+    var h = await r.json();
+    var box = $('dataset-health');
+    if (!box) return;
+    box.classList.remove('tl-hidden');
+    var clsLines = (h.class_names || []).map(function (name, i) {
+      return name + ': ' + ((h.boxes_per_class && h.boxes_per_class[i]) || 0) + ' 框';
+    });
+    box.innerHTML =
+      '<div class="tl-health-row ' +
+      (h.can_train ? 'ok' : 'warn') +
+      '">' +
+      '<strong>数据检查</strong> ' +
+      h.labeled_images +
+      '/' +
+      h.total_images +
+      ' 已标注' +
+      (h.can_train ? ' · 可开训' : ' · 未达开训门槛') +
+      '</div>' +
+      '<div class="tl-muted">' +
+      esc((h.warnings || []).join('；')) +
+      '</div>' +
+      (h.errors && h.errors.length
+        ? '<div class="tl-health-err">' + esc(h.errors.join('；')) + '</div>'
+        : '') +
+      '<div class="tl-muted">' +
+      esc(clsLines.join(' · ')) +
+      '</div>';
+    return h;
+  }
+
+  async function loadTemplates() {
+    var r = await api('/api/training/templates');
+    state.templates = await r.json();
+    var sel = $('np-template');
+    if (!sel) return;
+    sel.innerHTML = '';
+    state.templates.forEach(function (t) {
+      var o = document.createElement('option');
+      o.value = t.id;
+      o.textContent = t.title + (t.id !== 'custom' ? ' (' + (t.classes || []).join(',') + ')' : '');
+      sel.appendChild(o);
+    });
+    applyTemplateToForm(sel.value || 'smoking');
+  }
+
+  function applyTemplateToForm(tid) {
+    var t = state.templates.find(function (x) {
+      return x.id === tid;
+    });
+    if (!t) return;
+    if ($('np-template-desc')) $('np-template-desc').textContent = t.description || '';
+    if (t.classes && t.classes.length && $('np-classes')) {
+      $('np-classes').value = t.classes.join(', ');
+    }
+    if (t.defaults) {
+      if ($('train-epochs') && t.defaults.epochs) $('train-epochs').value = t.defaults.epochs;
+      if ($('train-batch') && t.defaults.batch) $('train-batch').value = t.defaults.batch;
+      if ($('train-imgsz') && t.defaults.imgsz) $('train-imgsz').value = t.defaults.imgsz;
+      if ($('train-pretrained') && t.defaults.pretrained)
+        $('train-pretrained').value = t.defaults.pretrained;
+    }
+  }
+
   async function selectProject(id) {
     var prev = state.projectId;
     if (prev && prev !== id) {
@@ -255,9 +342,15 @@
       return x.id === id;
     });
     state.projectClasses = (p && p.classes) || [];
-    $('current-project-label').textContent = p ? '\u00b7 ' + p.title : '';
+    state.deployTarget = (p && p.deploy_target) || null;
+    state.templateId = (p && p.template_id) || null;
+    $('current-project-label').textContent = p
+      ? '\u00b7 ' + p.title + (state.deployTarget ? ' [' + state.deployTarget + ']' : '')
+      : '';
     fillClassPicker();
+    setProjectActionButtons(!!id);
     await loadSamples();
+    await refreshDatasetHealth();
     clearCanvas();
     $('btn-capture').disabled = !id || !$('rtsp-url').value.trim().toLowerCase().startsWith('rtsp');
     if (state.jobPoll) clearInterval(state.jobPoll);
@@ -604,27 +697,48 @@
       alert('请先选择项目');
       return;
     }
+    var health = await refreshDatasetHealth();
+    var force = false;
+    if (health && !health.can_train) {
+      if (
+        !window.confirm(
+          '未达开训门槛：\n' +
+            (health.errors || []).join('\n') +
+            '\n\n仍要强制开训？（仅建议调试）'
+        )
+      ) {
+        $('train-status').textContent = '已取消';
+        return;
+      }
+      force = true;
+    }
     const body = {
       epochs: parseInt($('train-epochs').value, 10) || 30,
       batch_size: parseInt($('train-batch').value, 10) || 8,
       img_size: parseInt($('train-imgsz').value, 10) || 640,
       device: $('train-device').value.trim() || 'cpu',
       pretrained_model: $('train-pretrained').value.trim() || 'yolov8n.pt',
+      force: force,
     };
     const r = await api('/api/training/projects/' + state.projectId + '/train', {
       method: 'POST',
       body: JSON.stringify(body),
     });
     const j = await r.json();
-    if (!j.success) {
+    if (!r.ok || !j.success) {
       $('train-status').textContent = j.message || '启动失败';
+      if (j.health) refreshDatasetHealth();
       return;
     }
     $('train-job-panel').classList.remove('tl-hidden');
     $('job-id').textContent = j.job_id;
+    state.lastJobId = j.job_id;
     $('train-status').textContent = '任务已启动';
     $('job-log-link').href = '/api/training/jobs/' + j.job_id + '/log';
     $('job-weights-link').classList.add('tl-hidden');
+    $('btn-deploy').classList.add('tl-hidden');
+    $('job-eval-metrics').classList.add('tl-hidden');
+    $('deploy-status').textContent = '';
     if (state.jobPoll) clearInterval(state.jobPoll);
     state.jobPoll = setInterval(async () => pollJob(j.job_id), 2000);
     pollJob(j.job_id);
@@ -639,6 +753,21 @@
     if (j.status === 'completed') {
       $('job-weights-link').href = '/api/training/jobs/' + jobId + '/weights';
       $('job-weights-link').classList.remove('tl-hidden');
+      if (state.deployTarget) $('btn-deploy').classList.remove('tl-hidden');
+      var em = $('job-eval-metrics');
+      if (em && j.evaluation && j.evaluation.ok) {
+        em.classList.remove('tl-hidden');
+        em.innerHTML =
+          'mAP@0.5: <b>' +
+          (j.map50 != null ? j.map50.toFixed(4) : j.evaluation.map50) +
+          '</b> · P: ' +
+          (j.precision != null ? j.precision.toFixed(4) : j.evaluation.precision) +
+          ' · R: ' +
+          (j.recall != null ? j.recall.toFixed(4) : j.evaluation.recall);
+      } else if (em && j.evaluation && !j.evaluation.ok) {
+        em.classList.remove('tl-hidden');
+        em.textContent = '自动评估失败: ' + (j.evaluation.error || '');
+      }
       clearInterval(state.jobPoll);
       state.jobPoll = null;
       loadWeightOptions().catch(function () {});
@@ -649,6 +778,137 @@
       state.jobPoll = null;
     }
   }
+
+  $('btn-deploy').addEventListener('click', async function () {
+    if (!state.projectId || !state.lastJobId) return;
+    if (!state.deployTarget) {
+      alert('该项目未绑定部署目标');
+      return;
+    }
+    if (
+      !window.confirm(
+        '将 best.pt 部署到 models/ 并更新 config.ini（' +
+          state.deployTarget +
+          '）。需重启 VisionAI 后生效。继续？'
+      )
+    ) {
+      return;
+    }
+    var r = await api('/api/training/projects/' + state.projectId + '/deploy', {
+      method: 'POST',
+      body: JSON.stringify({
+        job_id: state.lastJobId,
+        target: state.deployTarget,
+        backup: true,
+        patch_config: true,
+      }),
+    });
+    var j = await r.json();
+    $('deploy-status').textContent = j.message || (j.success ? '部署成功' : '部署失败');
+    if (!j.success) alert(j.message || '部署失败');
+  });
+
+  $('btn-refresh-health').addEventListener('click', function () {
+    refreshDatasetHealth().catch(function () {});
+  });
+
+  $('btn-prelabel').addEventListener('click', async function () {
+    if (!state.projectId) return;
+    var w = resolveWeightsPath();
+    if (!w) {
+      alert('请先在验证区选择已训练权重');
+      return;
+    }
+    if (!window.confirm('用所选权重对未标注图片预标注？请人工复核后保存。')) return;
+    var r = await api('/api/training/projects/' + state.projectId + '/prelabel', {
+      method: 'POST',
+      body: JSON.stringify({ weights_path: w, conf: 0.25, only_unlabeled: true }),
+    });
+    var j = await r.json();
+    alert(j.message || (j.success ? '完成' : '失败'));
+    if (j.success) {
+      await loadSamples();
+      await refreshDatasetHealth();
+    }
+  });
+
+  function renderSnapList() {
+    var ul = $('snap-list');
+    if (!ul) return;
+    ul.innerHTML = '';
+    state.snapItems.forEach(function (it) {
+      var li = document.createElement('li');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = state.snapSelected.has(it.path);
+      cb.addEventListener('change', function () {
+        if (cb.checked) state.snapSelected.add(it.path);
+        else state.snapSelected.delete(it.path);
+      });
+      var span = document.createElement('span');
+      span.textContent = it.relative || it.filename;
+      li.appendChild(cb);
+      li.appendChild(span);
+      ul.appendChild(li);
+    });
+  }
+
+  $('btn-snap-list').addEventListener('click', async function () {
+    if (!state.projectId) return;
+    var stream = ($('snap-stream') && $('snap-stream').value.trim()) || '';
+    var det = ($('snap-det-type') && $('snap-det-type').value.trim()) || '';
+    var q = '?limit=50' + (stream ? '&stream=' + encodeURIComponent(stream) : '');
+    if (det) q += '&detection_type=' + encodeURIComponent(det);
+    var r = await api('/api/training/snapshots' + q);
+    state.snapItems = await r.json();
+    state.snapSelected = new Set();
+    renderSnapList();
+  });
+
+  $('btn-snap-import').addEventListener('click', async function () {
+    if (!state.projectId) return;
+    var paths = Array.from(state.snapSelected);
+    if (!paths.length) {
+      alert('请先勾选快照');
+      return;
+    }
+    var r = await api('/api/training/projects/' + state.projectId + '/import-snapshots', {
+      method: 'POST',
+      body: JSON.stringify({ paths: paths }),
+    });
+    var j = await r.json();
+    alert('已导入 ' + (j.count || 0) + ' 张');
+    await loadSamples();
+    await refreshDatasetHealth();
+  });
+
+  $('btn-threshold-suggest').addEventListener('click', async function () {
+    if (!state.projectId) return;
+    var w = resolveWeightsPath();
+    if (!w) {
+      alert('请先选择权重');
+      return;
+    }
+    var applyCfg = $('threshold-apply-config') && $('threshold-apply-config').checked;
+    var r = await api('/api/training/projects/' + state.projectId + '/threshold-suggest', {
+      method: 'POST',
+      body: JSON.stringify({
+        weights_path: w,
+        apply_config: applyCfg,
+      }),
+    });
+    var j = await r.json();
+    var pre = $('threshold-result');
+    if (!pre) return;
+    if (!r.ok || !j.success) {
+      pre.textContent = j.message || '分析失败';
+      return;
+    }
+    pre.textContent = JSON.stringify(j, null, 2);
+    if (j.suggested_detector_conf != null) {
+      if ($('val-conf')) $('val-conf').value = j.suggested_detector_conf;
+    }
+  });
 
   $('val-file').addEventListener('change', async function () {
     if ($('val-upload-status')) $('val-upload-status').textContent = '';
@@ -780,13 +1040,20 @@
   $('btn-new-project').addEventListener('click', () => $('modal-new').classList.remove('tl-hidden'));
   $('np-cancel').addEventListener('click', () => $('modal-new').classList.add('tl-hidden'));
 
+  if ($('np-template')) {
+    $('np-template').addEventListener('change', function () {
+      applyTemplateToForm(this.value);
+    });
+  }
+
   $('np-create').addEventListener('click', async function () {
     const title = $('np-title').value.trim();
     const classesRaw = $('np-classes').value.trim();
     const classes = classesRaw.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+    const template_id = ($('np-template') && $('np-template').value) || 'custom';
     const r = await api('/api/training/projects', {
       method: 'POST',
-      body: JSON.stringify({ title: title || '未命名训练', classes }),
+      body: JSON.stringify({ title: title || '未命名训练', classes, template_id }),
     });
     const j = await r.json();
     if (!j.success) {
@@ -800,5 +1067,9 @@
     await selectProject(j.project.id);
   });
 
-  loadProjects().then(loadStreams);
+  loadTemplates()
+    .then(function () {
+      return loadProjects();
+    })
+    .then(loadStreams);
 })();

@@ -9,7 +9,10 @@ _DEFAULT_SECRET = "123456-bb6b-4889-a715-d9eb2d1925cc"
 
 # 可执行文件所在项目根：.../visionai/config/settings.py -> /app
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+PROJECT_ROOT = _ROOT
 _DEFAULT_INI = os.path.join(_ROOT, "config", "config.ini")
+
+_PATH_RELATIVE_HINT = "相对路径均相对项目根目录；绝对路径与 http(s):// URL 原样使用"
 
 
 def _read_ini() -> Dict[str, str]:
@@ -65,6 +68,39 @@ def _cfg_float(name: str, default: float) -> float:
         return default
 
 
+def resolve_config_path(raw: str) -> str:
+    """config.ini 路径项：相对路径相对项目根解析为绝对路径。"""
+    p = (raw or "").strip()
+    if not p:
+        return ""
+    if "://" in p:
+        return p
+    if os.path.isabs(p):
+        return os.path.normpath(p)
+    if p.startswith("./"):
+        p = p[2:]
+    return os.path.normpath(os.path.join(_ROOT, p))
+
+
+def to_display_path(path: str) -> str:
+    """展示用：项目根下的绝对路径转为相对路径。"""
+    p = (path or "").strip()
+    if not p or "://" in p:
+        return p
+    try:
+        rel = os.path.relpath(os.path.normpath(p), _ROOT)
+    except ValueError:
+        return p
+    if rel.startswith(".."):
+        return p
+    return rel.replace("\\", "/")
+
+
+def _cfg_path(name: str, default: str) -> str:
+    raw = _cfg_str(name, default)
+    return resolve_config_path(raw) if raw else ""
+
+
 def _cfg_bool(name: str, default: bool) -> bool:
     o = _lookup_str(name)
     if o is None:
@@ -101,7 +137,7 @@ GATHER_MIN_PERSONS = max(3, _cfg_int("GATHER_MIN_PERSONS", 3))
 GATHER_MIN_DURATION_SEC = max(3, _cfg_float("GATHER_MIN_DURATION_SEC", 3))
 
 # 吸烟（行为层：人物裁剪 + ONNX 二分类；需配置 SMOKING_MODEL_PATH）
-SMOKING_MODEL_PATH = _cfg_str("SMOKING_MODEL_PATH", "")
+SMOKING_MODEL_PATH = _cfg_path("SMOKING_MODEL_PATH", "")
 # 与导出模型一致：imagenet（ResNet 等）| vit_hf（HuggingFace ViT 常用 0.5/0.5，见 scripts/export_smoking_onnx.py）
 SMOKING_PREPROCESS = _cfg_str("SMOKING_PREPROCESS", "imagenet").strip().lower()
 SMOKING_CONF_THRESHOLD = _cfg_float("SMOKING_CONF_THRESHOLD", 0.5)
@@ -113,7 +149,7 @@ SMOKING_POSITIVE_CLASS_INDEX = max(0, _cfg_int("SMOKING_POSITIVE_CLASS_INDEX", 1
 # 每轮吸烟 ONNX 推理后打印各人体置信度（调试用；生产可 smoking_log_scores = false）
 SMOKING_LOG_SCORES = _cfg_bool("SMOKING_LOG_SCORES", True)
 # 可选：专训单/多类「香烟」小目标 YOLO（.pt）；非空时仅当该帧人物与香烟框有关联时才做下方 ViT 吸烟二分类，降低手靠近脸误报
-SMOKING_CIGARETTE_DETECTOR_PATH = _cfg_str("SMOKING_CIGARETTE_DETECTOR_PATH", "").strip()
+SMOKING_CIGARETTE_DETECTOR_PATH = _cfg_path("SMOKING_CIGARETTE_DETECTOR_PATH", "")
 SMOKING_CIGARETTE_DETECTOR_CONF = max(0.05, min(0.99, _cfg_float("SMOKING_CIGARETTE_DETECTOR_CONF", 0.35)))
 # 逗号分隔类 id，默认 0（单类 cigarette）；留空则表示不限制类别
 SMOKING_CIGARETTE_CLASS_IDS = _cfg_str("SMOKING_CIGARETTE_CLASS_IDS", "").strip()
@@ -122,8 +158,8 @@ SMOKING_YOLO_DIRECT = _cfg_bool("SMOKING_YOLO_DIRECT", False)
 SMOKING_REQUIRE_PERSON_OVERLAP = _cfg_bool("SMOKING_REQUIRE_PERSON_OVERLAP", False)
 
 # ---------- 专模扩展检测（models/ 下 .pt / .onnx；与 COCO 主检测并行）----------
-def _models_path(filename: str) -> str:
-    return os.path.join(_ROOT, "models", filename)
+def _models_default(filename: str) -> str:
+    return f"models/{filename}"
 
 
 DEDICATED_MAX_PERSONS_PER_FRAME = max(1, _cfg_int("DEDICATED_MAX_PERSONS_PER_FRAME", 8))
@@ -135,11 +171,11 @@ DEDICATED_DEFAULT_MIN_DURATION_SEC = max(
     0.0, _cfg_float("DEDICATED_DEFAULT_MIN_DURATION_SEC", 1.0)
 )
 
-FACE_MODEL_PATH = _cfg_str("FACE_MODEL_PATH", _models_path("face_detection.onnx"))
+FACE_MODEL_PATH = _cfg_path("FACE_MODEL_PATH", _models_default("face_detection.onnx"))
 FACE_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FACE_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 FACE_MIN_DURATION_SEC = max(0.0, _cfg_float("FACE_MIN_DURATION_SEC", 0.0))
 
-FALL_MODEL_PATH = _cfg_str("FALL_MODEL_PATH", _models_path("fall_detection.onnx"))
+FALL_MODEL_PATH = _cfg_path("FALL_MODEL_PATH", _models_default("fall_detection.onnx"))
 FALL_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FALL_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 FALL_SCORE_THRESHOLD = max(
     0.05, min(0.99, _cfg_float("FALL_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD))
@@ -148,12 +184,12 @@ FALL_MIN_DURATION_SEC = max(
     0.0, _cfg_float("FALL_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
 )
 
-FLAME_MODEL_PATH = _cfg_str("FLAME_MODEL_PATH", _models_path("flame.pt"))
+FLAME_MODEL_PATH = _cfg_path("FLAME_MODEL_PATH", _models_default("flame.pt"))
 FLAME_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FLAME_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 FLAME_MIN_DURATION_SEC = max(0.0, _cfg_float("FLAME_MIN_DURATION_SEC", 0.5))
 
-LICENSE_PLATE_MODEL_PATH = _cfg_str(
-    "LICENSE_PLATE_MODEL_PATH", _models_path("license_plate_detection.onnx")
+LICENSE_PLATE_MODEL_PATH = _cfg_path(
+    "LICENSE_PLATE_MODEL_PATH", _models_default("license_plate_detection.onnx")
 )
 LICENSE_PLATE_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("LICENSE_PLATE_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -162,7 +198,7 @@ LICENSE_PLATE_MIN_DURATION_SEC = max(
     0.0, _cfg_float("LICENSE_PLATE_MIN_DURATION_SEC", 0.0)
 )
 
-MAKE_CALL_MODEL_PATH = _cfg_str("MAKE_CALL_MODEL_PATH", _models_path("make_call.onnx"))
+MAKE_CALL_MODEL_PATH = _cfg_path("MAKE_CALL_MODEL_PATH", _models_default("make_call.onnx"))
 MAKE_CALL_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("MAKE_CALL_MODEL_CONF", DEDICATED_DEFAULT_CONF))
 )
@@ -175,7 +211,7 @@ MAKE_CALL_MIN_DURATION_SEC = max(
 MAKE_CALL_USE_DEDICATED = _cfg_bool("MAKE_CALL_USE_DEDICATED", True)
 MAKE_CALL_REQUIRE_PERSON_OVERLAP = _cfg_bool("MAKE_CALL_REQUIRE_PERSON_OVERLAP", False)
 
-MASK_MODEL_PATH = _cfg_str("MASK_MODEL_PATH", _models_path("mask.onnx"))
+MASK_MODEL_PATH = _cfg_path("MASK_MODEL_PATH", _models_default("mask.onnx"))
 MASK_MODEL_CONF = max(0.05, min(0.99, _cfg_float("MASK_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 MASK_SCORE_THRESHOLD = max(
     0.05, min(0.99, _cfg_float("MASK_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD))
@@ -184,8 +220,8 @@ MASK_MIN_DURATION_SEC = max(
     0.0, _cfg_float("MASK_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
 )
 
-REFLECTIVE_VEST_MODEL_PATH = _cfg_str(
-    "REFLECTIVE_VEST_MODEL_PATH", _models_path("reflective_vest.pt")
+REFLECTIVE_VEST_MODEL_PATH = _cfg_path(
+    "REFLECTIVE_VEST_MODEL_PATH", _models_default("reflective_vest.pt")
 )
 REFLECTIVE_VEST_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("REFLECTIVE_VEST_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -198,8 +234,8 @@ REFLECTIVE_VEST_MIN_DURATION_SEC = max(
     0.0, _cfg_float("REFLECTIVE_VEST_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
 )
 
-ROAD_WATERLOGGING_MODEL_PATH = _cfg_str(
-    "ROAD_WATERLOGGING_MODEL_PATH", _models_path("road_waterlogging.onnx")
+ROAD_WATERLOGGING_MODEL_PATH = _cfg_path(
+    "ROAD_WATERLOGGING_MODEL_PATH", _models_default("road_waterlogging.onnx")
 )
 ROAD_WATERLOGGING_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("ROAD_WATERLOGGING_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -208,8 +244,8 @@ ROAD_WATERLOGGING_MIN_DURATION_SEC = max(
     0.0, _cfg_float("ROAD_WATERLOGGING_MIN_DURATION_SEC", 0.5)
 )
 
-SAFETY_HELMET_MODEL_PATH = _cfg_str(
-    "SAFETY_HELMET_MODEL_PATH", _models_path("safety_helmet.pt")
+SAFETY_HELMET_MODEL_PATH = _cfg_path(
+    "SAFETY_HELMET_MODEL_PATH", _models_default("safety_helmet.pt")
 )
 SAFETY_HELMET_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("SAFETY_HELMET_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -222,7 +258,7 @@ SAFETY_HELMET_MIN_DURATION_SEC = max(
     0.0, _cfg_float("SAFETY_HELMET_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
 )
 
-SLEEPING_MODEL_PATH = _cfg_str("SLEEPING_MODEL_PATH", _models_path("sleeping.pt"))
+SLEEPING_MODEL_PATH = _cfg_path("SLEEPING_MODEL_PATH", _models_default("sleeping.pt"))
 SLEEPING_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("SLEEPING_MODEL_CONF", DEDICATED_DEFAULT_CONF))
 )
@@ -234,15 +270,15 @@ SLEEPING_MIN_DURATION_SEC = max(
 )
 
 # 保存
-SAVE_DIR = _cfg_str("SAVE_DIR", "./snapshots")
+SAVE_DIR = _cfg_path("SAVE_DIR", "./snapshots")
 SAVE_FORMAT = "%Y%m%d_%H%M%S_%f.jpg"
 SAVE_INTERVAL = _cfg_int("SAVE_INTERVAL", 10)
 
 # YOLO
-YOLO_MODEL = _cfg_str("YOLO_MODEL", "yolov8n.pt")
+YOLO_MODEL = _cfg_path("YOLO_MODEL", "yolov8n.pt")
 
 # 打电话 / 玩手机：YOLO+COCO overlap 后用工单人体姿态（YOLOv8 pose）把手机中心与耳根/口鼻/手腕比距分类
-POSE_MODEL = _cfg_str("POSE_MODEL", "yolov8n-pose.pt")
+POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolov8n-pose.pt"))
 POSE_FOR_PHONE_ENABLED = _cfg_bool("POSE_FOR_PHONE_ENABLED", True)
 
 # 关键点置信低于此值不参加「贴头/贴腕」距离（仍可走竖直带 fallback）
@@ -255,7 +291,7 @@ PHONE_VERTICAL_BOUNDARY = max(0.2, min(0.85, _cfg_float("PHONE_VERTICAL_BOUNDARY
 LOG_LEVEL = _cfg_str("LOG_LEVEL", "INFO")
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_RETENTION_DAYS = max(1, _cfg_int("LOG_RETENTION_DAYS", 3))
-LOG_DIR = _cfg_str("LOG_DIR", "./logs")
+LOG_DIR = _cfg_path("LOG_DIR", "./logs")
 
 # Redis
 REDIS_HOST = _cfg_str("REDIS_HOST", "192.168.2.159")
@@ -274,7 +310,7 @@ AUTO_REFRESH_INTERVAL = _cfg_int("AUTO_REFRESH_INTERVAL", 20)
 PREVIEW_ANNOTATED_POLL_SEC = max(0.02, _cfg_float("PREVIEW_ANNOTATED_POLL_SEC", 0.05))
 # HLS：FFmpeg 中转码输出目录（相对运行目录）、分片时长、列表窗口、空闲停止秒数
 PREVIEW_HLS_ENABLED = _cfg_bool("PREVIEW_HLS_ENABLED", True)
-PREVIEW_HLS_ROOT = _cfg_str("PREVIEW_HLS_ROOT", "./hls-preview")
+PREVIEW_HLS_ROOT = _cfg_path("PREVIEW_HLS_ROOT", "./hls-preview")
 PREVIEW_HLS_SEGMENT_SEC = max(0.3, min(4.0, _cfg_float("PREVIEW_HLS_SEGMENT_SEC", 0.5)))
 PREVIEW_HLS_LIST_SIZE = max(3, min(20, _cfg_int("PREVIEW_HLS_LIST_SIZE", 6)))
 PREVIEW_HLS_IDLE_SEC = max(30, _cfg_int("PREVIEW_HLS_IDLE_SEC", 120))

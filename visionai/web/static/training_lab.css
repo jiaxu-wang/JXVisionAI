@@ -230,3 +230,45 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.tl-health {
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.22);
+  font-size: 0.82rem;
+}
+.tl-health-row.ok { color: #86efac; }
+.tl-health-row.warn { color: #fcd34d; }
+.tl-health-err { color: #fca5a5; margin-top: 4px; }
+.tl-eval-metrics {
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: rgba(34,197,94,0.12);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.tl-snap-list {
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
+.tl-snap-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.tl-threshold-result {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  max-height: 220px;
+  overflow: auto;
+  color: #a5b4fc;
+}
+.tl-check { font-size: 0.82rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 6px; }

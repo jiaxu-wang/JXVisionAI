@@ -10,7 +10,7 @@
     <header class="tl-header">
         <div class="tl-brand">
             <h1>训练实验室</h1>
-            <p class="tl-sub">RTSP 截帧 → 画框标注 → Web 训练 YOLOv8 → 验证推理（MVP）</p>
+            <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注 → 训练评估 → 一键部署 → 阈值向导</p>
         </div>
         <div class="tl-header-actions">
             <a href="/" class="tl-btn tl-btn-secondary">返回管理平台</a>
@@ -43,7 +43,24 @@
                 <div class="tl-block">
                     <h3>2. 样本列表</h3>
                     <p class="tl-hint">绿点表示已保存标注。点击图片进入标注画布。</p>
+                    <div id="dataset-health" class="tl-health tl-hidden"></div>
+                    <div class="tl-row">
+                        <button type="button" id="btn-prelabel" class="tl-btn tl-btn-secondary" disabled>预标注（best.pt）</button>
+                        <button type="button" id="btn-refresh-health" class="tl-btn tl-btn-secondary" disabled>刷新数据检查</button>
+                    </div>
                     <ul id="sample-list" class="tl-samples"></ul>
+                </div>
+
+                <div class="tl-block">
+                    <h3>2b. 生产快照回流</h3>
+                    <p class="tl-hint">从线上告警截图导入数据集，用于误报/漏报迭代标注。</p>
+                    <input type="text" id="snap-stream" class="tl-input" placeholder="可选：流名称子目录">
+                    <input type="text" id="snap-det-type" class="tl-input" placeholder="可选：检测类型过滤，如 smoking">
+                    <div class="tl-row">
+                        <button type="button" id="btn-snap-list" class="tl-btn tl-btn-secondary" disabled>加载快照</button>
+                        <button type="button" id="btn-snap-import" class="tl-btn tl-btn-primary" disabled>导入选中</button>
+                    </div>
+                    <ul id="snap-list" class="tl-snap-list"></ul>
                 </div>
             </div>
 
@@ -73,10 +90,13 @@
                 </div>
                 <div id="train-job-panel" class="tl-hidden">
                     <p>任务 <code id="job-id"></code> <span id="job-status"></span></p>
+                    <div id="job-eval-metrics" class="tl-eval-metrics tl-hidden"></div>
                     <div class="tl-row">
                         <a id="job-log-link" href="#" target="_blank" class="tl-link">查看日志</a>
                         <a id="job-weights-link" href="#" class="tl-link tl-hidden">下载 best.pt</a>
+                        <button type="button" id="btn-deploy" class="tl-btn tl-btn-primary tl-hidden">一键部署到线上</button>
                     </div>
+                    <p id="deploy-status" class="tl-muted"></p>
                 </div>
             </div>
 
@@ -106,14 +126,28 @@
                 <p id="val-cycle-status" class="tl-muted"></p>
                 <div id="val-log" class="tl-val-log"></div>
             </div>
+
+            <div class="tl-block tl-threshold-wizard">
+                <h3>6. 阈值向导</h3>
+                <p class="tl-hint">在验证集上扫描置信度，建议 detector_conf 与告警阈值（吸烟项目可写入 config.ini）。</p>
+                <div class="tl-row">
+                    <button type="button" id="btn-threshold-suggest" class="tl-btn tl-btn-secondary" disabled>分析并建议阈值</button>
+                    <label class="tl-check"><input type="checkbox" id="threshold-apply-config" /> 写入 config.ini（需重启）</label>
+                </div>
+                <pre id="threshold-result" class="tl-threshold-result"></pre>
+            </div>
         </section>
     </main>
 
     <div id="modal-new" class="tl-modal tl-hidden">
         <div class="tl-modal-inner">
             <h3>新建训练项目</h3>
-            <label>标题 <input type="text" id="np-title" class="tl-input" placeholder="例如 仓库安全帽"></label>
-            <label>类别（英文或中文，逗号分隔） <input type="text" id="np-classes" class="tl-input" placeholder="person, helmet"></label>
+            <label>场景模板
+                <select id="np-template" class="tl-input"></select>
+            </label>
+            <p id="np-template-desc" class="tl-hint"></p>
+            <label>标题 <input type="text" id="np-title" class="tl-input" placeholder="例如 仓库吸烟检测"></label>
+            <label>类别（模板可自动填充） <input type="text" id="np-classes" class="tl-input" placeholder="smoking"></label>
             <div class="tl-row tl-modal-actions">
                 <button type="button" id="np-cancel" class="tl-btn tl-btn-secondary">取消</button>
                 <button type="button" id="np-create" class="tl-btn tl-btn-primary">创建</button>

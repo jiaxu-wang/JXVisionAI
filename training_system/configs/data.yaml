@@ -1,9 +1,8 @@
-# 人物 + 香烟框；同一帧同时检出两者则在业务层判定为吸烟
-path: /home/wjx/code/VisionAI/training_system/data
+# 单类 smoking，与线上 smoking_cigarette_detector_path / class_ids=0 一致
+path: data
 train: images/train
 val: images/val
 test: images/test
 
 names:
-  0: person
-  1: cigarette
+  0: smoking

@@ -154,6 +154,8 @@ _EXTENSION_SPECS = [
         min_duration_sec=SLEEPING_MIN_DURATION_SEC,
         positive_class_ids=(0,),
         max_persons=DEDICATED_MAX_PERSONS_PER_FRAME,
+        log_scores=True,
+        log_label="睡觉 sleeping.pt",
     ),
 ]
 
