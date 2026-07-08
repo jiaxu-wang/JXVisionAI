@@ -65,6 +65,7 @@ from visionai.core.behaviors.extensions import (
     ViolationSpec,
     build_extension_plugins,
 )
+from visionai.core.behaviors.face_recognition import FaceRecognitionBehaviorPlugin
 from visionai.core.behaviors.smoking import SmokingBehaviorPlugin
 
 _EXTENSION_SPECS = [
@@ -159,9 +160,14 @@ _EXTENSION_SPECS = [
     ),
 ]
 
-PLUGINS: List[Any] = [SmokingBehaviorPlugin()] + build_extension_plugins(_EXTENSION_SPECS)
+PLUGINS: List[Any] = (
+    [SmokingBehaviorPlugin(), FaceRecognitionBehaviorPlugin()]
+    + build_extension_plugins(_EXTENSION_SPECS)
+)
 
-_BEHAVIOR_KEYS = frozenset({SMOKE_KEY, *EXTENSION_KEYS})
+from visionai.config.detection_catalog import FACE_RECOG_KEY
+
+_BEHAVIOR_KEYS = frozenset({SMOKE_KEY, FACE_RECOG_KEY, *EXTENSION_KEYS})
 
 
 def behavior_keys() -> frozenset:

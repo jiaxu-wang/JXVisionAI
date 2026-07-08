@@ -207,6 +207,29 @@ class S3CompatibleStorage:
         r = self._client.get_object(Bucket=self._bucket, Key=object_key)
         return r["Body"].read()
 
+    def upload_bytes(
+        self,
+        data: bytes,
+        object_key: str,
+        *,
+        content_type: Optional[str] = None,
+    ) -> UploadResult:
+        ex: dict[str, str] = {}
+        if content_type:
+            ex["ContentType"] = content_type
+        if ex:
+            self._client.put_object(
+                Bucket=self._bucket, Key=object_key, Body=data, **ex
+            )
+        else:
+            self._client.put_object(Bucket=self._bucket, Key=object_key, Body=data)
+        uri = f"s3://{self._bucket}/{object_key}"
+        logger.info("已上传对象: %s (%d bytes)", object_key, len(data))
+        return UploadResult(key=object_key, uri=uri, kind=self.kind)
+
+    def build_face_library_photo_key(self, person_id: str, filename: str = "photo.jpg") -> str:
+        return self.build_key("face_library", person_id, filename)
+
 
 _storage: Optional[S3CompatibleStorage] = None
 _init_failed: bool = False

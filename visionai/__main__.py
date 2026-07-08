@@ -20,6 +20,7 @@ from visionai.utils.alert_webhook import (
 )
 from visionai.config.settings import SAVE_DIR
 from visionai.config.detection_catalog import normalize_detections
+from visionai.core.face_recognition_config import normalize_face_recognition_config
 from visionai.web.app import app
 from visionai.core import stream_sync
 import os
@@ -135,6 +136,9 @@ def run_video_processing(stream_info):
                 )
                 detector.alert_webhook_enabled = normalize_stream_alert_webhook_enabled(
                     latest.get("alert_webhook_enabled")
+                )
+                detector.face_recognition_config = normalize_face_recognition_config(
+                    latest.get("face_recognition_config")
                 )
                 # 执行检测
                 results = detector.detect(frame)

@@ -66,6 +66,7 @@ class RedisManager:
         timestamp=None,
         object_key=None,
         storage_kind=None,
+        extra=None,
     ):
         """
         保存检测结果到Redis（使用Hash结构）
@@ -111,6 +112,8 @@ class RedisManager:
                 detection_data["object_key"] = object_key
             if storage_kind:
                 detection_data["storage_kind"] = storage_kind
+            if extra:
+                detection_data["extra"] = extra
             
             # 使用Hash结构存储
             hash_key = self._get_stream_hash_key(stream_id)
@@ -590,6 +593,67 @@ class RedisManager:
                 logger.info("已从配置文件初始化流配置到Redis")
         except Exception as e:
             logger.error(f"初始化流配置失败: {e}")
+
+    def _face_library_hash_key(self) -> str:
+        return f"{REDIS_KEY_PREFIX}face_library:persons"
+
+    def get_all_face_persons(self) -> dict[str, dict]:
+        """返回 {person_id: meta_dict}。"""
+        if not self.is_connected():
+            return {}
+        try:
+            raw = self._redis_client.hgetall(self._face_library_hash_key())
+            out: dict[str, dict] = {}
+            for pid, data_str in (raw or {}).items():
+                try:
+                    out[str(pid)] = json.loads(data_str)
+                except json.JSONDecodeError:
+                    pass
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.error("读取人脸库 Redis 失败: %s", e)
+            return {}
+
+    def get_face_person(self, person_id: str) -> dict | None:
+        if not self.is_connected():
+            return None
+        try:
+            data_str = self._redis_client.hget(
+                self._face_library_hash_key(), str(person_id)
+            )
+            if not data_str:
+                return None
+            return json.loads(data_str)
+        except Exception as e:  # noqa: BLE001
+            logger.error("读取人员 %s 失败: %s", person_id, e)
+            return None
+
+    def save_face_person(self, person_id: str, meta: dict) -> bool:
+        if not self.is_connected():
+            logger.warning("Redis未连接，无法保存人脸库")
+            return False
+        try:
+            self._redis_client.hset(
+                self._face_library_hash_key(),
+                str(person_id),
+                json.dumps(meta, ensure_ascii=False),
+            )
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.error("保存人员 %s 失败: %s", person_id, e)
+            return False
+
+    def delete_face_person(self, person_id: str) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            n = self._redis_client.hdel(
+                self._face_library_hash_key(), str(person_id)
+            )
+            return n > 0
+        except Exception as e:  # noqa: BLE001
+            logger.error("删除人员 %s 失败: %s", person_id, e)
+            return False
 
 
 # 全局Redis管理器实例

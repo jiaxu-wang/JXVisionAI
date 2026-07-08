@@ -1079,6 +1079,12 @@
                     </button>
                 </li>
                 <li class="menu-item">
+                    <a href="/face-library" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
+                        <span class="menu-icon">👤</span>
+                        人脸库管理
+                    </a>
+                </li>
+                <li class="menu-item">
                     <a href="/training" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
                         <span class="menu-icon">🧪</span>
                         训练实验室
@@ -1252,6 +1258,27 @@
                 <p style="font-size: 13px; color: #495057; margin: 0;">以下为当前预训练模型支持的类别；每项均可单独开启或关闭。修改后请点击「保存当前操作」写入本条视频流（仍需保存配置并重启服务后生效）。</p>
                 <input type="text" class="config-modal-search" id="detectionConfigSearch" placeholder="按中文或英文名称筛选…">
                 <div class="config-modal-scroll" id="detectionConfigList"></div>
+                <div id="faceRecogConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
+                    <strong style="font-size:14px;">人脸识别 · 触发类型</strong>
+                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;">勾选后才会写入告警记录；需先在<a href="/face-library" target="_blank">人脸库</a>录入人员。</p>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
+                        <input type="checkbox" id="frTriggerKnown" style="width:auto;"> 库内匹配（known）
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
+                        <input type="checkbox" id="frTriggerUnknown" style="width:auto;"> 陌生人（unknown）
+                    </label>
+                    <label style="font-size:13px;margin-top:8px;">相似度阈值（留空用全局默认 0.45）</label>
+                    <input type="text" id="frThreshold" placeholder="0.45" style="width:120px;padding:6px 8px;margin-bottom:8px;">
+                    <label style="font-size:13px;">持续时长秒（留空用全局默认 2.0）</label>
+                    <input type="text" id="frMinDuration" placeholder="2.0" style="width:120px;padding:6px 8px;margin-bottom:8px;">
+                    <label style="font-size:13px;">画面旋转（摄像头倒置时选 180°）</label>
+                    <select id="frRotate" style="padding:6px 8px;min-width:120px;">
+                        <option value="">默认（0°）</option>
+                        <option value="90">90°</option>
+                        <option value="180">180°</option>
+                        <option value="270">270°</option>
+                    </select>
+                </div>
                 <div class="button-group" style="margin-top: 0;">
                     <button type="button" class="btn-save" id="detectionConfigSaveBtn">保存当前操作</button>
                     <button type="button" class="btn-restart" id="detectionConfigCancelBtn">取消</button>
@@ -1311,6 +1338,55 @@
         let streamPreviewCapabilities = { ffmpeg: false, hls_enabled: false, webrtc_enabled: false };
         let detectionConfigTargetItem = null;
         let detectionModalDraft = null;
+        let detectionFaceRecogDraft = null;
+
+        function defaultFaceRecogConfig() {
+            return { trigger_types: ['known', 'unknown'], threshold: null, min_duration_sec: null, watchlist: [], rotate: null };
+        }
+
+        function normalizeFaceRecogConfigClient(raw) {
+            const base = defaultFaceRecogConfig();
+            if (!raw || typeof raw !== 'object') return base;
+            const triggers = [];
+            (raw.trigger_types || []).forEach(t => {
+                const k = String(t).toLowerCase();
+                if ((k === 'known' || k === 'unknown') && !triggers.includes(k)) triggers.push(k);
+            });
+            if (triggers.length) base.trigger_types = triggers;
+            if (raw.threshold != null && raw.threshold !== '') base.threshold = raw.threshold;
+            if (raw.min_duration_sec != null && raw.min_duration_sec !== '') base.min_duration_sec = raw.min_duration_sec;
+            if (raw.rotate != null && raw.rotate !== '') base.rotate = parseInt(raw.rotate, 10);
+            return base;
+        }
+
+        function syncFaceRecogPanelFromDraft() {
+            const panel = document.getElementById('faceRecogConfigPanel');
+            if (!panel || !detectionFaceRecogDraft) return;
+            const on = !!(detectionModalDraft && detectionModalDraft.face_recognition);
+            panel.style.display = on ? 'block' : 'none';
+            if (!on) return;
+            const tt = detectionFaceRecogDraft.trigger_types || [];
+            document.getElementById('frTriggerKnown').checked = tt.includes('known');
+            document.getElementById('frTriggerUnknown').checked = tt.includes('unknown');
+            document.getElementById('frThreshold').value = detectionFaceRecogDraft.threshold != null ? String(detectionFaceRecogDraft.threshold) : '';
+            document.getElementById('frMinDuration').value = detectionFaceRecogDraft.min_duration_sec != null ? String(detectionFaceRecogDraft.min_duration_sec) : '';
+            const rotSel = document.getElementById('frRotate');
+            if (rotSel) rotSel.value = detectionFaceRecogDraft.rotate != null ? String(detectionFaceRecogDraft.rotate) : '';
+        }
+
+        function readFaceRecogPanelToDraft() {
+            if (!detectionFaceRecogDraft) detectionFaceRecogDraft = defaultFaceRecogConfig();
+            const triggers = [];
+            if (document.getElementById('frTriggerKnown').checked) triggers.push('known');
+            if (document.getElementById('frTriggerUnknown').checked) triggers.push('unknown');
+            if (triggers.length) detectionFaceRecogDraft.trigger_types = triggers;
+            const thr = document.getElementById('frThreshold').value.trim();
+            detectionFaceRecogDraft.threshold = thr ? parseFloat(thr) : null;
+            const dur = document.getElementById('frMinDuration').value.trim();
+            detectionFaceRecogDraft.min_duration_sec = dur ? parseFloat(dur) : null;
+            const rot = document.getElementById('frRotate').value.trim();
+            detectionFaceRecogDraft.rotate = rot ? parseInt(rot, 10) : null;
+        }
 
         async function refreshPreviewCapabilities() {
             try {
@@ -1968,9 +2044,13 @@
             list.querySelectorAll('.detection-modal-toggle').forEach(cb => {
                 cb.addEventListener('change', function() {
                     const key = this.getAttribute('data-detection-key');
-                    if (key && detectionModalDraft) detectionModalDraft[key] = this.checked;
+                    if (key && detectionModalDraft) {
+                        detectionModalDraft[key] = this.checked;
+                        if (key === 'face_recognition') syncFaceRecogPanelFromDraft();
+                    }
                 });
             });
+            syncFaceRecogPanelFromDraft();
         }
         
         function openDetectionConfig(button) {
@@ -1978,6 +2058,7 @@
             if (!streamItem || !streamItem._detections) return;
             detectionConfigTargetItem = streamItem;
             detectionModalDraft = JSON.parse(JSON.stringify(streamItem._detections));
+            detectionFaceRecogDraft = JSON.parse(JSON.stringify(streamItem._face_recognition_config || defaultFaceRecogConfig()));
             document.getElementById('detectionConfigSearch').value = '';
             renderDetectionModalList('');
             document.getElementById('detectionConfigModal').classList.add('show');
@@ -1992,6 +2073,7 @@
             }
             detectionConfigTargetItem = null;
             detectionModalDraft = null;
+            detectionFaceRecogDraft = null;
         }
         
         // 获取配置
@@ -2273,7 +2355,8 @@
                         stream.alert_emails,
                         stream.alert_email_enabled !== false,
                         stream.alert_webhook_urls,
-                        stream.alert_webhook_enabled === true
+                        stream.alert_webhook_enabled === true,
+                        stream.face_recognition_config
                     );
                 });
                 await refreshSmtpHintForStreamForm();
@@ -2301,12 +2384,13 @@
         }
 
         // 添加视频流项（新增源默认关闭全部检测项）
-        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true, alertWebhookUrls = null, alertWebhookEnabled = false) {
+        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true, alertWebhookUrls = null, alertWebhookEnabled = false, faceRecogConfig = null) {
             const container = document.getElementById('streamContainer');
             const streamItem = document.createElement('div');
             streamItem.className = 'stream-item';
             
             streamItem._detections = normalizeDetectionsClient(detections);
+            streamItem._face_recognition_config = normalizeFaceRecogConfigClient(faceRecogConfig);
             const statusClass = status === '在线' ? 'status-online' : 'status-offline';
             const enabledClass = enabled ? 'btn-save' : 'btn-restart';
             const enabledText = enabled ? '暂停' : '启用';
@@ -2327,7 +2411,7 @@
                 </div>
                 <div class="stream-detection-row">
                     <div style="flex:1;min-width:220px;">
-                        <span class="badge-supported">系统支持 · COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 吸烟</span>
+                        <span class="badge-supported">系统支持 · COCO 80类 + 扩展检测 + 人脸识别</span>
                         <div class="stream-detection-summary"></div>
                     </div>
                 </div>
@@ -2433,6 +2517,9 @@
                             streamData.id = item.dataset.id;
                         }
                         streamData.enabled = item.dataset.enabled === 'true';
+                        if (item._face_recognition_config) {
+                            streamData.face_recognition_config = JSON.parse(JSON.stringify(item._face_recognition_config));
+                        }
                         streams.push(streamData);
                     }
                 }
@@ -2742,6 +2829,8 @@
                 return;
             }
             detectionConfigTargetItem._detections = JSON.parse(JSON.stringify(detectionModalDraft));
+            readFaceRecogPanelToDraft();
+            detectionConfigTargetItem._face_recognition_config = JSON.parse(JSON.stringify(detectionFaceRecogDraft));
             updateStreamDetectionSummary(detectionConfigTargetItem);
             showMessage('已保存本条视频流的检测类型设置（请点击「保存配置」并重启服务）', 'success');
             closeDetectionConfigModal();

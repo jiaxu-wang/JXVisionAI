@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人脸库管理 - VisionAI</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #212529; }
+        .top { background: #fff; border-bottom: 1px solid #e9ecef; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .top h1 { margin: 0; font-size: 20px; }
+        .top a { color: #2196F3; text-decoration: none; margin-left: 16px; }
+        .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+        .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        .card h2 { margin: 0 0 16px; font-size: 17px; }
+        .status { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; }
+        .status.ok { background: #d4edda; color: #155724; }
+        .status.bad { background: #f8d7da; color: #721c24; }
+        label { display: block; font-size: 13px; margin-bottom: 4px; color: #495057; }
+        input[type=text], textarea { width: 100%; max-width: 480px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #2196F3; color: #fff; }
+        .btn-danger { background: #dc3545; color: #fff; }
+        .btn-secondary { background: #6c757d; color: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid #e9ecef; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; background: #eee; }
+        .msg { margin-top: 12px; font-size: 13px; padding: 8px 12px; border-radius: 6px; display: none; }
+        .msg.show { display: block; }
+        .msg.ok { background: #d4edda; color: #155724; }
+        .msg.err { background: #f8d7da; color: #721c24; }
+        .hint { font-size: 12px; color: #6c757d; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <h1>人脸库管理</h1>
+        <div>
+            <a href="/">← 返回管理端</a>
+            <a href="/logout">退出</a>
+        </div>
+    </div>
+    <div class="wrap">
+        <div id="engineStatus" class="status">正在检查模型状态…</div>
+
+        <div class="card">
+            <h2>录入人员</h2>
+            <p class="hint">上传<strong>仅含一张正面人脸</strong>的照片，系统使用 buffalo_l 提取特征并写入人脸库。</p>
+            <form id="enrollForm">
+                <label>姓名 *</label>
+                <input type="text" id="enrollName" required placeholder="张三">
+                <label>部门</label>
+                <input type="text" id="enrollDept" placeholder="安保部">
+                <label>备注</label>
+                <input type="text" id="enrollRemark" placeholder="可选">
+                <label>照片 *</label>
+                <input type="file" id="enrollPhoto" accept="image/*" required>
+                <div style="margin-top: 12px;">
+                    <button type="submit" class="btn btn-primary">录入</button>
+                </div>
+            </form>
+            <div id="enrollMsg" class="msg"></div>
+        </div>
+
+        <div class="card">
+            <h2>人员列表 <span id="personCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>照片</th>
+                        <th>姓名</th>
+                        <th>部门</th>
+                        <th>录入时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="personTableBody">
+                    <tr><td colspan="5" style="text-align:center;color:#6c757d;">加载中…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        function showMsg(el, text, ok) {
+            el.textContent = text;
+            el.className = 'msg show ' + (ok ? 'ok' : 'err');
+        }
+
+        async function loadStatus() {
+            const el = document.getElementById('engineStatus');
+            try {
+                const r = await fetch('/api/face-library');
+                const data = await r.json();
+                if (data.engine_ready) {
+                    el.className = 'status ok';
+                    el.textContent = '人脸识别模型已就绪（buffalo_l）。当前库内 ' + (data.count || 0) + ' 人。';
+                } else {
+                    el.className = 'status bad';
+                    el.textContent = '模型未就绪：请确认 models/buffalo_l/det_10g.onnx 与 w600k_r50.onnx 存在。';
+                }
+                renderTable(data.persons || []);
+            } catch (e) {
+                el.className = 'status bad';
+                el.textContent = '加载失败：' + e.message;
+            }
+        }
+
+        function renderTable(persons) {
+            const tbody = document.getElementById('personTableBody');
+            document.getElementById('personCount').textContent = '(' + persons.length + ' 人)';
+            if (!persons.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6c757d;">暂无人员，请先录入</td></tr>';
+                return;
+            }
+            tbody.innerHTML = persons.map(p => `
+                <tr>
+                    <td><img class="thumb" src="/api/face-library/${encodeURIComponent(p.id)}/photo" alt="" onerror="this.style.display='none'"></td>
+                    <td>${escapeHtml(p.name)}</td>
+                    <td>${escapeHtml(p.department || '')}</td>
+                    <td>${escapeHtml((p.created_at || '').replace('T', ' '))}</td>
+                    <td><button type="button" class="btn btn-danger" data-id="${escapeHtml(p.id)}" onclick="deletePerson(this)">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function deletePerson(btn) {
+            const id = btn.getAttribute('data-id');
+            if (!id || !confirm('确定删除该人员？')) return;
+            const r = await fetch('/api/face-library/' + encodeURIComponent(id), { method: 'DELETE' });
+            const data = await r.json();
+            if (data.success) loadStatus();
+            else alert(data.message || '删除失败');
+        }
+
+        document.getElementById('enrollForm').addEventListener('submit', async function(ev) {
+            ev.preventDefault();
+            const msg = document.getElementById('enrollMsg');
+            const fd = new FormData();
+            fd.append('name', document.getElementById('enrollName').value.trim());
+            fd.append('department', document.getElementById('enrollDept').value.trim());
+            fd.append('remark', document.getElementById('enrollRemark').value.trim());
+            fd.append('photo', document.getElementById('enrollPhoto').files[0]);
+            try {
+                const r = await fetch('/api/face-library', { method: 'POST', body: fd });
+                const data = await r.json();
+                if (data.success) {
+                    showMsg(msg, '录入成功：' + (data.name || ''), true);
+                    document.getElementById('enrollForm').reset();
+                    loadStatus();
+                } else {
+                    showMsg(msg, data.message || '录入失败', false);
+                }
+            } catch (e) {
+                showMsg(msg, '请求失败：' + e.message, false);
+            }
+        });
+
+        loadStatus();
+    </script>
+</body>
+</html>

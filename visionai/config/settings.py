@@ -175,6 +175,29 @@ FACE_MODEL_PATH = _cfg_path("FACE_MODEL_PATH", _models_default("face_detection.o
 FACE_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FACE_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 FACE_MIN_DURATION_SEC = max(0.0, _cfg_float("FACE_MIN_DURATION_SEC", 0.0))
 
+# 人脸识别（InsightFace buffalo_l，模型目录 models/buffalo_l/）
+FACE_RECOG_MODEL_ROOT = _cfg_path("FACE_RECOG_MODEL_ROOT", PROJECT_ROOT)
+_ds = max(320, min(1280, _cfg_int("FACE_RECOG_DET_SIZE", 640)))
+FACE_RECOG_DET_SIZE = (_ds, _ds)
+FACE_RECOG_DET_MODEL_PATH = _cfg_path(
+    "FACE_RECOG_DET_MODEL_PATH", os.path.join("models", "buffalo_l", "det_10g.onnx")
+)
+FACE_RECOG_EMBED_MODEL_PATH = _cfg_path(
+    "FACE_RECOG_EMBED_MODEL_PATH", os.path.join("models", "buffalo_l", "w600k_r50.onnx")
+)
+FACE_RECOG_DET_CONF = max(0.05, min(0.99, _cfg_float("FACE_RECOG_DET_CONF", 0.5)))
+FACE_RECOG_ROTATE = max(0, min(360, _cfg_int("FACE_RECOG_ROTATE", 0)))
+FACE_RECOGNITION_THRESHOLD = max(
+    0.05, min(0.99, _cfg_float("FACE_RECOGNITION_THRESHOLD", 0.45))
+)
+FACE_RECOGNITION_MIN_DURATION_SEC = max(
+    0.0, _cfg_float("FACE_RECOGNITION_MIN_DURATION_SEC", 2.0)
+)
+FACE_LIBRARY_DIR = _cfg_path("FACE_LIBRARY_DIR", os.path.join(PROJECT_ROOT, "face_library"))
+FACE_RECOGNITION_MAX_FACES_PER_FRAME = max(
+    1, _cfg_int("FACE_RECOGNITION_MAX_FACES_PER_FRAME", 5)
+)
+
 FALL_MODEL_PATH = _cfg_path("FALL_MODEL_PATH", _models_default("fall_detection.onnx"))
 FALL_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FALL_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
 FALL_SCORE_THRESHOLD = max(
@@ -275,7 +298,7 @@ SAVE_FORMAT = "%Y%m%d_%H%M%S_%f.jpg"
 SAVE_INTERVAL = _cfg_int("SAVE_INTERVAL", 10)
 
 # YOLO
-YOLO_MODEL = _cfg_path("YOLO_MODEL", "yolov8n.pt")
+YOLO_MODEL = _cfg_path("YOLO_MODEL", _models_default("yolov8n.pt"))
 
 # 打电话 / 玩手机：YOLO+COCO overlap 后用工单人体姿态（YOLOv8 pose）把手机中心与耳根/口鼻/手腕比距分类
 POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolov8n-pose.pt"))

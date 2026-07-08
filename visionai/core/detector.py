@@ -22,6 +22,7 @@ from visionai.config.detection_catalog import (
     PHONE_PLAY_KEY,
     SCENE_BEHAVIOR_KEYS,
     SMOKE_KEY,
+    FACE_RECOG_KEY,
     normalize_detections,
     label_zh_for_class,
     label_zh_for_extension,
@@ -43,6 +44,10 @@ from visionai.config.settings import (
     yolo_inference_device,
 )
 from visionai.core.behaviors import BehaviorContext, run_behaviors
+from visionai.core.face_recognition_config import (
+    default_face_recognition_config,
+    normalize_face_recognition_config,
+)
 from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
@@ -76,6 +81,7 @@ _BEHAVIOR_COLORS = {
     "safety_helmet": (0, 215, 255),
     "sleeping": (200, 160, 60),
     "face": (80, 200, 255),
+    FACE_RECOG_KEY: (0, 200, 0),
     "flame": (0, 80, 255),
     "license_plate": (255, 180, 0),
     "road_waterlogging": (255, 120, 0),
@@ -107,6 +113,7 @@ class Detector:
         self.alert_email_enabled: bool = True
         self.alert_webhook_urls: List[str] = []
         self.alert_webhook_enabled: bool = False
+        self.face_recognition_config = default_face_recognition_config()
         self._load_model()
 
     def _load_model(self):
@@ -164,6 +171,7 @@ class Detector:
         phone_play_on = self.detections.get(PHONE_PLAY_KEY, False)
         gather_on = self.detections.get(GATHER_KEY, False)
         smoke_on = self.detections.get(SMOKE_KEY, False)
+        face_recog_on = self.detections.get(FACE_RECOG_KEY, False)
         person_behavior_on = any(self.detections.get(k, False) for k in PERSON_BEHAVIOR_KEYS)
         scene_behavior_on = any(self.detections.get(k, False) for k in SCENE_BEHAVIOR_KEYS)
         use_dedicated_call = (
@@ -189,7 +197,7 @@ class Detector:
             or other_person_behaviors
         )
         collect_phone = alarm_phone or (call_on and not use_dedicated_call) or phone_play_on
-        behavior_needed = smoke_on or person_behavior_on or scene_behavior_on
+        behavior_needed = smoke_on or person_behavior_on or scene_behavior_on or face_recog_on
         behavior_src = frame.copy() if behavior_needed else None
 
         for result in results:
@@ -298,6 +306,7 @@ class Detector:
                 cell_phones=cell_phones,
                 stream_name=self.stream_name,
                 now=now,
+                extra={"face_recognition_config": self.face_recognition_config},
             )
             behaviors_out = run_behaviors(ctx, self._behavior_state, self.detections)
 
@@ -522,6 +531,33 @@ class Detector:
                 sconf = float(bx.get("confidence", 0.0))
                 draw_labeled_box(frame, bx.get("box"), f"{nm}: {sconf:.2f}", color)
 
+        fr_result = behaviors_out.get(FACE_RECOG_KEY, {})
+        if face_recog_on:
+            alert_keys: set = set()
+            if fr_result.get("alert"):
+                for m in fr_result.get("alert_matches") or []:
+                    if m.get("match_type") == "known":
+                        alert_keys.add(str(m.get("person_id") or ""))
+                    else:
+                        alert_keys.add(f"unknown_{m.get('face_key')}")
+            for m in fr_result.get("matches") or []:
+                box = m.get("box")
+                if not box:
+                    continue
+                name = str(m.get("person_name") or "陌生人")
+                sim = float(m.get("similarity", 0.0))
+                mt = m.get("match_type")
+                if mt == "known":
+                    ak = str(m.get("person_id") or "")
+                else:
+                    ak = f"unknown_{m.get('face_key')}"
+                is_alert = ak in alert_keys
+                if mt == "known":
+                    color = (0, 220, 0) if is_alert else (0, 180, 180)
+                else:
+                    color = (0, 0, 230) if is_alert else (0, 140, 255)
+                draw_labeled_box(frame, box, f"{name} {sim:.2f}", color)
+
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
             for gi in gather_cluster_indices:
@@ -567,6 +603,7 @@ class Detector:
         should_save = False
         info = []
         detection_types = []
+        detection_extra = None
 
         by_class = detections.get("by_class", {})
         for cid, items in by_class.items():
@@ -608,8 +645,40 @@ class Detector:
             info.append(f"吸烟: {n_s}")
             detection_types.append("吸烟")
 
+        fr_saved = behaviors_saved.get(FACE_RECOG_KEY, {})
+        if self.detections.get(FACE_RECOG_KEY, False) and fr_saved.get("alert"):
+            alert_matches = fr_saved.get("alert_matches") or []
+            if alert_matches:
+                should_save = True
+                fr_extra_matches = []
+                for m in alert_matches:
+                    name = str(m.get("person_name") or "陌生人")
+                    mt = m.get("match_type")
+                    sim = float(m.get("similarity", 0.0))
+                    if mt == "known":
+                        label = f"人脸识别: {name}"
+                    else:
+                        label = "人脸识别: 陌生人"
+                    detection_types.append(label)
+                    info.append(f"{label} ({sim:.2f})")
+                    fr_extra_matches.append(
+                        {
+                            "person_id": m.get("person_id"),
+                            "person_name": name,
+                            "similarity": sim,
+                            "match_type": mt,
+                            "box": m.get("box"),
+                        }
+                    )
+                detection_extra = {
+                    "face_recognition": {
+                        "trigger_types": fr_saved.get("trigger_types") or [],
+                        "matches": fr_extra_matches,
+                    }
+                }
+
         for ek in EXTENSION_KEYS:
-            if ek in (SMOKE_KEY,):
+            if ek in (SMOKE_KEY, FACE_RECOG_KEY):
                 continue
             if not self.detections.get(ek, False):
                 continue
@@ -684,6 +753,7 @@ class Detector:
                 timestamp=now,
                 object_key=object_key,
                 storage_kind=storage_kind,
+                extra=detection_extra,
             )
             if rec_id and self.alert_emails and self.alert_email_enabled:
                 img_for_mail = (

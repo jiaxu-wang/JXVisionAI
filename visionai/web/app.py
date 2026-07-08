@@ -51,6 +51,7 @@ from visionai.utils.alert_webhook import (
 )
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.config.detection_catalog import catalog_items_for_api, normalize_detections
+from visionai.core.face_recognition_config import normalize_face_recognition_config
 from visionai.config.ini_manager import (
     config_meta,
     patch_config_updates,
@@ -204,6 +205,9 @@ def get_streams():
         stream_copy['alert_webhook_enabled'] = normalize_stream_alert_webhook_enabled(
             stream_copy.get('alert_webhook_enabled')
         )
+        stream_copy['face_recognition_config'] = normalize_face_recognition_config(
+            stream_copy.get('face_recognition_config')
+        )
         # 添加状态信息
         if stream_status_lock:
             with stream_status_lock:
@@ -260,6 +264,9 @@ def save_streams():
             )
             stream['alert_webhook_enabled'] = normalize_stream_alert_webhook_enabled(
                 stream.get('alert_webhook_enabled')
+            )
+            stream['face_recognition_config'] = normalize_face_recognition_config(
+                stream.get('face_recognition_config')
             )
         
         # 保存到Redis
@@ -781,6 +788,123 @@ def logout():
     """退出登录"""
     session.pop('logged_in', None)
     return redirect(url_for('login'))
+
+
+@app.route('/face-library')
+@login_required
+def face_library_page():
+    """人脸库管理页"""
+    return render_template('face_library.html')
+
+
+@app.route('/api/face-library', methods=['GET'])
+@login_required
+def api_face_library_list():
+    from visionai.core import face_engine, face_library
+
+    return jsonify(
+        {
+            "persons": face_library.list_persons(),
+            "count": face_library.person_count(),
+            "engine_ready": face_engine.is_available(),
+        }
+    )
+
+
+@app.route('/api/face-library', methods=['POST'])
+@login_required
+def api_face_library_enroll():
+    import cv2
+    import numpy as np
+    from visionai.core import face_library
+
+    name = (request.form.get("name") or "").strip()
+    department = (request.form.get("department") or "").strip()
+    remark = (request.form.get("remark") or "").strip()
+    if not name:
+        return jsonify({"success": False, "message": "请填写姓名"}), 400
+    photo = request.files.get("photo")
+    if not photo or not photo.filename:
+        return jsonify({"success": False, "message": "请上传照片"}), 400
+
+    buf = np.frombuffer(photo.read(), dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({"success": False, "message": "图片格式无效"}), 400
+    try:
+        result = face_library.enroll_person(
+            img, name=name, department=department, remark=remark
+        )
+        return jsonify({"success": True, **result})
+    except ValueError as ex:
+        return jsonify({"success": False, "message": str(ex)}), 400
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+@app.route('/api/face-library/<person_id>', methods=['GET'])
+@login_required
+def api_face_library_get(person_id):
+    from visionai.core import face_library
+
+    person = face_library.get_person(person_id)
+    if not person:
+        return jsonify({"success": False, "message": "人员不存在"}), 404
+    return jsonify({"success": True, "person": person})
+
+
+@app.route('/api/face-library/<person_id>', methods=['PUT'])
+@login_required
+def api_face_library_update(person_id):
+    from visionai.core import face_library
+
+    data = request.get_json(silent=True) or {}
+    ok = face_library.update_person(
+        person_id,
+        name=data.get("name"),
+        department=data.get("department"),
+        remark=data.get("remark"),
+    )
+    if not ok:
+        return jsonify({"success": False, "message": "人员不存在"}), 404
+    return jsonify({"success": True, "message": "更新成功"})
+
+
+@app.route('/api/face-library/<person_id>', methods=['DELETE'])
+@login_required
+def api_face_library_delete(person_id):
+    from visionai.core import face_library
+
+    if not face_library.delete_person(person_id):
+        return jsonify({"success": False, "message": "人员不存在"}), 404
+    return jsonify({"success": True, "message": "删除成功"})
+
+
+@app.route('/api/face-library/<person_id>/photo')
+@login_required
+def api_face_library_photo(person_id):
+    from flask import Response
+    from visionai.core import face_library
+
+    data = face_library.get_photo_bytes(person_id)
+    if not data:
+        abort(404)
+    return Response(data, mimetype="image/jpeg")
+
+
+@app.route('/api/face-library/reload', methods=['POST'])
+@login_required
+def api_face_library_reload():
+    from visionai.core import face_library
+
+    face_library.reload_index()
+    return jsonify(
+        {
+            "success": True,
+            "count": face_library.person_count(),
+            "embeddings": face_library.embedding_count(),
+        }
+    )
 
 
 from visionai.web.training_routes import init_training_lab  # noqa: E402

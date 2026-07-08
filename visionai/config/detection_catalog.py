@@ -191,6 +191,7 @@ PHONE_PLAY_KEY = "phone_play"
 GATHER_KEY = "gather"
 SMOKE_KEY = "smoking"
 FACE_KEY = "face"
+FACE_RECOG_KEY = "face_recognition"
 FALL_KEY = "fall"
 FLAME_KEY = "flame"
 LICENSE_PLATE_KEY = "license_plate"
@@ -206,6 +207,7 @@ EXTENSION_KEYS: Tuple[str, ...] = (
     GATHER_KEY,
     SMOKE_KEY,
     FACE_KEY,
+    FACE_RECOG_KEY,
     FALL_KEY,
     FLAME_KEY,
     LICENSE_PLATE_KEY,
@@ -222,6 +224,7 @@ EXTENSION_LABELS_ZH: Dict[str, str] = {
     GATHER_KEY: "人员聚集",
     SMOKE_KEY: "吸烟",
     FACE_KEY: "人脸",
+    FACE_RECOG_KEY: "人脸识别",
     FALL_KEY: "跌倒",
     FLAME_KEY: "火焰",
     LICENSE_PLATE_KEY: "车牌",
@@ -254,6 +257,11 @@ EXTENSION_CATALOG_META: List[Dict[str, str]] = [
         "name_zh": "吸烟（smoking_detection.pt）",
     },
     {"key": FACE_KEY, "name_en": "face detection", "name_zh": EXTENSION_LABELS_ZH[FACE_KEY]},
+    {
+        "key": FACE_RECOG_KEY,
+        "name_en": "face recognition (library match / stranger alert)",
+        "name_zh": EXTENSION_LABELS_ZH[FACE_RECOG_KEY],
+    },
     {"key": FALL_KEY, "name_en": "fall detection", "name_zh": EXTENSION_LABELS_ZH[FALL_KEY]},
     {"key": FLAME_KEY, "name_en": "fire and smoke", "name_zh": EXTENSION_LABELS_ZH[FLAME_KEY]},
     {
