@@ -20,7 +20,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY visionai/ ./visionai/
+COPY jxvisionai/ ./jxvisionai/
 COPY config/ ./config/
 
 RUN mkdir -p /app/snapshots /app/logs
@@ -28,4 +28,4 @@ RUN mkdir -p /app/snapshots /app/logs
 EXPOSE 5000
 
 # 首次运行若无 yolov8n.pt，ultralytics 会自动下载
-CMD ["python", "-m", "visionai"]
+CMD ["python", "-m", "jxvisionai"]

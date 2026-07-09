@@ -1,6 +1,6 @@
 # 配置说明
 
-**优先级**：环境变量 → `config/config.ini`（`[visionai]` 段，键**小写**）→ `visionai/config/settings.py` 内置默认。
+**优先级**：环境变量 → `config/config.ini`（`[visionai]` 段，键**小写**）→ `jxvisionai/config/settings.py` 内置默认。
 
 修改 `config.ini` 或环境变量后须 **`./stop.sh && ./start.sh` 重启**。也可用 `VISIONAI_CONFIG` 指定其它 ini 路径。
 

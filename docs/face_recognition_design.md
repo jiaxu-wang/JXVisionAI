@@ -42,7 +42,7 @@
 
 **可以实现。** 现有架构已具备：
 
-- 行为插件框架（`visionai/core/behaviors/`）
+- 行为插件框架（`jxvisionai/core/behaviors/`）
 - 按流检测开关（Redis `detections` 字段）
 - 告警入库与通知（`detector.save_snapshot` → Redis → SMTP / Webhook）
 - ONNX 推理栈（`onnxruntime`，与吸烟检测同类）
@@ -121,7 +121,7 @@ docs/
 
 ### 2.3 与现有处理链路集成
 
-主循环（`visionai/__main__.py`）不变。在 `Detector.detect()` → `process_results()` → `save_snapshot()` 链路中：
+主循环（`jxvisionai/__main__.py`）不变。在 `Detector.detect()` → `process_results()` → `save_snapshot()` 链路中：
 
 1. `run_behaviors()` 调度 `FaceRecognitionBehaviorPlugin`（当 `detections.face_recognition = true`）。
 2. `process_results()` 在画面上标注 `张三 0.82` 或 `陌生人`。
@@ -629,20 +629,20 @@ EXTENSION_CATALOG_META 追加:
 
 | 文件 | 改动类型 | 说明 |
 |------|---------|------|
-| `visionai/config/detection_catalog.py` | 修改 | 新增 `FACE_RECOG_KEY`、标签、目录元数据 |
-| `visionai/config/settings.py` | 修改 | 新增全局配置项 |
-| `visionai/config/config_schema.py` | 修改 | 配置页字段描述 |
-| `visionai/core/face_embedder.py` | **新增** | ArcFace ONNX 加载与推理 |
-| `visionai/core/face_library.py` | **新增** | 库 CRUD、索引、比对 |
-| `visionai/core/behaviors/face_recognition.py` | **新增** | 识别插件 |
-| `visionai/core/behaviors/registry.py` | 修改 | 注册插件 |
-| `visionai/core/detector.py` | 修改 | 画框、save_snapshot 处理识别结果 |
-| `visionai/core/redis_manager.py` | 修改 | `save_detection` 支持 `extra` |
-| `visionai/utils/alert_email.py` | 修改 | 邮件正文含识别信息 |
-| `visionai/utils/alert_webhook.py` | 修改 | Webhook payload 含识别信息 |
-| `visionai/web/app.py` | 修改 | 人脸库 API、页面路由 |
-| `visionai/web/templates/admin.html` | 修改 | 流配置 UI |
-| `visionai/web/templates/face_library.html` | **新增** | 人脸库管理页 |
+| `jxvisionai/config/detection_catalog.py` | 修改 | 新增 `FACE_RECOG_KEY`、标签、目录元数据 |
+| `jxvisionai/config/settings.py` | 修改 | 新增全局配置项 |
+| `jxvisionai/config/config_schema.py` | 修改 | 配置页字段描述 |
+| `jxvisionai/core/face_embedder.py` | **新增** | ArcFace ONNX 加载与推理 |
+| `jxvisionai/core/face_library.py` | **新增** | 库 CRUD、索引、比对 |
+| `jxvisionai/core/behaviors/face_recognition.py` | **新增** | 识别插件 |
+| `jxvisionai/core/behaviors/registry.py` | 修改 | 注册插件 |
+| `jxvisionai/core/detector.py` | 修改 | 画框、save_snapshot 处理识别结果 |
+| `jxvisionai/core/redis_manager.py` | 修改 | `save_detection` 支持 `extra` |
+| `jxvisionai/utils/alert_email.py` | 修改 | 邮件正文含识别信息 |
+| `jxvisionai/utils/alert_webhook.py` | 修改 | Webhook payload 含识别信息 |
+| `jxvisionai/web/app.py` | 修改 | 人脸库 API、页面路由 |
+| `jxvisionai/web/templates/admin.html` | 修改 | 流配置 UI |
+| `jxvisionai/web/templates/face_library.html` | **新增** | 人脸库管理页 |
 | `config/config.example.ini` | 修改 | 新增配置项示例 |
 | `.gitignore` | 修改 | 忽略 `face_library/` |
 | `requirements.txt` | 不变 | 复用 onnxruntime + numpy |

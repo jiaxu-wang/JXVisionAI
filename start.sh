@@ -14,7 +14,7 @@ if [ ! -d "env" ]; then
 fi
 
 # 检查是否已存在运行中的进程
-if pgrep -f "python3 -m visionai" > /dev/null; then
+if pgrep -f "python3 -m jxvisionai" > /dev/null; then
     echo "警告: JXVisionAI 服务已在运行中！"
     echo "如果需要重启，请先运行: ./stop.sh"
     exit 1
@@ -48,13 +48,13 @@ export S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-http://127.0.0.1:9000}"
 
 # 与 TimedRotating 日志路径一致
 mkdir -p "$LOG_DIR" ./logs
-nohup python3 -m visionai > ./logs/visionai.log 2>&1 &
+nohup python3 -m jxvisionai > ./logs/visionai.log 2>&1 &
 
 # 等待服务启动
 sleep 2
 
 # 检查服务是否成功启动
-if pgrep -f "python3 -m visionai" > /dev/null; then
+if pgrep -f "python3 -m jxvisionai" > /dev/null; then
     echo "✅ JXVisionAI 服务启动成功！"
     echo "📋 Web管理界面地址: http://0.0.0.0:5000"
     echo "📝 日志文件: ./logs/visionai.log"

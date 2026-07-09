@@ -14,7 +14,7 @@ sys.path.insert(0, str(REPO))
 
 
 def _mk_project(n_images: int = 12, n_boxes_per: int = 6) -> Path:
-    from visionai.web.training_lab_core import TRAINING_TEMPLATES
+    from jxvisionai.web.training_lab_core import TRAINING_TEMPLATES
 
     base = REPO / "training_lab_data" / "projects"
     base.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,7 @@ def test_p0_augment_disabled():
 
 
 def test_p1_dataset_health():
-    from visionai.web.training_lab_core import check_dataset_health
+    from jxvisionai.web.training_lab_core import check_dataset_health
 
     pdir = _mk_project(12, 6)
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
@@ -85,7 +85,7 @@ def test_p1_dataset_health():
 
 
 def test_p1_health_blocks_small():
-    from visionai.web.training_lab_core import check_dataset_health
+    from jxvisionai.web.training_lab_core import check_dataset_health
 
     pdir = _mk_project(3, 2)
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
@@ -97,7 +97,7 @@ def test_p1_health_blocks_small():
 
 
 def test_p2_deploy_dry():
-    from visionai.web.training_lab_core import deploy_weights_to_production
+    from jxvisionai.web.training_lab_core import deploy_weights_to_production
 
     models = REPO / "models"
     src = models / "smoking_detection.pt"
@@ -120,8 +120,8 @@ def test_p2_deploy_dry():
 
 
 def test_p3_snapshot_list_import():
-    from visionai.config.settings import SAVE_DIR
-    from visionai.web.training_lab_core import import_snapshots_to_project, list_production_snapshots
+    from jxvisionai.config.settings import SAVE_DIR
+    from jxvisionai.web.training_lab_core import import_snapshots_to_project, list_production_snapshots
 
     snaps = list_production_snapshots(Path(SAVE_DIR), limit=5)
     print(f"P3 snapshot list: found {len(snaps)} under {SAVE_DIR}")
@@ -136,8 +136,8 @@ def test_p3_snapshot_list_import():
 
 
 def test_p4_templates_and_threshold():
-    from visionai.web.training_lab_core import TRAINING_TEMPLATES, suggest_thresholds_from_val
-    from visionai.web.training_lab_core import materialize_yolo_split
+    from jxvisionai.web.training_lab_core import TRAINING_TEMPLATES, suggest_thresholds_from_val
+    from jxvisionai.web.training_lab_core import materialize_yolo_split
 
     assert TRAINING_TEMPLATES["smoking"]["classes"] == ["smoking"]
     pdir = _mk_project(12, 6)
@@ -180,7 +180,7 @@ def test_evaluate_json_out():
         print("P1 evaluate --json-out: SKIP (无权重)")
         return
     pdir = _mk_project(12, 6)
-    from visionai.web.training_lab_core import materialize_yolo_split
+    from jxvisionai.web.training_lab_core import materialize_yolo_split
 
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
     yaml_path = materialize_yolo_split(pdir, meta)
