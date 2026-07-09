@@ -12,8 +12,8 @@
 ## 1. 克隆与依赖
 
 ```bash
-git clone https://github.com/jiaxu-wang/visionai.git
-cd visionai
+git clone https://github.com/jiaxu-wang/JXVisionAI.git
+cd JXVisionAI
 python3 -m venv env && source env/bin/activate   # Windows: env\Scripts\activate
 pip install -r requirements.txt
 ```

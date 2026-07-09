@@ -101,7 +101,7 @@ flowchart TB
 ## 仓库结构
 
 ```
-# 仓库根目录（GitHub 仓库名可为 visionai，与 Python 包名无关）
+# 仓库根目录（GitHub 仓库名 JXVisionAI；Python 包名 jxvisionai）
 ├── jxvisionai/                    # Python 包（python -m jxvisionai）
 │   ├── __main__.py                # 入口：流线程 + Flask
 │   ├── config/
