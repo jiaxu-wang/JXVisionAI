@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>训练实验室 · VisionAI</title>
+    <title>训练实验室 · JXVisionAI</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='training_lab.css') }}">
 </head>
 <body>
     <header class="tl-header">
         <div class="tl-brand">
-            <h1>训练实验室</h1>
-            <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注 → 训练评估 → 一键部署 → 阈值向导</p>
+            <img class="tl-logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
+            <div>
+                <h1>训练实验室</h1>
+                <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注 → 训练评估 → 一键部署 → 阈值向导</p>
+            </div>
         </div>
         <div class="tl-header-actions">
             <a href="/" class="tl-btn tl-btn-secondary">返回管理平台</a>

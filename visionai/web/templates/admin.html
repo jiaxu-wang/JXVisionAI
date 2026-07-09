@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VisionAI 管理平台</title>
+    <title>JXVisionAI 管理平台</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <script>
         (function () {
             // 在 document 捕获阶段优先处理侧栏导航，避免浏览器扩展在 document 上 stopPropagation
@@ -216,20 +218,23 @@
         
         .logo {
             text-align: center;
-            margin-bottom: 40px;
-            padding: 0 30px;
+            margin-bottom: 32px;
+            padding: 0 20px;
         }
         
         .logo img {
-            width: 60px;
-            height: 60px;
-            margin-bottom: 10px;
+            width: 100%;
+            max-width: 200px;
+            height: auto;
+            display: block;
+            margin: 0 auto 8px;
         }
         
-        .logo h1 {
-            font-size: 20px;
-            font-weight: 700;
-            color: #2196F3;
+        .logo .logo-sub {
+            font-size: 12px;
+            font-weight: 500;
+            color: #6c757d;
+            letter-spacing: 0.02em;
         }
         
         .menu {
@@ -1050,8 +1055,8 @@
         <!-- 侧边栏 -->
         <div class="sidebar">
             <div class="logo">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="VisionAI Logo" style="width: 60px; height: 60px; border-radius: 12px; margin-bottom: 10px;">
-                <h1>VisionAI 管理平台</h1>
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
+                <div class="logo-sub">管理平台</div>
             </div>
             <ul class="menu">
                 <li class="menu-item">

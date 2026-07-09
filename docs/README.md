@@ -1,4 +1,8 @@
-# VisionAI 文档
+# JXVisionAI 文档
+
+<p align="center">
+  <img src="assets/logo.png" alt="JXVisionAI" width="360">
+</p>
 
 本目录收录项目的架构说明、配置参考、使用指南与详细设计。
 

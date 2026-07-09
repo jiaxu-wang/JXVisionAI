@@ -3,11 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>人脸库管理 - VisionAI</title>
+    <title>人脸库管理 - JXVisionAI</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #212529; }
         .top { background: #fff; border-bottom: 1px solid #e9ecef; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .top-brand { display: flex; align-items: center; gap: 12px; }
+        .top-brand img { height: 36px; width: auto; }
         .top h1 { margin: 0; font-size: 20px; }
         .top a { color: #2196F3; text-decoration: none; margin-left: 16px; }
         .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
@@ -35,7 +39,10 @@
 </head>
 <body>
     <div class="top">
-        <h1>人脸库管理</h1>
+        <div class="top-brand">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
+            <h1>人脸库管理</h1>
+        </div>
         <div>
             <a href="/">← 返回管理端</a>
             <a href="/logout">退出</a>

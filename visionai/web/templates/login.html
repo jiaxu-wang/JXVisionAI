@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VisionAI 登录</title>
+    <title>JXVisionAI 登录</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <style>
         * {
             margin: 0;
@@ -13,7 +15,7 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(160deg, #e8f4fc 0%, #f5f7fa 45%, #dceef8 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -36,17 +38,10 @@
         }
         
         .login-header img {
-            width: 80px;
-            height: 80px;
-            margin-bottom: 20px;
-            border-radius: 16px;
-        }
-        
-        .login-header h1 {
-            font-size: 24px;
-            font-weight: 700;
-            color: #2196F3;
-            margin-bottom: 10px;
+            width: 100%;
+            max-width: 280px;
+            height: auto;
+            margin-bottom: 16px;
         }
         
         .login-header p {
@@ -118,9 +113,8 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="VisionAI Logo">
-            <h1>VisionAI 管理平台</h1>
-            <p>请输入秘钥登录</p>
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
+            <p>管理平台 · 请输入秘钥登录</p>
         </div>
         
         {% if error %}

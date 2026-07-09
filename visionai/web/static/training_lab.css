@@ -12,6 +12,18 @@ body {
   padding: 16px 24px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
+.tl-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tl-logo {
+  height: 44px;
+  width: auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
 .tl-brand h1 { font-size: 1.35rem; font-weight: 600; }
 .tl-sub { font-size: 0.82rem; color: #94a3b8; margin-top: 4px; }
 .tl-header-actions { display: flex; gap: 10px; }
