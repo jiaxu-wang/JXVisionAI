@@ -14,7 +14,7 @@ grep -E "开始处理|检测到|face_recognition|YOLO模型|ERROR|离线" logs/v
 ## 正常启动日志示例
 
 ```
-VisionAI 启动
+JXVisionAI 启动
 已启动视频流处理线程: test
 [test] 视频流连接成功
 [test] 视频流已连接，正在加载检测模型…

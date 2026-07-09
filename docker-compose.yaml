@@ -1,4 +1,4 @@
-# VisionAI + Redis + MinIO（S3 兼容，可换为云 S3：改环境变量并去掉 minio 服务）
+# JXVisionAI + Redis + MinIO（S3 兼容，可换为云 S3：改环境变量并去掉 minio 服务）
 # 使用：docker-compose up -d --build
 # 管理界面：http://localhost:5000
 # MinIO 控制台：http://localhost:9001 用户/密码同 MINIO_ROOT_*

@@ -1,4 +1,4 @@
-# VisionAI：YOLO 视频检测 + Flask 管理端
+# JXVisionAI：YOLO 视频检测 + Flask 管理端
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \

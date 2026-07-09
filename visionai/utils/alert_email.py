@@ -94,7 +94,7 @@ def _build_message(
 ) -> MIMEMultipart:
     msg = MIMEMultipart()
     msg["From"] = SMTP_FROM
-    subject = f"VisionAI 告警 | {stream_name} | {', '.join(detection_types)}"
+    subject = f"JXVisionAI 告警 | {stream_name} | {', '.join(detection_types)}"
     msg["Subject"] = Header(subject, "utf-8")
 
     lines = [
@@ -102,7 +102,7 @@ def _build_message(
         f"时间: {ts.isoformat(timespec='seconds')}",
         f"类型: {', '.join(detection_types)}",
         "",
-        "（本邮件由 VisionAI 自动发送）",
+        "（本邮件由 JXVisionAI 自动发送）",
     ]
     body = "\n".join(lines)
     msg.attach(MIMEText(body, "plain", "utf-8"))

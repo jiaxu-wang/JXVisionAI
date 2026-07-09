@@ -35,7 +35,7 @@ training_system/
 
 确保已安装所需依赖：
 ```bash
-cd /home/wjx/code/VisionAI
+cd /home/wjx/code/JXVisionAI
 source env/bin/activate
 pip install ultralytics opencv-python numpy pyyaml
 ```
@@ -77,7 +77,7 @@ python scripts/prepare_data.py \
 在 `configs/` 目录创建 `data.yaml` 文件：
 
 ```yaml
-path: /home/wjx/code/VisionAI/training_system/data
+path: /home/wjx/code/JXVisionAI/training_system/data
 train: images/train
 val: images/val
 test: images/test
@@ -133,14 +133,14 @@ python scripts/export.py export \
     --format onnx \
     --imgsz 640
 
-# 部署到VisionAI系统
+# 部署到JXVisionAI系统
 python scripts/export.py deploy \
     --model outputs/smoking_detection/weights/best.pt \
     --target_dir ../ \
     --model_name smoking_detection.pt
 ```
 
-### 8. 在VisionAI中使用新模型
+### 8. 在JXVisionAI中使用新模型
 
 修改 `visionai/config/settings.py`：
 
@@ -157,7 +157,7 @@ DETECTION_CLASSES = {
 }
 ```
 
-重启VisionAI服务：
+重启JXVisionAI服务：
 ```bash
 cd ..
 ./stop.sh
@@ -360,12 +360,12 @@ A:
 4. 调整超参数（学习率、批次大小等）
 5. 进行数据增强
 
-### Q: 如何将训练好的模型集成到VisionAI？
+### Q: 如何将训练好的模型集成到JXVisionAI？
 A: 
 1. 使用export.py的deploy命令部署模型
 2. 修改visionai/config/settings.py中的YOLO_MODEL配置
 3. 更新DETECTION_CLASSES映射
-4. 重启VisionAI服务
+4. 重启JXVisionAI服务
 
 ## 技术支持
 

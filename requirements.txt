@@ -1,4 +1,4 @@
-# VisionAI 运行时依赖（与 README 一致；Docker 使用 opencv-python-headless）
+# JXVisionAI 运行时依赖（与 README 一致；Docker 使用 opencv-python-headless）
 opencv-python-headless>=4.8.0,<5.0
 ultralytics>=8.0.0
 numpy>=1.24.0,<3.0

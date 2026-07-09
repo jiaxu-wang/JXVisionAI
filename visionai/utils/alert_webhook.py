@@ -85,7 +85,7 @@ def _post_one(url: str, payload: Dict[str, Any], timeout: float) -> None:
         data=body,
         headers={
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "VisionAI-Webhook/1.0",
+            "User-Agent": "JXVisionAI-Webhook/1.0",
         },
         method="POST",
     )

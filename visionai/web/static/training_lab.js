@@ -789,7 +789,7 @@
       !window.confirm(
         '将 best.pt 部署到 models/ 并更新 config.ini（' +
           state.deployTarget +
-          '）。需重启 VisionAI 后生效。继续？'
+          '）。需重启 JXVisionAI 后生效。继续？'
       )
     ) {
       return;

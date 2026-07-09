@@ -1,4 +1,4 @@
-"""VisionAI Web管理界面"""
+"""JXVisionAI Web管理界面"""
 import os
 import sys
 import json

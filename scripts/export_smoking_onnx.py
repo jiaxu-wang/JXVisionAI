@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 Hugging Face 导出吸烟二分类 ONNX，供 VisionAI 行为层使用。
+"""从 Hugging Face 导出吸烟二分类 ONNX，供 JXVisionAI 行为层使用。
 
 默认模型: dima806/smoker_image_classification (ViT，类别 0=notsmoking, 1=smoking)。
 

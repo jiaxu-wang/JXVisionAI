@@ -437,7 +437,7 @@ def deploy_weights_to_production(
         patch_config_updates(dict(spec["config_updates"]))
         config_patched = True
 
-    msg = "已部署到 models/，请重启 VisionAI 服务后生效"
+    msg = "已部署到 models/，请重启 JXVisionAI 服务后生效"
     if warn:
         msg = warn + "；" + msg
     return {

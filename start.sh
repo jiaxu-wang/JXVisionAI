@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "========================================="
-echo "          VisionAI 启动脚本"
+echo "          JXVisionAI 启动脚本"
 echo "========================================="
 
 # 检查虚拟环境是否存在（勿对系统 Python 执行 pip：Debian/Ubuntu 上会因 PEP 668 报错）
@@ -15,13 +15,13 @@ fi
 
 # 检查是否已存在运行中的进程
 if pgrep -f "python3 -m visionai" > /dev/null; then
-    echo "警告: VisionAI 服务已在运行中！"
+    echo "警告: JXVisionAI 服务已在运行中！"
     echo "如果需要重启，请先运行: ./stop.sh"
     exit 1
 fi
 
 # 激活虚拟环境并启动服务
-echo "正在启动 VisionAI 服务..."
+echo "正在启动 JXVisionAI 服务..."
 source env/bin/activate
 
 # 与 requirements.txt 保持同步（新增依赖后无需手动 pip）
@@ -55,12 +55,12 @@ sleep 2
 
 # 检查服务是否成功启动
 if pgrep -f "python3 -m visionai" > /dev/null; then
-    echo "✅ VisionAI 服务启动成功！"
+    echo "✅ JXVisionAI 服务启动成功！"
     echo "📋 Web管理界面地址: http://0.0.0.0:5000"
     echo "📝 日志文件: ./logs/visionai.log"
     echo "🔧 停止服务: ./stop.sh"
 else
-    echo "❌ VisionAI 服务启动失败！"
+    echo "❌ JXVisionAI 服务启动失败！"
     echo "请查看日志: ./logs/visionai.log"
     exit 1
 fi

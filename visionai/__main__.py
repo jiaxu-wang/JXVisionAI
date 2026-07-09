@@ -1,4 +1,4 @@
-"""VisionAI主程序入口"""
+"""JXVisionAI主程序入口"""
 
 import logging
 import threading
@@ -275,7 +275,7 @@ def main():
     """主函数"""
     # 设置日志
     logger = setup_logger()
-    logger.info("VisionAI 启动")
+    logger.info("JXVisionAI 启动")
     
     # 创建保存根目录
     os.makedirs(SAVE_DIR, exist_ok=True)

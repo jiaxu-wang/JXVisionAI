@@ -17,7 +17,7 @@ from visionai.core import face_engine, face_library
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="VisionAI 人脸识别测试")
+    parser = argparse.ArgumentParser(description="JXVisionAI 人脸识别测试")
     parser.add_argument("--image", required=True, help="测试图片路径")
     parser.add_argument("--name", default="测试人员", help="录入姓名（--enroll 时）")
     parser.add_argument("--enroll", action="store_true", help="录入到人脸库")
