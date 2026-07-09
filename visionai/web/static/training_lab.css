@@ -18,11 +18,11 @@ body {
   gap: 14px;
 }
 .tl-logo {
-  height: 44px;
+  height: 36px;
   width: auto;
   background: #fff;
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 6px 10px;
 }
 .tl-brand h1 { font-size: 1.35rem; font-weight: 600; }
 .tl-sub { font-size: 0.82rem; color: #94a3b8; margin-top: 4px; }
