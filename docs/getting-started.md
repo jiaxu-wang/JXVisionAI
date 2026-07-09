@@ -64,7 +64,8 @@ docker compose up -d                # Redis + MinIO
 ```
 models/buffalo_l/
 ├── det_10g.onnx      # SCRFD 人脸检测（含 5 点关键点）
-└── w600k_r50.onnx    # ArcFace 特征提取
+├── w600k_r50.onnx    # ArcFace 特征提取
+└── genderage.onnx    # 性别/年龄（可选；在检测类型配置中按流勾选启用）
 ```
 
 ### 扩展专模（按需在「检测类型配置」中开启）

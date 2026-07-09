@@ -29,10 +29,14 @@ fi
 echo "正在启动 JXVisionAI 服务..."
 source env/bin/activate
 
-# 与 requirements.txt 保持同步（新增依赖后无需手动 pip）
-if ! pip install -q -r requirements.txt; then
-    echo "错误: pip install -r requirements.txt 失败，请检查网络与虚拟环境"
-    exit 1
+# 默认跳过 pip（依赖已装好时启动更快，也避免代理/网络卡住）
+# 需要同步依赖时：FORCE_PIP_INSTALL=1 ./start.sh
+if [ "${FORCE_PIP_INSTALL:-0}" = "1" ]; then
+    echo "正在同步 Python 依赖（FORCE_PIP_INSTALL=1）..."
+    if ! pip install -q -r requirements.txt; then
+        echo "错误: pip install -r requirements.txt 失败，请检查网络与虚拟环境"
+        exit 1
+    fi
 fi
 
 # 本机直跑时覆盖「Docker 专用」的 config（config.ini 里常有 redis:6379、/app/...）

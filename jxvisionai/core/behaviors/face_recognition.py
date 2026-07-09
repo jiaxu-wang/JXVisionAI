@@ -11,6 +11,7 @@ from jxvisionai.core import face_engine, face_library
 from jxvisionai.core.behaviors.common import apply_keyed_duration_alert
 from jxvisionai.core.behaviors.context import BehaviorContext
 from jxvisionai.core.face_recognition_config import (
+    effective_genderage_enabled,
     effective_min_duration,
     effective_rotate,
     effective_threshold,
@@ -55,6 +56,7 @@ class FaceRecognitionBehaviorPlugin:
         threshold = effective_threshold(cfg)
         min_dur = effective_min_duration(cfg)
         rotate = effective_rotate(cfg)
+        want_genderage = effective_genderage_enabled(cfg)
         watchlist = cfg.get("watchlist") or []
         lib_empty = face_library.person_count() == 0
 
@@ -62,6 +64,7 @@ class FaceRecognitionBehaviorPlugin:
             ctx.frame_source,
             max_faces=FACE_RECOGNITION_MAX_FACES_PER_FRAME,
             rotate=rotate,
+            genderage=want_genderage,
         )
         out["count"] = len(faces)
         matches: List[Dict[str, Any]] = []
@@ -106,6 +109,12 @@ class FaceRecognitionBehaviorPlugin:
                 "match_type": match_type,
                 "face_key": fk,
             }
+            if face.get("gender") is not None:
+                m["gender"] = int(face["gender"])
+            if face.get("age") is not None:
+                m["age"] = int(face["age"])
+            if face.get("gender_zh"):
+                m["gender_zh"] = str(face["gender_zh"])
             matches.append(m)
 
             if match_type not in trigger_types:

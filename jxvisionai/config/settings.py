@@ -192,6 +192,12 @@ FACE_RECOG_DET_MODEL_PATH = _cfg_path(
 FACE_RECOG_EMBED_MODEL_PATH = _cfg_path(
     "FACE_RECOG_EMBED_MODEL_PATH", os.path.join("models", "buffalo_l", "w600k_r50.onnx")
 )
+FACE_RECOG_GENDERAGE_MODEL_PATH = _cfg_path(
+    "FACE_RECOG_GENDERAGE_MODEL_PATH",
+    os.path.join("models", "buffalo_l", "genderage.onnx"),
+)
+# 性别/年龄总开关（false 时即使流配置勾选也不跑）；真正启用还需在「检测类型配置」勾选
+FACE_RECOG_GENDERAGE_ENABLED = _cfg_bool("FACE_RECOG_GENDERAGE_ENABLED", True)
 FACE_RECOG_DET_CONF = max(0.05, min(0.99, _cfg_float("FACE_RECOG_DET_CONF", 0.5)))
 FACE_RECOG_ROTATE = max(0, min(360, _cfg_int("FACE_RECOG_ROTATE", 0)))
 FACE_RECOGNITION_THRESHOLD = max(

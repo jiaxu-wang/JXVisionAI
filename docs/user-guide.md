@@ -62,15 +62,16 @@
 ### 使用流程
 
 ```
-1. 准备 models/buffalo_l/（det_10g.onnx + w600k_r50.onnx）
+1. 准备 models/buffalo_l/（det_10g.onnx + w600k_r50.onnx；可选 genderage.onnx）
 2. 人脸库管理 → 录入人员（上传正面清晰单人照）
 3. 事件监控 → 检测类型配置 → 开启「人脸识别」
 4. 配置触发类型：
    - 库内人员（known）：匹配人脸库且相似度 ≥ 阈值
    - 陌生人（unknown）：未匹配或低于阈值
-5. 若摄像头画面倒置，在配置面板选「画面旋转 180°」
-6. 保存配置，站在镜头前等待 15~30 秒
-7. 历史告警查看结果（绿框=库内人员，红/橙框=陌生人）
+5. 需要性别/年龄时勾选「性别与年龄」（需 genderage.onnx）
+6. 若摄像头画面倒置，在配置面板选「画面旋转 180°」
+7. 保存配置，站在镜头前等待 15~30 秒
+8. 历史告警查看结果（绿框=库内人员，红/橙框=陌生人；勾选性别年龄后标签如「张三 男32岁 0.78」）
 ```
 
 ### 按流配置 `face_recognition_config`
@@ -78,6 +79,7 @@
 | 字段 | 说明 |
 |------|------|
 | `trigger_types` | `["known"]` / `["unknown"]` / `["known","unknown"]` |
+| `genderage_enabled` | 是否性别与年龄（默认 `false`；需 `genderage.onnx`，且全局 `face_recog_genderage_enabled` 未关） |
 | `threshold` | 相似度阈值，空则用全局 `face_recognition_threshold`（0.45） |
 | `min_duration_sec` | 持续出现秒数才告警，空则用全局默认 2.0 |
 | `rotate` | 画面旋转 0/90/180/270，空则用全局 `face_recog_rotate` |

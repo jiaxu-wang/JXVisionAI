@@ -1263,6 +1263,10 @@
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
                         <input type="checkbox" id="frTriggerUnknown" style="width:auto;"> 陌生人（unknown）
                     </label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
+                        <input type="checkbox" id="frGenderAge" style="width:auto;"> 性别与年龄
+                    </label>
+                    <p style="font-size:12px;color:#6c757d;margin:0 0 10px 24px;">勾选后在画框与告警中附带性别、年龄（需 models/buffalo_l/genderage.onnx）。</p>
                     <label style="font-size:13px;margin-top:8px;">相似度阈值（留空用全局默认 0.45）</label>
                     <input type="text" id="frThreshold" placeholder="0.45" style="width:120px;padding:6px 8px;margin-bottom:8px;">
                     <label style="font-size:13px;">持续时长秒（留空用全局默认 2.0）</label>
@@ -1337,7 +1341,14 @@
         let detectionFaceRecogDraft = null;
 
         function defaultFaceRecogConfig() {
-            return { trigger_types: ['known', 'unknown'], threshold: null, min_duration_sec: null, watchlist: [], rotate: null };
+            return {
+                trigger_types: ['known', 'unknown'],
+                threshold: null,
+                min_duration_sec: null,
+                watchlist: [],
+                rotate: null,
+                genderage_enabled: false
+            };
         }
 
         function normalizeFaceRecogConfigClient(raw) {
@@ -1352,6 +1363,10 @@
             if (raw.threshold != null && raw.threshold !== '') base.threshold = raw.threshold;
             if (raw.min_duration_sec != null && raw.min_duration_sec !== '') base.min_duration_sec = raw.min_duration_sec;
             if (raw.rotate != null && raw.rotate !== '') base.rotate = parseInt(raw.rotate, 10);
+            if (raw.genderage_enabled != null) {
+                const v = raw.genderage_enabled;
+                base.genderage_enabled = (v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true');
+            }
             return base;
         }
 
@@ -1364,6 +1379,8 @@
             const tt = detectionFaceRecogDraft.trigger_types || [];
             document.getElementById('frTriggerKnown').checked = tt.includes('known');
             document.getElementById('frTriggerUnknown').checked = tt.includes('unknown');
+            const gaEl = document.getElementById('frGenderAge');
+            if (gaEl) gaEl.checked = !!detectionFaceRecogDraft.genderage_enabled;
             document.getElementById('frThreshold').value = detectionFaceRecogDraft.threshold != null ? String(detectionFaceRecogDraft.threshold) : '';
             document.getElementById('frMinDuration').value = detectionFaceRecogDraft.min_duration_sec != null ? String(detectionFaceRecogDraft.min_duration_sec) : '';
             const rotSel = document.getElementById('frRotate');
@@ -1376,6 +1393,8 @@
             if (document.getElementById('frTriggerKnown').checked) triggers.push('known');
             if (document.getElementById('frTriggerUnknown').checked) triggers.push('unknown');
             if (triggers.length) detectionFaceRecogDraft.trigger_types = triggers;
+            const gaEl = document.getElementById('frGenderAge');
+            detectionFaceRecogDraft.genderage_enabled = !!(gaEl && gaEl.checked);
             const thr = document.getElementById('frThreshold').value.trim();
             detectionFaceRecogDraft.threshold = thr ? parseFloat(thr) : null;
             const dur = document.getElementById('frMinDuration').value.trim();

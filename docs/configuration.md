@@ -25,6 +25,7 @@
 | `face_recognition_threshold` | 人脸相似度阈值 | 0.45 |
 | `face_recognition_min_duration_sec` | 人脸持续时长防抖（秒） | 2.0 |
 | `face_recog_rotate` | 全局默认画面旋转（0/90/180/270） | 0 |
+| `face_recog_genderage_enabled` | 性别年龄**全局总开关**（按流还需在检测类型配置勾选） | true |
 | `smtp_*` | 全局邮件告警 SMTP | 默认关 |
 
 完整字段与 Web「系统设置」页同步，模板见 `config/config.example.ini`。

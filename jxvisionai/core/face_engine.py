@@ -3,6 +3,7 @@ buffalo_l 人脸推理（纯 onnxruntime，不依赖 insightface 包）。
 
 - 检测：SCRFD（``det_10g.onnx``），输出框与 5 点关键点
 - 特征：ArcFace（``w600k_r50.onnx``），对齐后人脸 → 512 维 L2 归一化向量
+- 属性：GenderAge（``genderage.onnx``），性别 + 年龄（可选）
 
 会话在进程内懒加载并缓存；路径相对项目根解析。
 """
@@ -23,19 +24,28 @@ from jxvisionai.config.settings import (
     FACE_RECOG_DET_MODEL_PATH,
     FACE_RECOG_DET_SIZE,
     FACE_RECOG_EMBED_MODEL_PATH,
+    FACE_RECOG_GENDERAGE_ENABLED,
+    FACE_RECOG_GENDERAGE_MODEL_PATH,
     PROJECT_ROOT,
 )
 
 logger = logging.getLogger(__name__)
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _det_sess: Optional[ort.InferenceSession] = None
 _emb_sess: Optional[ort.InferenceSession] = None
+_ga_sess: Optional[ort.InferenceSession] = None
+_ga_input_name: Optional[str] = None
+_ga_failed = False
 _ready = False
 _failed = False
 
 _STRIDES = (8, 16, 32)
 _NUM_ANCHORS = 2
+_GENDERAGE_SIZE = 96
+# buffalo_l genderage.onnx：mean=0 / std=1（与 InsightFace Attribute 一致）
+_GENDERAGE_MEAN = 0.0
+_GENDERAGE_STD = 1.0
 
 
 def _resolve(path: str) -> str:
@@ -45,6 +55,41 @@ def _resolve(path: str) -> str:
     if not os.path.isabs(p):
         p = os.path.join(PROJECT_ROOT, p)
     return os.path.abspath(p)
+
+
+def _ensure_genderage_session() -> bool:
+    """懒加载 genderage；失败不影响检测/识别。"""
+    global _ga_sess, _ga_input_name, _ga_failed
+    if not FACE_RECOG_GENDERAGE_ENABLED:
+        return False
+    if _ga_sess is not None:
+        return True
+    if _ga_failed:
+        return False
+    with _lock:
+        if _ga_sess is not None:
+            return True
+        if _ga_failed:
+            return False
+        ga_path = _resolve(FACE_RECOG_GENDERAGE_MODEL_PATH)
+        if not os.path.isfile(ga_path):
+            logger.warning("性别年龄模型缺失，已跳过: %s", ga_path)
+            _ga_failed = True
+            return False
+        try:
+            opts = ort.SessionOptions()
+            opts.log_severity_level = 3
+            _ga_sess = ort.InferenceSession(
+                ga_path, opts, providers=["CPUExecutionProvider"]
+            )
+            _ga_input_name = _ga_sess.get_inputs()[0].name
+            logger.info("性别年龄 ONNX 已加载: %s", ga_path)
+            return True
+        except Exception as ex:  # noqa: BLE001
+            logger.warning("性别年龄 ONNX 加载失败，已跳过: %s", ex)
+            _ga_failed = True
+            _ga_sess = None
+            return False
 
 
 def _ensure_sessions() -> bool:
@@ -72,6 +117,7 @@ def _ensure_sessions() -> bool:
             _emb_sess = ort.InferenceSession(emb_path, opts, providers=providers)
             _ready = True
             logger.info("人脸 ONNX 已加载: %s , %s", det_path, emb_path)
+            _ensure_genderage_session()
         except Exception as ex:  # noqa: BLE001
             logger.error("人脸 ONNX 加载失败: %s", ex, exc_info=True)
             _failed = True
@@ -81,6 +127,13 @@ def _ensure_sessions() -> bool:
 
 def is_available() -> bool:
     return _ensure_sessions()
+
+
+def genderage_available() -> bool:
+    if not _ensure_sessions():
+        return False
+    with _lock:
+        return _ensure_genderage_session()
 
 
 def _anchor_centers(det_size: int) -> List[np.ndarray]:
@@ -274,6 +327,53 @@ def _embed_face(face_bgr_112: np.ndarray) -> Optional[np.ndarray]:
     return out
 
 
+def _genderage_crop(img_bgr: np.ndarray, bbox: List[int]) -> np.ndarray:
+    """按 InsightFace Attribute 方式：框中心缩放裁剪到 96x96。"""
+    x1, y1, x2, y2 = [float(v) for v in bbox]
+    w, h = (x2 - x1), (y2 - y1)
+    center = ((x2 + x1) / 2.0, (y2 + y1) / 2.0)
+    scale = _GENDERAGE_SIZE / (max(w, h) * 1.5 + 1e-6)
+    # 等价于 SimilarityTransform(scale) + 平移到输出中心（无旋转）
+    M = np.array(
+        [
+            [scale, 0.0, _GENDERAGE_SIZE / 2.0 - center[0] * scale],
+            [0.0, scale, _GENDERAGE_SIZE / 2.0 - center[1] * scale],
+        ],
+        dtype=np.float64,
+    )
+    return cv2.warpAffine(
+        img_bgr, M, (_GENDERAGE_SIZE, _GENDERAGE_SIZE), borderValue=0.0
+    )
+
+
+def _predict_gender_age(
+    img_bgr: np.ndarray, bbox: List[int]
+) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+    """返回 (gender 0女/1男, age, gender_zh)。失败时全为 None。"""
+    if not _ensure_genderage_session() or _ga_sess is None or not _ga_input_name:
+        return None, None, None
+    try:
+        aimg = _genderage_crop(img_bgr, bbox)
+        blob = cv2.dnn.blobFromImage(
+            aimg,
+            1.0 / _GENDERAGE_STD,
+            (_GENDERAGE_SIZE, _GENDERAGE_SIZE),
+            (_GENDERAGE_MEAN, _GENDERAGE_MEAN, _GENDERAGE_MEAN),
+            swapRB=True,
+        )
+        pred = _ga_sess.run(None, {_ga_input_name: blob})[0][0]
+        if pred is None or len(pred) < 3:
+            return None, None, None
+        gender = int(np.argmax(pred[:2]))
+        age = int(np.round(float(pred[2]) * 100))
+        age = max(0, min(120, age))
+        gender_zh = "男" if gender == 1 else "女"
+        return gender, age, gender_zh
+    except Exception as ex:  # noqa: BLE001
+        logger.debug("性别年龄推理异常: %s", ex, exc_info=True)
+        return None, None, None
+
+
 def _rotate_frame(frame_bgr: np.ndarray, degrees: int) -> np.ndarray:
     d = int(degrees) % 360
     if d == 90:
@@ -315,8 +415,16 @@ def _map_bbox_from_rotated(
 
 
 def analyze_faces(
-    frame_bgr: np.ndarray, *, max_faces: int = 5, rotate: int = 0
+    frame_bgr: np.ndarray,
+    *,
+    max_faces: int = 5,
+    rotate: int = 0,
+    genderage: bool = False,
 ) -> List[Dict[str, Any]]:
+    """检测人脸并提取特征。
+
+    ``genderage=True`` 时额外跑性别/年龄（需全局开关与模型可用）。
+    """
     if not _ensure_sessions() or frame_bgr is None or frame_bgr.size == 0:
         return []
     orig_h, orig_w = frame_bgr.shape[:2]
@@ -330,6 +438,11 @@ def analyze_faces(
         logger.debug("人脸检测异常: %s", ex, exc_info=True)
         return []
 
+    want_ga = (
+        bool(genderage)
+        and FACE_RECOG_GENDERAGE_ENABLED
+        and _ensure_genderage_session()
+    )
     out: List[Dict[str, Any]] = []
     for i, det in enumerate(dets[: max(1, max_faces)]):
         kps = det.get("kps")
@@ -342,16 +455,23 @@ def analyze_faces(
         if emb is None:
             continue
         bbox = det["bbox"]
+        gender = age = None
+        gender_zh = None
+        if want_ga:
+            gender, age, gender_zh = _predict_gender_age(src, bbox)
         if rotate:
             bbox = _map_bbox_from_rotated(bbox, orig_w, orig_h, rotate)
-        out.append(
-            {
-                "index": i,
-                "bbox": bbox,
-                "det_score": det["det_score"],
-                "embedding": emb,
-            }
-        )
+        item: Dict[str, Any] = {
+            "index": i,
+            "bbox": bbox,
+            "det_score": det["det_score"],
+            "embedding": emb,
+        }
+        if gender is not None and age is not None:
+            item["gender"] = gender
+            item["age"] = age
+            item["gender_zh"] = gender_zh
+        out.append(item)
     return out
 
 

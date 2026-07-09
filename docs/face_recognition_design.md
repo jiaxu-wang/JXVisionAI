@@ -106,7 +106,7 @@ models/
     ├── 2d106det.onnx              # 106 点关键点（对齐用）
     ├── w600k_r50.onnx             # 特征提取 ArcFace 512 维
     ├── 1k3d68.onnx                # 3D 关键点（本功能不用）
-    └── genderage.onnx             # 性别年龄（本功能不用）
+    └── genderage.onnx             # 性别年龄（按流勾选「性别与年龄」后使用）
 
 face_library/                      # 本地数据目录（不入 Git）
 ├── index.json
@@ -347,7 +347,7 @@ class FaceRecognitionBehaviorPlugin:
 | `2d106det.onnx` | ~5 MB | 106 点关键点 | ✅ 人脸对齐 |
 | `w600k_r50.onnx` | ~166 MB | 特征提取（ResNet50@WebFace600K，512 维） | ✅ 1:N 比对 |
 | `1k3d68.onnx` | ~137 MB | 3D 关键点 | ❌ 不使用 |
-| `genderage.onnx` | ~1 MB | 性别 / 年龄 | ❌ 不使用 |
+| `genderage.onnx` | ~1 MB | 性别 / 年龄 | ✅ 按流可选（检测类型配置勾选「性别与年龄」；全局 `face_recog_genderage_enabled`） |
 
 > **与现有 `face` 检测项的关系**：现有 `face` 检测项仍走 `face_model_path`（默认 `models/face_detection.onnx`，YOLO 格式）；**人脸识别**独立使用 `buffalo_l` 全套（检测 + 对齐 + 特征），精度更好，互不依赖。
 
@@ -356,8 +356,8 @@ class FaceRecognitionBehaviorPlugin:
 | 环节 | 模型文件 | 配置键 | 默认路径 |
 |------|---------|--------|---------|
 | 人脸检测 | `det_10g.onnx` | `face_recog_det_model_path` | `models/buffalo_l/det_10g.onnx` |
-| 人脸对齐 | `2d106det.onnx` | `face_recog_landmark_model_path` | `models/buffalo_l/2d106det.onnx` |
 | 特征提取 | `w600k_r50.onnx` | `face_recog_embed_model_path` | `models/buffalo_l/w600k_r50.onnx` |
+| 性别年龄 | `genderage.onnx` | `face_recog_genderage_model_path` | `models/buffalo_l/genderage.onnx` |
 | 相似度计算 | NumPy 余弦 | — | 库规模 < 1000 时足够快 |
 
 推理均通过 **`onnxruntime`** 加载，**无需** `pip install insightface`（仅下载模型时需要）。
@@ -443,6 +443,7 @@ EXTENSION_CATALOG_META 追加:
   },
   "face_recognition_config": {
     "trigger_types": ["known", "unknown"],
+    "genderage_enabled": false,
     "threshold": 0.45,
     "min_duration_sec": 2.0,
     "watchlist": []
@@ -459,6 +460,7 @@ EXTENSION_CATALOG_META 追加:
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `trigger_types` | string[] | `["known", "unknown"]` | 启用的触发类型，可选 `"known"` / `"unknown"`，至少一项 |
+| `genderage_enabled` | bool | `false` | 是否跑性别/年龄；Web「检测类型配置」勾选「性别与年龄」；还需全局 `face_recog_genderage_enabled` 与 `genderage.onnx` |
 | `threshold` | float | 全局默认 | 覆盖全局相似度阈值 |
 | `min_duration_sec` | float | 全局默认 | 覆盖全局防抖时长 |
 | `watchlist` | string[] | `[]` | 仅当含 `known` 时生效；白名单人员 ID，空数组表示库内全部人员 |

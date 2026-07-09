@@ -22,6 +22,11 @@ def main() -> int:
     parser.add_argument("--name", default="测试人员", help="录入姓名（--enroll 时）")
     parser.add_argument("--enroll", action="store_true", help="录入到人脸库")
     parser.add_argument("--list", action="store_true", help="列出人脸库")
+    parser.add_argument(
+        "--genderage",
+        action="store_true",
+        help="同时推理性别与年龄（需 genderage.onnx）",
+    )
     args = parser.parse_args()
 
     if not face_engine.is_available():
@@ -47,14 +52,24 @@ def main() -> int:
             return 1
         return 0
 
-    faces = face_engine.analyze_faces(img)
+    faces = face_engine.analyze_faces(img, genderage=bool(args.genderage))
     print(f"检测到 {len(faces)} 张脸")
+    print(f"性别年龄模型: {'可用' if face_engine.genderage_available() else '不可用/已关闭'}")
+    print(f"本次是否启用性别年龄: {bool(args.genderage)}")
     for i, f in enumerate(faces):
         pid, sim = face_library.match_embedding(
             f["embedding"], threshold=0.45, watchlist=None
         )
         name = face_library.person_name(pid) if pid else "陌生人"
-        print(f"  [{i}] bbox={f['bbox']} score={f['det_score']:.3f} -> {name} sim={sim:.3f}")
+        attr = ""
+        if f.get("gender_zh") is not None and f.get("age") is not None:
+            attr = f" {f['gender_zh']}{f['age']}岁"
+        elif f.get("age") is not None:
+            attr = f" {f['age']}岁"
+        print(
+            f"  [{i}] bbox={f['bbox']} score={f['det_score']:.3f}"
+            f"{attr} -> {name} sim={sim:.3f}"
+        )
     return 0
 
 

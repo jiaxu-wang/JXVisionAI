@@ -8,7 +8,7 @@
 | COCO 80 类 | 按流单独开关（人物、手机、车辆等），见 `detection_catalog.py` |
 | 扩展检测 | 吸烟、打电话、睡觉、安全帽、跌倒、火焰等专模（`.pt` / `.onnx`） |
 | 打电话 / 玩手机 | 人与 `cell phone` 框重叠后，可用 **YOLOv8-pose** 区分贴耳通话与把玩 |
-| **人脸识别** | buffalo_l（SCRFD + ArcFace）检测对齐；Redis 人脸库 1:N；照片存 MinIO |
+| **人脸识别** | buffalo_l（SCRFD + ArcFace）检测对齐；按流可选性别年龄；Redis 人脸库 1:N；照片存 MinIO |
 | 人员聚集 | 单帧人数 ≥ 阈值，可选持续时长防抖 |
 | 告警外发 | 写 Redis 后按 `save_interval` 触发 **SMTP** 与 **Webhook** |
 | 对象存储 | 可选 MinIO / 云 S3；截图键前缀 `visionai/snapshots/` |
@@ -113,7 +113,7 @@ flowchart TB
 │   │   ├── detector.py            # YOLO 检测 + 结果融合 + 画框
 │   │   ├── stream_handler.py      # RTSP 连接与帧读取
 │   │   ├── redis_manager.py       # 流配置与检测记录
-│   │   ├── face_engine.py         # buffalo_l ONNX（检测 + 对齐 + 特征）
+│   │   ├── face_engine.py         # buffalo_l ONNX（检测 + 特征 + 可选性别年龄）
 │   │   ├── face_library.py        # 人脸库 CRUD + 1:N 比对
 │   │   ├── face_recognition_config.py
 │   │   ├── behaviors/             # 行为插件（吸烟、人脸识别等）

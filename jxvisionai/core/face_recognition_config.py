@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from jxvisionai.config.settings import (
+    FACE_RECOG_GENDERAGE_ENABLED,
     FACE_RECOGNITION_MIN_DURATION_SEC,
     FACE_RECOGNITION_THRESHOLD,
     FACE_RECOG_ROTATE,
@@ -20,7 +21,22 @@ def default_face_recognition_config() -> Dict[str, Any]:
         "min_duration_sec": None,
         "watchlist": [],
         "rotate": None,
+        # 按流开关：是否跑 genderage（性别+年龄）；默认关，需在检测类型配置中勾选
+        "genderage_enabled": False,
     }
+
+
+def _as_bool(v: Any, default: bool = False) -> bool:
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off", ""):
+        return False
+    return default
 
 
 def normalize_face_recognition_config(
@@ -65,6 +81,9 @@ def normalize_face_recognition_config(
         except (TypeError, ValueError):
             pass
 
+    if "genderage_enabled" in raw:
+        base["genderage_enabled"] = _as_bool(raw.get("genderage_enabled"), False)
+
     return base
 
 
@@ -92,3 +111,10 @@ def effective_min_duration(cfg: Dict[str, Any]) -> float:
     if d is not None:
         return float(d)
     return float(FACE_RECOGNITION_MIN_DURATION_SEC)
+
+
+def effective_genderage_enabled(cfg: Dict[str, Any]) -> bool:
+    """按流勾选 且 全局未关闭 才启用性别/年龄。"""
+    if not FACE_RECOG_GENDERAGE_ENABLED:
+        return False
+    return bool(cfg.get("genderage_enabled"))

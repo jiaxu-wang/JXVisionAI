@@ -563,7 +563,16 @@ class Detector:
                     color = (0, 220, 0) if is_alert else (0, 180, 180)
                 else:
                     color = (0, 0, 230) if is_alert else (0, 140, 255)
-                draw_labeled_box(frame, box, f"{name} {sim:.2f}", color)
+                label = f"{name} {sim:.2f}"
+                gzh = m.get("gender_zh")
+                age = m.get("age")
+                if gzh and age is not None:
+                    label = f"{name} {gzh}{age}岁 {sim:.2f}"
+                elif gzh:
+                    label = f"{name} {gzh} {sim:.2f}"
+                elif age is not None:
+                    label = f"{name} {age}岁 {sim:.2f}"
+                draw_labeled_box(frame, box, label, color)
 
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
@@ -662,21 +671,37 @@ class Detector:
                     name = str(m.get("person_name") or "陌生人")
                     mt = m.get("match_type")
                     sim = float(m.get("similarity", 0.0))
+                    gzh = m.get("gender_zh")
+                    age = m.get("age")
+                    attr = ""
+                    if gzh and age is not None:
+                        attr = f"{gzh}{age}岁"
+                    elif gzh:
+                        attr = str(gzh)
+                    elif age is not None:
+                        attr = f"{age}岁"
                     if mt == "known":
                         label = f"人脸识别: {name}"
                     else:
                         label = "人脸识别: 陌生人"
+                    if attr:
+                        label = f"{label}({attr})"
                     detection_types.append(label)
                     info.append(f"{label} ({sim:.2f})")
-                    fr_extra_matches.append(
-                        {
-                            "person_id": m.get("person_id"),
-                            "person_name": name,
-                            "similarity": sim,
-                            "match_type": mt,
-                            "box": m.get("box"),
-                        }
-                    )
+                    item = {
+                        "person_id": m.get("person_id"),
+                        "person_name": name,
+                        "similarity": sim,
+                        "match_type": mt,
+                        "box": m.get("box"),
+                    }
+                    if m.get("gender") is not None:
+                        item["gender"] = int(m["gender"])
+                    if age is not None:
+                        item["age"] = int(age)
+                    if gzh:
+                        item["gender_zh"] = str(gzh)
+                    fr_extra_matches.append(item)
                 detection_extra = {
                     "face_recognition": {
                         "trigger_types": fr_saved.get("trigger_types") or [],
