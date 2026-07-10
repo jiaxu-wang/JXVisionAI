@@ -13,7 +13,10 @@
 | `smoking` | 吸烟 | `smoking_detection.pt` 或 ViT ONNX |
 | `face` | 人脸检测 | `face_detection.onnx` |
 | `face_recognition` | **人脸识别** | `buffalo_l` + 人脸库 |
+| `no_glasses` | **未戴眼镜** | `glasses_detection.pt`（0=未戴，1=已戴） |
 | `fall` / `flame` / `mask` 等 | 各扩展 | 对应 `models/*` |
+
+训练实验室场景模板 **「未戴眼镜」** 可训可一键部署；完整步骤见 [training-glasses-guide.md](training-glasses-guide.md)。
 
 ---
 
@@ -36,6 +39,12 @@
 
 所有权重放在 `models/`，详见 [快速开始 - 模型准备](getting-started.md#4-准备模型)。权重不入 Git，部署时自行下载或从训练管线导出。
 
-训练与导出见 **`training_system/README.md`**。
+训练与导出见 **`training_system/README.md`** 与 Web **训练实验室**（`/training`）：
+
+- 默认预训练：**YOLOv8s**（`yolov8s.pt`）
+- 开训门槛：已审核 ≥50 张、每类 ≥30 框、独立 val/test ≥10
+- 预标注写入草稿，须审核后才训练
+- 部署门禁：测试集 mAP@0.5≥0.40 且 P/R≥0.35；`make_call` 自动导出 ONNX
+- 安全帽类别契约：`0=no_helmet`（违规）、`1=helmet`（合规）
 
 人脸识别实现细节见 [face_recognition_design.md](face_recognition_design.md)。

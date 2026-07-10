@@ -166,6 +166,9 @@ body {
 }
 .tl-dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
 .tl-dot.ok { background: #22c55e; }
+.tl-dot.draft { background: #eab308; }
+.tl-gate-ok { color: #86efac; font-weight: 600; }
+.tl-gate-bad { color: #fca5a5; font-weight: 600; }
 .tl-hint { font-size: 0.78rem; color: #94a3b8; margin: 4px 0; }
 .tl-canvas {
   display: block;

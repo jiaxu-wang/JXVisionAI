@@ -294,6 +294,21 @@ SAFETY_HELMET_MIN_DURATION_SEC = max(
     0.0, _cfg_float("SAFETY_HELMET_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
 )
 
+# 未戴眼镜（专模 glasses_detection.pt：0=no_glasses 违规，1=glasses 合规）
+GLASSES_MODEL_PATH = _cfg_path(
+    "GLASSES_MODEL_PATH", _models_default("glasses_detection.pt")
+)
+GLASSES_MODEL_CONF = max(
+    0.05, min(0.99, _cfg_float("GLASSES_MODEL_CONF", DEDICATED_DEFAULT_CONF))
+)
+GLASSES_SCORE_THRESHOLD = max(
+    0.05,
+    min(0.99, _cfg_float("GLASSES_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD)),
+)
+GLASSES_MIN_DURATION_SEC = max(
+    0.0, _cfg_float("GLASSES_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
+)
+
 SLEEPING_MODEL_PATH = _cfg_path("SLEEPING_MODEL_PATH", _models_default("sleeping.pt"))
 SLEEPING_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("SLEEPING_MODEL_CONF", DEDICATED_DEFAULT_CONF))

@@ -13,6 +13,7 @@
 | [configuration.md](configuration.md) | `config.ini` 与环境变量、对象存储 |
 | [user-guide.md](user-guide.md) | Web 管理端各页面、添加视频流、人脸识别使用 |
 | [detection.md](detection.md) | 检测类型总览、吸烟/打电话逻辑、训练管线 |
+| [training-glasses-guide.md](training-glasses-guide.md) | **训练操作示例**：未戴眼镜全流程（采图→标注→训练→测试→部署） |
 | [api.md](api.md) | HTTP API 一览 |
 | [operations.md](operations.md) | 日志、排障、性能与安全、路线图 |
 | [face_recognition_design.md](face_recognition_design.md) | 人脸识别功能详细设计（SCRFD + ArcFace、Redis/MinIO 人脸库） |

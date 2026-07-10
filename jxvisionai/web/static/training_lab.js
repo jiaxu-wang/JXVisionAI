@@ -11,6 +11,11 @@
     naturalH: 0,
     boxes: [],
     drag: null,
+    selectedBox: -1,
+    history: [],
+    historyIndex: -1,
+    annoImg: null,
+    interaction: null,
     jobPoll: null,
     lastJobId: null,
     validatePollTimer: null,
@@ -18,8 +23,12 @@
     lastUploadedValidateFile: null,
     snapItems: [],
     snapSelected: new Set(),
+    sampleFiles: [],
     templates: [],
   };
+
+  const HANDLE = 8;
+  const MIN_BOX = 4;
 
   const $ = (id) => document.getElementById(id);
 
@@ -159,7 +168,9 @@
       $('current-project-label').textContent = '';
       fillClassPicker();
       clearCanvas();
+      state.sampleFiles = [];
       $('sample-list').innerHTML = '';
+      updateSampleNav();
       $('btn-capture').disabled = true;
       if (state.jobPoll) clearInterval(state.jobPoll);
       $('train-job-panel').classList.add('tl-hidden');
@@ -242,6 +253,7 @@
     var ids = [
       'btn-capture',
       'btn-prelabel',
+      'btn-approve-all',
       'btn-refresh-health',
       'btn-snap-list',
       'btn-snap-import',
@@ -263,16 +275,27 @@
     var clsLines = (h.class_names || []).map(function (name, i) {
       return name + ': ' + ((h.boxes_per_class && h.boxes_per_class[i]) || 0) + ' 框';
     });
+    var splitHint =
+      '划分预估 train/val/test ≈ ' +
+      (h.train_images_estimated || '?') +
+      '/' +
+      (h.val_images_estimated || '?') +
+      '/' +
+      (h.test_images_estimated || '?');
     box.innerHTML =
       '<div class="tl-health-row ' +
       (h.can_train ? 'ok' : 'warn') +
       '">' +
-      '<strong>数据检查</strong> ' +
+      '<strong>数据检查</strong> 已审核 ' +
       h.labeled_images +
-      '/' +
+      ' / 草稿 ' +
+      (h.draft_images || 0) +
+      ' / 总图 ' +
       h.total_images +
-      ' 已标注' +
       (h.can_train ? ' · 可开训' : ' · 未达开训门槛') +
+      '</div>' +
+      '<div class="tl-muted">' +
+      esc(splitHint) +
       '</div>' +
       '<div class="tl-muted">' +
       esc((h.warnings || []).join('；')) +
@@ -370,6 +393,34 @@
       o.textContent = i + ': ' + name;
       sel.appendChild(o);
     });
+    fillValClassFilter();
+  }
+
+  function fillValClassFilter() {
+    const sel = $('val-class-filter');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = '全部';
+    sel.appendChild(all);
+    state.projectClasses.forEach((name, i) => {
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = i + ': ' + name;
+      sel.appendChild(o);
+    });
+    if (prev && Array.from(sel.options).some((o) => o.value === prev)) {
+      sel.value = prev;
+    }
+  }
+
+  function readValClassFilter() {
+    const sel = $('val-class-filter');
+    if (!sel || sel.value === '') return null;
+    const n = parseInt(sel.value, 10);
+    return Number.isFinite(n) ? n : null;
   }
 
   async function deleteSampleEntry(filename, ev) {
@@ -398,6 +449,7 @@
     if (!state.projectId) return;
     const r = await api('/api/training/projects/' + state.projectId + '/samples');
     const rows = await r.json();
+    state.sampleFiles = rows.map((row) => row.filename);
     const ul = $('sample-list');
     ul.innerHTML = '';
     rows.forEach((row) => {
@@ -405,11 +457,17 @@
       li.dataset.file = row.filename;
       if (row.filename === state.imageName) li.classList.add('on');
 
+      const status = row.status || (row.labeled ? 'reviewed' : 'unlabeled');
+      const dotClass =
+        status === 'reviewed' ? 'ok' : status === 'draft' ? 'draft' : '';
+
       const body = document.createElement('div');
       body.className = 'tl-sample-body';
       body.innerHTML =
         '<span class="tl-dot ' +
-        (row.labeled ? 'ok' : '') +
+        dotClass +
+        '" title="' +
+        (status === 'reviewed' ? '已审核' : status === 'draft' ? '草稿待审' : '未标注') +
         '"></span><span class="tl-fname" title="' +
         esc(row.filename) +
         '">' +
@@ -429,24 +487,148 @@
       li.appendChild(btn);
       ul.appendChild(li);
     });
+    updateSampleNav();
+  }
+
+  function currentSampleIndex() {
+    if (!state.imageName || !state.sampleFiles.length) return -1;
+    return state.sampleFiles.indexOf(state.imageName);
+  }
+
+  function updateSampleNav() {
+    const idx = currentSampleIndex();
+    const total = state.sampleFiles.length;
+    const prev = $('btn-prev-sample');
+    const next = $('btn-next-sample');
+    const pos = $('sample-nav-pos');
+    if (prev) prev.disabled = idx <= 0;
+    if (next) next.disabled = idx < 0 || idx >= total - 1;
+    if (pos) {
+      pos.textContent = idx >= 0 && total ? idx + 1 + ' / ' + total : '';
+    }
+  }
+
+  async function saveLabels(opts) {
+    const quiet = opts && opts.quiet;
+    if (!state.projectId || !state.imageName || !state.naturalW) {
+      if (!quiet) $('label-status').textContent = '请先选择图片';
+      return false;
+    }
+    const nw = state.naturalW;
+    const nh = state.naturalH;
+    const boxes = state.boxes.map((b) => boxToYolo(b, nw, nh));
+    const r = await api('/api/training/projects/' + state.projectId + '/labels', {
+      method: 'POST',
+      body: JSON.stringify({ image: state.imageName, boxes }),
+    });
+    const j = await r.json();
+    if (j.success) {
+      if (!quiet) $('label-status').textContent = '已保存 ' + j.lines + ' 个框';
+      await loadSamples();
+      return true;
+    }
+    $('label-status').textContent = j.message || '保存失败';
+    return false;
+  }
+
+  async function navigateSample(delta) {
+    const idx = currentSampleIndex();
+    if (idx < 0) {
+      $('label-status').textContent = '请先选择一张样本';
+      return;
+    }
+    const nextIdx = idx + delta;
+    if (nextIdx < 0 || nextIdx >= state.sampleFiles.length) return;
+    const ok = await saveLabels({ quiet: true });
+    if (!ok) return;
+    await openSample(state.sampleFiles[nextIdx]);
+    $('label-status').textContent =
+      (delta < 0 ? '已保存并上一张 · ' : '已保存并下一张 · ') +
+      (nextIdx + 1) +
+      ' / ' +
+      state.sampleFiles.length;
+  }
+
+  function cloneBoxes(boxes) {
+    return (boxes || []).map((b) => ({
+      class_index: b.class_index,
+      x1: b.x1,
+      y1: b.y1,
+      x2: b.x2,
+      y2: b.y2,
+    }));
+  }
+
+  function normBox(b) {
+    return {
+      class_index: b.class_index,
+      x1: Math.min(b.x1, b.x2),
+      y1: Math.min(b.y1, b.y2),
+      x2: Math.max(b.x1, b.x2),
+      y2: Math.max(b.y1, b.y2),
+    };
   }
 
   function boxToYolo(b, nw, nh) {
-    const x1 = Math.min(b.x1, b.x2);
-    const x2 = Math.max(b.x1, b.x2);
-    const y1 = Math.min(b.y1, b.y2);
-    const y2 = Math.max(b.y1, b.y2);
-    const w = x2 - x1;
-    const h = y2 - y1;
-    const cx = (x1 + x2) / 2 / nw;
-    const cy = (y1 + y2) / 2 / nh;
+    const n = normBox(b);
+    const w = n.x2 - n.x1;
+    const h = n.y2 - n.y1;
     return {
-      class_index: b.class_index,
-      cx: cx,
-      cy: cy,
+      class_index: n.class_index,
+      cx: (n.x1 + n.x2) / 2 / nw,
+      cy: (n.y1 + n.y2) / 2 / nh,
       w: w / nw,
       h: h / nh,
     };
+  }
+
+  function resetHistory(boxes) {
+    state.history = [cloneBoxes(boxes)];
+    state.historyIndex = 0;
+    updateAnnoButtons();
+  }
+
+  function pushHistory() {
+    const snap = cloneBoxes(state.boxes);
+    state.history = state.history.slice(0, state.historyIndex + 1);
+    state.history.push(snap);
+    if (state.history.length > 80) {
+      state.history.shift();
+    } else {
+      state.historyIndex += 1;
+    }
+    state.historyIndex = state.history.length - 1;
+    updateAnnoButtons();
+  }
+
+  function applyHistoryIndex(idx) {
+    if (idx < 0 || idx >= state.history.length) return;
+    state.historyIndex = idx;
+    state.boxes = cloneBoxes(state.history[idx]);
+    if (state.selectedBox >= state.boxes.length) state.selectedBox = -1;
+    updateAnnoButtons();
+    redraw();
+  }
+
+  function undoBoxes() {
+    if (state.historyIndex <= 0) return;
+    applyHistoryIndex(state.historyIndex - 1);
+    $('label-status').textContent = '已撤销';
+  }
+
+  function redoBoxes() {
+    if (state.historyIndex >= state.history.length - 1) return;
+    applyHistoryIndex(state.historyIndex + 1);
+    $('label-status').textContent = '已重做';
+  }
+
+  function updateAnnoButtons() {
+    const u = $('btn-undo-box');
+    const r = $('btn-redo-box');
+    const d = $('btn-delete-box');
+    if (u) u.disabled = state.historyIndex <= 0;
+    if (r) r.disabled = state.historyIndex >= state.history.length - 1;
+    if (d) d.disabled = state.selectedBox < 0;
   }
 
   function clearCanvas() {
@@ -454,37 +636,47 @@
     state.boxes = [];
     state.naturalW = 0;
     state.naturalH = 0;
+    state.selectedBox = -1;
+    state.drag = null;
+    state.interaction = null;
+    state.annoImg = null;
+    resetHistory([]);
     const c = $('anno-canvas');
     const ctx = c.getContext('2d');
     ctx.clearRect(0, 0, c.width, c.height);
     $('annotate-filename').textContent = '';
     $('label-status').textContent = '';
+    updateSampleNav();
   }
 
   async function openSample(filename) {
     if (!state.projectId) return;
     state.imageName = filename;
+    state.selectedBox = -1;
+    state.drag = null;
+    state.interaction = null;
     document.querySelectorAll('#sample-list li').forEach((li) => {
       li.classList.toggle('on', li.dataset.file === filename);
     });
     $('annotate-filename').textContent = filename;
+    updateSampleNav();
 
     const url = '/api/training/projects/' + state.projectId + '/image/' + encodeURIComponent(filename);
     const img = new Image();
     img.onload = async function () {
+      state.annoImg = img;
       state.naturalW = img.naturalWidth;
       state.naturalH = img.naturalHeight;
       const c = $('anno-canvas');
       c.width = state.naturalW;
       c.height = state.naturalH;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0);
       state.boxes = [];
       const lr = await api(
         '/api/training/projects/' + state.projectId + '/labels/' + encodeURIComponent(filename.replace(/\.[^.]+$/, '') + '.txt')
       );
       const txt = await lr.text();
       parseYoloLines(txt);
+      resetHistory(state.boxes);
       redraw();
     };
     img.src = url;
@@ -512,31 +704,86 @@
     });
   }
 
-  function redraw() {
+  function handlesFor(b) {
+    const n = normBox(b);
+    const mx = (n.x1 + n.x2) / 2;
+    const my = (n.y1 + n.y2) / 2;
+    return [
+      { id: 'nw', x: n.x1, y: n.y1, cursor: 'nwse-resize' },
+      { id: 'n', x: mx, y: n.y1, cursor: 'ns-resize' },
+      { id: 'ne', x: n.x2, y: n.y1, cursor: 'nesw-resize' },
+      { id: 'e', x: n.x2, y: my, cursor: 'ew-resize' },
+      { id: 'se', x: n.x2, y: n.y2, cursor: 'nwse-resize' },
+      { id: 's', x: mx, y: n.y2, cursor: 'ns-resize' },
+      { id: 'sw', x: n.x1, y: n.y2, cursor: 'nesw-resize' },
+      { id: 'w', x: n.x1, y: my, cursor: 'ew-resize' },
+    ];
+  }
+
+  function hitHandle(b, x, y) {
+    const hs = handlesFor(b);
+    const r = HANDLE;
+    for (let i = 0; i < hs.length; i++) {
+      const h = hs[i];
+      if (Math.abs(x - h.x) <= r && Math.abs(y - h.y) <= r) return h;
+    }
+    return null;
+  }
+
+  function hitBox(x, y) {
+    for (let i = state.boxes.length - 1; i >= 0; i--) {
+      const n = normBox(state.boxes[i]);
+      if (x >= n.x1 && x <= n.x2 && y >= n.y1 && y <= n.y2) return i;
+    }
+    return -1;
+  }
+
+  function drawBoxes(ctx, draft) {
+    state.boxes.forEach((b, idx) => {
+      const n = normBox(b);
+      const selected = idx === state.selectedBox;
+      ctx.strokeStyle = selected ? '#fbbf24' : '#22d3ee';
+      ctx.lineWidth = selected ? 2.5 : 2;
+      ctx.strokeRect(n.x1, n.y1, n.x2 - n.x1, n.y2 - n.y1);
+      const name = state.projectClasses[b.class_index] || String(b.class_index);
+      const labelW = Math.min(220, name.length * 8 + 10);
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(n.x1, Math.max(0, n.y1 - 18), labelW, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = '14px sans-serif';
+      ctx.fillText(name, n.x1 + 4, Math.max(14, n.y1 - 4));
+      if (selected) {
+        handlesFor(b).forEach((h) => {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(h.x - HANDLE / 2, h.y - HANDLE / 2, HANDLE, HANDLE);
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(h.x - HANDLE / 2, h.y - HANDLE / 2, HANDLE, HANDLE);
+        });
+      }
+    });
+    if (draft) {
+      ctx.strokeStyle = '#fbbf24';
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        Math.min(draft.x1, draft.x2),
+        Math.min(draft.y1, draft.y2),
+        Math.abs(draft.x2 - draft.x1),
+        Math.abs(draft.y2 - draft.y1)
+      );
+      ctx.setLineDash([]);
+    }
+  }
+
+  function redraw(draft) {
     const c = $('anno-canvas');
-    if (!state.naturalW) return;
+    if (!state.naturalW || !state.annoImg) return;
     const ctx = c.getContext('2d');
-    const img = new Image();
-    img.onload = function () {
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0);
-      state.boxes.forEach((b, idx) => {
-        const x1 = Math.min(b.x1, b.x2);
-        const y1 = Math.min(b.y1, b.y2);
-        const x2 = Math.max(b.x1, b.x2);
-        const y2 = Math.max(b.y1, b.y2);
-        ctx.strokeStyle = '#22d3ee';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-        const name = state.projectClasses[b.class_index] || String(b.class_index);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(x1, y1 - 18, Math.min(200, name.length * 8 + 8), 18);
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(name, x1 + 4, y1 - 4);
-      });
-    };
-    img.src = '/api/training/projects/' + state.projectId + '/image/' + encodeURIComponent(state.imageName);
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(state.annoImg, 0, 0);
+    drawBoxes(ctx, draft || null);
+    updateAnnoButtons();
   }
 
   function canvasCoords(ev) {
@@ -550,112 +797,259 @@
     };
   }
 
-  $('anno-canvas').addEventListener('mousedown', function (ev) {
-    if (!state.imageName || !state.naturalW) return;
-    const { x, y } = canvasCoords(ev);
-    const ci = parseInt($('class-picker').value, 10) || 0;
-    state.drag = { x1: x, y1: y, x2: x, y2: y, class_index: ci };
-  });
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
 
-  $('anno-canvas').addEventListener('mousemove', function (ev) {
-    if (!state.drag) return;
-    const { x, y } = canvasCoords(ev);
-    state.drag.x2 = x;
-    state.drag.y2 = y;
-    const c = $('anno-canvas');
-    const ctx = c.getContext('2d');
-    const img = new Image();
-    img.onload = function () {
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0);
-      state.boxes.forEach((b) => {
-        const x1 = Math.min(b.x1, b.x2);
-        const y1 = Math.min(b.y1, b.y2);
-        const x2 = Math.max(b.x1, b.x2);
-        const y2 = Math.max(b.y1, b.y2);
-        ctx.strokeStyle = '#22d3ee';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      });
-      const d = state.drag;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(
-        Math.min(d.x1, d.x2),
-        Math.min(d.y1, d.y2),
-        Math.abs(d.x2 - d.x1),
-        Math.abs(d.y2 - d.y1)
-      );
-      ctx.setLineDash([]);
+  function applyResize(orig, handleId, x, y) {
+    const n = normBox(orig);
+    let x1 = n.x1;
+    let y1 = n.y1;
+    let x2 = n.x2;
+    let y2 = n.y2;
+    const xx = clamp(x, 0, state.naturalW);
+    const yy = clamp(y, 0, state.naturalH);
+    if (handleId.indexOf('n') >= 0) y1 = yy;
+    if (handleId.indexOf('s') >= 0) y2 = yy;
+    if (handleId.indexOf('w') >= 0) x1 = xx;
+    if (handleId.indexOf('e') >= 0) x2 = xx;
+    if (Math.abs(x2 - x1) < MIN_BOX) {
+      if (handleId.indexOf('w') >= 0) x1 = x2 - MIN_BOX;
+      else x2 = x1 + MIN_BOX;
+    }
+    if (Math.abs(y2 - y1) < MIN_BOX) {
+      if (handleId.indexOf('n') >= 0) y1 = y2 - MIN_BOX;
+      else y2 = y1 + MIN_BOX;
+    }
+    return {
+      class_index: orig.class_index,
+      x1: clamp(Math.min(x1, x2), 0, state.naturalW),
+      y1: clamp(Math.min(y1, y2), 0, state.naturalH),
+      x2: clamp(Math.max(x1, x2), 0, state.naturalW),
+      y2: clamp(Math.max(y1, y2), 0, state.naturalH),
     };
-    img.src = '/api/training/projects/' + state.projectId + '/image/' + encodeURIComponent(state.imageName);
-  });
+  }
 
-  $('anno-canvas').addEventListener('mouseup', function () {
-    if (!state.drag) return;
-    const d = state.drag;
-    state.drag = null;
-    const w = Math.abs(d.x2 - d.x1);
-    const h = Math.abs(d.y2 - d.y1);
-    if (w < 4 || h < 4) {
+  function setCanvasCursor(cursor) {
+    const c = $('anno-canvas');
+    if (c) c.style.cursor = cursor || 'crosshair';
+  }
+
+  function deleteSelectedBox() {
+    if (state.selectedBox < 0 || state.selectedBox >= state.boxes.length) return;
+    state.boxes.splice(state.selectedBox, 1);
+    state.selectedBox = -1;
+    pushHistory();
+    redraw();
+    $('label-status').textContent = '已删除选中框';
+  }
+
+  const canvasEl = $('anno-canvas');
+
+  canvasEl.addEventListener('mousedown', function (ev) {
+    if (!state.imageName || !state.naturalW) return;
+    if (ev.button !== 0) return;
+    const { x, y } = canvasCoords(ev);
+
+    if (state.selectedBox >= 0) {
+      const handle = hitHandle(state.boxes[state.selectedBox], x, y);
+      if (handle) {
+        state.interaction = {
+          mode: 'resize',
+          index: state.selectedBox,
+          handle: handle.id,
+          orig: cloneBoxes([state.boxes[state.selectedBox]])[0],
+          dirty: false,
+        };
+        return;
+      }
+    }
+
+    const hit = hitBox(x, y);
+    if (hit >= 0) {
+      state.selectedBox = hit;
+      const b = state.boxes[hit];
+      state.interaction = {
+        mode: 'move',
+        index: hit,
+        startX: x,
+        startY: y,
+        orig: cloneBoxes([b])[0],
+        dirty: false,
+      };
       redraw();
       return;
     }
-    state.boxes.push({
-      class_index: d.class_index,
-      x1: d.x1,
-      y1: d.y1,
-      x2: d.x2,
-      y2: d.y2,
-    });
+
+    state.selectedBox = -1;
+    const ci = parseInt($('class-picker').value, 10) || 0;
+    state.interaction = {
+      mode: 'draw',
+      x1: x,
+      y1: y,
+      x2: x,
+      y2: y,
+      class_index: ci,
+    };
     redraw();
   });
 
-  $('anno-canvas').addEventListener('dblclick', function (ev) {
+  canvasEl.addEventListener('mousemove', function (ev) {
     if (!state.imageName || !state.naturalW) return;
     const { x, y } = canvasCoords(ev);
-    for (let i = state.boxes.length - 1; i >= 0; i--) {
-      const b = state.boxes[i];
-      const x1 = Math.min(b.x1, b.x2);
-      const y1 = Math.min(b.y1, b.y2);
-      const x2 = Math.max(b.x1, b.x2);
-      const y2 = Math.max(b.y1, b.y2);
-      if (x >= x1 && x <= x2 && y >= y1 && y <= y2) {
-        state.boxes.splice(i, 1);
-        redraw();
-        break;
+    const inter = state.interaction;
+
+    if (!inter) {
+      if (state.selectedBox >= 0) {
+        const handle = hitHandle(state.boxes[state.selectedBox], x, y);
+        if (handle) {
+          setCanvasCursor(handle.cursor);
+          return;
+        }
       }
+      setCanvasCursor(hitBox(x, y) >= 0 ? 'move' : 'crosshair');
+      return;
+    }
+
+    if (inter.mode === 'draw') {
+      inter.x2 = x;
+      inter.y2 = y;
+      redraw(inter);
+      return;
+    }
+
+    if (inter.mode === 'move') {
+      const dx = x - inter.startX;
+      const dy = y - inter.startY;
+      const o = inter.orig;
+      const w = o.x2 - o.x1;
+      const h = o.y2 - o.y1;
+      let nx1 = o.x1 + dx;
+      let ny1 = o.y1 + dy;
+      nx1 = clamp(nx1, 0, state.naturalW - w);
+      ny1 = clamp(ny1, 0, state.naturalH - h);
+      state.boxes[inter.index] = {
+        class_index: o.class_index,
+        x1: nx1,
+        y1: ny1,
+        x2: nx1 + w,
+        y2: ny1 + h,
+      };
+      inter.dirty = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+      redraw();
+      return;
+    }
+
+    if (inter.mode === 'resize') {
+      state.boxes[inter.index] = applyResize(inter.orig, inter.handle, x, y);
+      inter.dirty = true;
+      redraw();
     }
   });
 
-  async function saveLabels() {
-    if (!state.projectId || !state.imageName || !state.naturalW) {
-      $('label-status').textContent = '请先选择图片';
+  function finishInteraction() {
+    const inter = state.interaction;
+    if (!inter) return;
+    state.interaction = null;
+
+    if (inter.mode === 'draw') {
+      const w = Math.abs(inter.x2 - inter.x1);
+      const h = Math.abs(inter.y2 - inter.y1);
+      if (w < MIN_BOX || h < MIN_BOX) {
+        redraw();
+        return;
+      }
+      state.boxes.push(
+        normBox({
+          class_index: inter.class_index,
+          x1: inter.x1,
+          y1: inter.y1,
+          x2: inter.x2,
+          y2: inter.y2,
+        })
+      );
+      state.selectedBox = state.boxes.length - 1;
+      pushHistory();
+      redraw();
       return;
     }
-    const nw = state.naturalW;
-    const nh = state.naturalH;
-    const boxes = state.boxes.map((b) => {
-      const y = boxToYolo(b, nw, nh);
-      return y;
-    });
-    const r = await api('/api/training/projects/' + state.projectId + '/labels', {
-      method: 'POST',
-      body: JSON.stringify({ image: state.imageName, boxes }),
-    });
-    const j = await r.json();
-    if (j.success) {
-      $('label-status').textContent = '已保存 ' + j.lines + ' 个框';
-      loadSamples();
-    } else {
-      $('label-status').textContent = j.message || '保存失败';
+
+    if ((inter.mode === 'move' || inter.mode === 'resize') && inter.dirty) {
+      state.boxes[inter.index] = normBox(state.boxes[inter.index]);
+      pushHistory();
     }
+    redraw();
   }
 
-  $('btn-save-labels').addEventListener('click', saveLabels);
+  canvasEl.addEventListener('mouseup', finishInteraction);
+  canvasEl.addEventListener('mouseleave', function () {
+    if (state.interaction) finishInteraction();
+  });
+
+  canvasEl.addEventListener('dblclick', function (ev) {
+    if (!state.imageName || !state.naturalW) return;
+    const { x, y } = canvasCoords(ev);
+    const hit = hitBox(x, y);
+    if (hit < 0) return;
+    state.selectedBox = hit;
+    deleteSelectedBox();
+  });
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  }
+
+  $('btn-save-labels').addEventListener('click', function () {
+    saveLabels();
+  });
+  $('btn-undo-box').addEventListener('click', undoBoxes);
+  $('btn-redo-box').addEventListener('click', redoBoxes);
+  $('btn-delete-box').addEventListener('click', deleteSelectedBox);
+  $('btn-prev-sample').addEventListener('click', function () {
+    navigateSample(-1);
+  });
+  $('btn-next-sample').addEventListener('click', function () {
+    navigateSample(1);
+  });
+
   document.addEventListener('keydown', function (e) {
+    if (isTypingTarget(e.target)) return;
+
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+      e.preventDefault();
+      undoBoxes();
+      return;
+    }
+    if (mod && (e.key === 'y' || e.key === 'Y' || (e.shiftKey && (e.key === 'z' || e.key === 'Z')))) {
+      e.preventDefault();
+      redoBoxes();
+      return;
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedBox >= 0) {
+      e.preventDefault();
+      deleteSelectedBox();
+      return;
+    }
+    if (e.key === 'Escape') {
+      state.selectedBox = -1;
+      state.interaction = null;
+      redraw();
+      return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      navigateSample(-1);
+      return;
+    }
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+      e.preventDefault();
+      navigateSample(1);
+      return;
+    }
     if (e.key === 's' || e.key === 'S') {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
       e.preventDefault();
       saveLabels();
     }
@@ -698,27 +1092,22 @@
       return;
     }
     var health = await refreshDatasetHealth();
-    var force = false;
     if (health && !health.can_train) {
-      if (
-        !window.confirm(
-          '未达开训门槛：\n' +
-            (health.errors || []).join('\n') +
-            '\n\n仍要强制开训？（仅建议调试）'
-        )
-      ) {
-        $('train-status').textContent = '已取消';
-        return;
-      }
-      force = true;
+      alert(
+        '未达开训门槛，已禁止强制开训：\n' +
+          (health.errors || []).join('\n') +
+          '\n\n请补齐已审核样本（绿点）后再训。'
+      );
+      $('train-status').textContent = '未达门槛';
+      return;
     }
     const body = {
-      epochs: parseInt($('train-epochs').value, 10) || 30,
+      epochs: parseInt($('train-epochs').value, 10) || 80,
       batch_size: parseInt($('train-batch').value, 10) || 8,
       img_size: parseInt($('train-imgsz').value, 10) || 640,
       device: $('train-device').value.trim() || 'cpu',
-      pretrained_model: $('train-pretrained').value.trim() || 'yolov8n.pt',
-      force: force,
+      pretrained_model: $('train-pretrained').value.trim() || 'yolov8s.pt',
+      force: false,
     };
     const r = await api('/api/training/projects/' + state.projectId + '/train', {
       method: 'POST',
@@ -753,20 +1142,46 @@
     if (j.status === 'completed') {
       $('job-weights-link').href = '/api/training/jobs/' + jobId + '/weights';
       $('job-weights-link').classList.remove('tl-hidden');
-      if (state.deployTarget) $('btn-deploy').classList.remove('tl-hidden');
       var em = $('job-eval-metrics');
-      if (em && j.evaluation && j.evaluation.ok) {
+      if (em) {
         em.classList.remove('tl-hidden');
-        em.innerHTML =
-          'mAP@0.5: <b>' +
-          (j.map50 != null ? j.map50.toFixed(4) : j.evaluation.map50) +
-          '</b> · P: ' +
-          (j.precision != null ? j.precision.toFixed(4) : j.evaluation.precision) +
-          ' · R: ' +
-          (j.recall != null ? j.recall.toFixed(4) : j.evaluation.recall);
-      } else if (em && j.evaluation && !j.evaluation.ok) {
-        em.classList.remove('tl-hidden');
-        em.textContent = '自动评估失败: ' + (j.evaluation.error || '');
+        var valLine = '';
+        if (j.evaluation && j.evaluation.ok) {
+          valLine =
+            'Val mAP@0.5: <b>' +
+            Number(j.map50 != null ? j.map50 : j.evaluation.map50).toFixed(4) +
+            '</b> · P: ' +
+            Number(j.precision != null ? j.precision : j.evaluation.precision).toFixed(4) +
+            ' · R: ' +
+            Number(j.recall != null ? j.recall : j.evaluation.recall).toFixed(4);
+        } else if (j.evaluation) {
+          valLine = 'Val 评估失败: ' + esc(j.evaluation.error || '');
+        }
+        var testLine = '';
+        if (j.test_evaluation && j.test_evaluation.ok) {
+          testLine =
+            '<br>Test mAP@0.5: <b>' +
+            Number(j.test_map50 != null ? j.test_map50 : j.test_evaluation.map50).toFixed(4) +
+            '</b> · P: ' +
+            Number(
+              j.test_precision != null ? j.test_precision : j.test_evaluation.precision
+            ).toFixed(4) +
+            ' · R: ' +
+            Number(j.test_recall != null ? j.test_recall : j.test_evaluation.recall).toFixed(4);
+        } else if (j.test_evaluation) {
+          testLine = '<br>Test 评估失败: ' + esc(j.test_evaluation.error || '');
+        }
+        var gateLine = '';
+        if (j.deploy_ready) {
+          gateLine = '<br><span class="tl-gate-ok">已达上线门禁，可部署</span>';
+          if (state.deployTarget) $('btn-deploy').classList.remove('tl-hidden');
+        } else {
+          gateLine =
+            '<br><span class="tl-gate-bad">未达上线门禁</span> ' +
+            esc((j.deploy_gate_errors || []).join('；'));
+          $('btn-deploy').classList.add('tl-hidden');
+        }
+        em.innerHTML = valLine + testLine + gateLine;
       }
       clearInterval(state.jobPoll);
       state.jobPoll = null;
@@ -787,9 +1202,9 @@
     }
     if (
       !window.confirm(
-        '将 best.pt 部署到 models/ 并更新 config.ini（' +
+        '将通过测试集门禁的 best.pt 部署到 models/ 并更新 config.ini（' +
           state.deployTarget +
-          '）。需重启 JXVisionAI 后生效。继续？'
+          '）。\nmake_call 会自动导出 ONNX。\n部署后需重启服务。继续？'
       )
     ) {
       return;
@@ -801,6 +1216,7 @@
         target: state.deployTarget,
         backup: true,
         patch_config: true,
+        force: false,
       }),
     });
     var j = await r.json();
@@ -819,7 +1235,12 @@
       alert('请先在验证区选择已训练权重');
       return;
     }
-    if (!window.confirm('用所选权重对未标注图片预标注？请人工复核后保存。')) return;
+    if (
+      !window.confirm(
+        '用所选权重对未标注图片写入「草稿」（labels_draft/）？\n草稿不计入训练，需人工审核或点「保存标注」后才生效。'
+      )
+    )
+      return;
     var r = await api('/api/training/projects/' + state.projectId + '/prelabel', {
       method: 'POST',
       body: JSON.stringify({ weights_path: w, conf: 0.25, only_unlabeled: true }),
@@ -831,6 +1252,23 @@
       await refreshDatasetHealth();
     }
   });
+
+  if ($('btn-approve-all')) {
+    $('btn-approve-all').addEventListener('click', async function () {
+      if (!state.projectId) return;
+      if (!window.confirm('将全部预标注草稿提升为已审核？请确认草稿质量。')) return;
+      var r = await api('/api/training/projects/' + state.projectId + '/labels/approve', {
+        method: 'POST',
+        body: JSON.stringify({ all: true }),
+      });
+      var j = await r.json();
+      alert(j.message || (j.success ? '完成' : '失败'));
+      if (j.success) {
+        await loadSamples();
+        await refreshDatasetHealth();
+      }
+    });
+  }
 
   function renderSnapList() {
     var ul = $('snap-list');
@@ -952,6 +1390,7 @@
       device: $('val-device').value.trim() || undefined,
       conf: parseFloat($('val-conf').value) || 0.25,
       imgsz: parseInt($('val-imgsz').value, 10) || 640,
+      class_filter: readValClassFilter(),
     };
     if (mode === 'upload') {
       body.source = 'upload';
@@ -1003,6 +1442,7 @@
         device: $('val-device').value.trim() || undefined,
         conf: parseFloat($('val-conf').value) || 0.25,
         imgsz: parseInt($('val-imgsz').value, 10) || 640,
+        class_filter: readValClassFilter(),
       }),
     });
     var j = await r.json().catch(function () {

@@ -8,13 +8,14 @@ import cv2
 import numpy as np
 
 
-def evaluate_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.45, device='0'):
+def evaluate_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.45, device='0', split='val'):
     """评估模型性能"""
     print("=== 开始模型评估 ===")
     print(f"模型路径: {model_path}")
     print(f"数据配置: {data_yaml}")
     print(f"置信度阈值: {conf_threshold}")
     print(f"IoU阈值: {iou_threshold}")
+    print(f"划分: {split}")
     
     # 加载模型
     model = YOLO(model_path)
@@ -25,7 +26,7 @@ def evaluate_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.4
         conf=conf_threshold,
         iou=iou_threshold,
         device=device,
-        split='val',
+        split=split,
         verbose=True
     )
     
@@ -40,6 +41,7 @@ def evaluate_model(model_path, data_yaml, conf_threshold=0.25, iou_threshold=0.4
         "map50_95": float(results.box.map),
         "precision": float(results.box.mp),
         "recall": float(results.box.mr),
+        "split": split,
     }
     return results, metrics
 
@@ -122,6 +124,7 @@ def main():
     eval_parser.add_argument('--conf', type=float, default=0.25, help='置信度阈值')
     eval_parser.add_argument('--iou', type=float, default=0.45, help='IoU阈值')
     eval_parser.add_argument('--device', type=str, default='0', help='设备 (0=cpu, cpu=cpu)')
+    eval_parser.add_argument('--split', type=str, default='val', choices=['train', 'val', 'test'], help='评估划分')
     eval_parser.add_argument('--json-out', type=str, default='', help='将指标写入 JSON 文件')
     
     # 测试图像命令
@@ -148,7 +151,9 @@ def main():
     args = parser.parse_args()
     
     if args.command == 'eval':
-        _results, metrics = evaluate_model(args.model, args.data, args.conf, args.iou, args.device)
+        _results, metrics = evaluate_model(
+            args.model, args.data, args.conf, args.iou, args.device, split=args.split
+        )
         if args.json_out:
             out = Path(args.json_out)
             out.parent.mkdir(parents=True, exist_ok=True)

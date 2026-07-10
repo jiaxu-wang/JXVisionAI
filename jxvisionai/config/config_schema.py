@@ -112,6 +112,8 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
                         comment=_path_comment(), relative_path=True),
             ConfigField("safety_helmet_model_path", "安全帽 safety_helmet.pt", "text",
                         comment=_path_comment(), relative_path=True),
+            ConfigField("glasses_model_path", "眼镜 glasses_detection.pt", "text",
+                        comment="0=no_glasses 未戴；1=glasses 已戴", relative_path=True),
             ConfigField("sleeping_model_path", "睡觉 sleeping.pt", "text",
                         comment=_path_comment(), relative_path=True),
         ),

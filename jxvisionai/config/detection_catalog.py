@@ -200,6 +200,7 @@ REFLECTIVE_VEST_KEY = "reflective_vest"
 ROAD_WATERLOGGING_KEY = "road_waterlogging"
 SAFETY_HELMET_KEY = "safety_helmet"
 SLEEPING_KEY = "sleeping"
+NO_GLASSES_KEY = "no_glasses"
 
 EXTENSION_KEYS: Tuple[str, ...] = (
     CALL_KEY,
@@ -216,6 +217,7 @@ EXTENSION_KEYS: Tuple[str, ...] = (
     ROAD_WATERLOGGING_KEY,
     SAFETY_HELMET_KEY,
     SLEEPING_KEY,
+    NO_GLASSES_KEY,
 )
 
 EXTENSION_LABELS_ZH: Dict[str, str] = {
@@ -233,6 +235,7 @@ EXTENSION_LABELS_ZH: Dict[str, str] = {
     ROAD_WATERLOGGING_KEY: "道路积水",
     SAFETY_HELMET_KEY: "未戴安全帽",
     SLEEPING_KEY: "睡觉",
+    NO_GLASSES_KEY: "未戴眼镜",
 }
 
 EXTENSION_CATALOG_META: List[Dict[str, str]] = [
@@ -290,6 +293,11 @@ EXTENSION_CATALOG_META: List[Dict[str, str]] = [
         "name_zh": EXTENSION_LABELS_ZH[SAFETY_HELMET_KEY],
     },
     {"key": SLEEPING_KEY, "name_en": "sleeping", "name_zh": EXTENSION_LABELS_ZH[SLEEPING_KEY]},
+    {
+        "key": NO_GLASSES_KEY,
+        "name_en": "person without glasses (glasses_detection.pt)",
+        "name_zh": EXTENSION_LABELS_ZH[NO_GLASSES_KEY],
+    },
 ]
 
 PERSON_BEHAVIOR_KEYS: Tuple[str, ...] = (
@@ -300,6 +308,7 @@ PERSON_BEHAVIOR_KEYS: Tuple[str, ...] = (
     REFLECTIVE_VEST_KEY,
     SAFETY_HELMET_KEY,
     SLEEPING_KEY,
+    NO_GLASSES_KEY,
 )
 
 SCENE_BEHAVIOR_KEYS: Tuple[str, ...] = (

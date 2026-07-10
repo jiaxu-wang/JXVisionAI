@@ -13,7 +13,7 @@
 | 告警外发 | 写 Redis 后按 `save_interval` 触发 **SMTP** 与 **Webhook** |
 | 对象存储 | 可选 MinIO / 云 S3；截图键前缀 `visionai/snapshots/` |
 | Web 管理端 | 状态概览、事件监控、历史告警、系统设置、人脸库、流预览 |
-| 训练实验室 | `/training`：RTSP 截帧 → 标注 → 训练 → 验证（MVP） |
+| Web 训练实验室 | `/training`：采图→标注审核→train/val/test→门禁部署（可上线专模） |
 
 流配置**只存在 Redis** 中（Web「事件监控」维护），不再硬编码在 `settings.py`。保存后一般**下一轮检测周期即生效**；修改 `config.ini` 或模型文件后需 **重启进程**。
 

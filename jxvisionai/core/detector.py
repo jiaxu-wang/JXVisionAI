@@ -86,6 +86,7 @@ _BEHAVIOR_COLORS = {
     "mask": (180, 80, 255),
     "reflective_vest": (0, 200, 200),
     "safety_helmet": (0, 215, 255),
+    "no_glasses": (200, 100, 255),
     "sleeping": (200, 160, 60),
     "face": (80, 200, 255),
     FACE_RECOG_KEY: (0, 200, 0),

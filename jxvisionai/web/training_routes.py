@@ -1,6 +1,7 @@
-"""训练实验室（MVP）：RTSP 截帧、浏览器画框标注、服务端触发 Ultralytics 训练。
+"""训练实验室：RTSP 截帧、浏览器标注、Ultralytics 训练、测试集门禁部署。
 
-数据目录：<repo>/training_lab_data/projects/<project_id>/（images / labels / meta.json）
+数据目录：<repo>/training_lab_data/projects/<project_id>/
+  images/  labels/（已审核）  labels_draft/（预标注草稿）  meta.json
 """
 
 from __future__ import annotations
@@ -29,17 +30,22 @@ from werkzeug.utils import secure_filename
 from jxvisionai.config.settings import SAVE_DIR, yolo_inference_device
 from jxvisionai.utils.rtsp_url import normalize_rtsp_url
 from jxvisionai.web.training_lab_core import (
+    DEPLOY_GATE,
     DEPLOY_TARGETS,
     TRAINING_TEMPLATES,
+    approve_draft_labels,
     check_dataset_health,
     deploy_weights_to_production,
     detect_train_device,
     import_snapshots_to_project,
+    list_draft_stems,
     list_labeled_stems,
     list_production_snapshots,
+    list_reviewed_stems,
     materialize_yolo_split,
     prelabel_project_images,
     run_evaluate_subprocess,
+    sample_label_status,
     suggest_thresholds_from_val,
 )
 
@@ -286,16 +292,62 @@ def _get_cached_yolo(weights_path: str):
         return m
 
 
+def _parse_class_filter(raw) -> Optional[int]:
+    """验证类别过滤：None=全部；整数=只看该类（如 0=no_glasses，1=glasses）。"""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    s = str(raw).strip().lower()
+    if not s or s in ("all", "none", "*", "全部"):
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def _draw_dets_on_frame(frame_bgr, dets: List[Dict[str, Any]]):
+    """按过滤后的检测结果画框（类别过滤时不用 YOLO 默认 plot，避免混入其他类）。"""
+    out = frame_bgr.copy()
+    for d in dets:
+        xy = d.get("xyxy") or []
+        if len(xy) < 4:
+            continue
+        x1, y1, x2, y2 = int(xy[0]), int(xy[1]), int(xy[2]), int(xy[3])
+        color = (34, 211, 238) if int(d.get("cls", 0)) == 0 else (251, 191, 36)
+        cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
+        label = f"{d.get('name', d.get('cls'))} {float(d.get('conf', 0)):.2f}"
+        ty = max(18, y1 - 6)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        cv2.rectangle(out, (x1, ty - th - 6), (x1 + tw + 6, ty + 2), (0, 0, 0), -1)
+        cv2.putText(
+            out,
+            label,
+            (x1 + 3, ty - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    return out
+
+
 def _validate_infer(
     weights_path: str,
     frame_bgr,
     device_arg,
     conf: float = 0.25,
     imgsz: int = 640,
+    class_filter: Optional[int] = None,
 ) -> tuple:
     """两路推理：① 用户阈值——画框快照；② 低阈值——候选列表（含每条置信度写入日志）。
 
     仅极少数样本训练时，高 conf 常会「未检出」，但低阈值仍可看到模型是否在打低分框。
+    class_filter 非空时只保留该类（便于单独核验 no_glasses / glasses）。
     """
     model = _get_cached_yolo(weights_path)
     kw_base: Dict[str, Any] = {"imgsz": int(imgsz), "verbose": False}
@@ -306,16 +358,14 @@ def _validate_infer(
     conf_user = float(max(0.05, min(conf, 0.999)))
 
     rh = model.predict(source=frame_bgr, **kw_base, conf=conf_user)[0]
-    plot_bgr = rh.plot()
-    if plot_bgr is None:
-        plot_bgr = frame_bgr.copy()
-
     names = getattr(model, "names", {}) or {}
 
     dets: List[Dict[str, Any]] = []
     if rh.boxes is not None and len(rh.boxes):
         for box in rh.boxes:
             ci = int(box.cls[0])
+            if class_filter is not None and ci != class_filter:
+                continue
             cf = float(box.conf[0])
             xy = [float(x) for x in box.xyxy[0].tolist()]
             dets.append(
@@ -326,6 +376,13 @@ def _validate_infer(
                     "xyxy": xy,
                 }
             )
+
+    if class_filter is None:
+        plot_bgr = rh.plot()
+        if plot_bgr is None:
+            plot_bgr = frame_bgr.copy()
+    else:
+        plot_bgr = _draw_dets_on_frame(frame_bgr, dets)
 
     # 第二路：固定极低下限，专门收集「未过用户阈值」的候选及置信度（供日志排查）
     lo_conf = max(0.001, float(_VALIDATE_CANDIDATE_FLOOR))
@@ -339,6 +396,8 @@ def _validate_infer(
     if rl.boxes is not None and len(rl.boxes):
         for box in rl.boxes:
             ci = int(box.cls[0])
+            if class_filter is not None and ci != class_filter:
+                continue
             cf = float(box.conf[0])
             xy = [float(x) for x in box.xyxy[0].tolist()]
             candidates.append(
@@ -359,14 +418,19 @@ def _format_validate_infer_message(
     dets: List[Dict[str, Any]],
     candidates: List[Dict[str, Any]],
     conf_user: float,
+    class_filter: Optional[int] = None,
 ) -> str:
     diag_floor = max(0.001, float(_VALIDATE_CANDIDATE_FLOOR))
+    cls_note = f"，仅类别 {class_filter}" if class_filter is not None else ""
     if dets:
         parts = [
             f"{d.get('name', d.get('cls'))} conf={float(d.get('conf', 0)):.4f}"
             for d in dets
         ]
-        return ("命中「显示阈值≥{:.4f}」：".format(conf_user)) + " | ".join(parts)
+        return (
+            "命中「显示阈值≥{:.4f}」{}：".format(conf_user, cls_note)
+            + " | ".join(parts)
+        )
     if candidates:
         top = candidates[:24]
         cstr = "; ".join(
@@ -376,13 +440,13 @@ def _format_validate_infer_message(
         )
         more = f" （共 {len(candidates)} 框，至多展示 24）" if len(candidates) > 24 else ""
         return (
-            f"未达到显示阈值（≥{conf_user:.4f}）。"
+            f"未达到显示阈值（≥{conf_user:.4f}）{cls_note}。"
             f"候选扫描（conf≥{diag_floor:.4f}）： "
             + cstr
             + more
         )
     return (
-        f"未达到显示阈值（≥{conf_user:.4f}）；候选扫描 conf≥{diag_floor:.4f} 仍无框。"
+        f"未达到显示阈值（≥{conf_user:.4f}）{cls_note}；候选扫描 conf≥{diag_floor:.4f} 仍无框。"
         "可尝试降低验证置信度，或继续增加标注样本与训练轮数。"
     )
 
@@ -439,6 +503,7 @@ def _validate_rtsp_worker(
     device_arg,
     conf: float,
     imgsz: int,
+    class_filter: Optional[int] = None,
 ) -> None:
     project_dir = _project_dir_for_job(project_id)
     if project_dir is None:
@@ -465,10 +530,17 @@ def _validate_rtsp_worker(
             else:
                 try:
                     plot_bgr, dets, candidates = _validate_infer(
-                        weights_path, frame, device_arg, conf=conf, imgsz=imgsz
+                        weights_path,
+                        frame,
+                        device_arg,
+                        conf=conf,
+                        imgsz=imgsz,
+                        class_filter=class_filter,
                     )
                     snap = _validate_save_snap(project_dir, plot_bgr)
-                    msg = _format_validate_infer_message(dets, candidates, float(conf))
+                    msg = _format_validate_infer_message(
+                        dets, candidates, float(conf), class_filter=class_filter
+                    )
                     _validate_append_log(
                         project_id,
                         {
@@ -478,6 +550,7 @@ def _validate_rtsp_worker(
                             "candidates": candidates,
                             "conf_threshold": float(conf),
                             "candidate_conf_floor": float(_VALIDATE_CANDIDATE_FLOOR),
+                            "class_filter": class_filter,
                             "snapshot": snap,
                             "source": "rtsp",
                         },
@@ -550,13 +623,18 @@ def _run_training_job(
     out_base.mkdir(parents=True, exist_ok=True)
 
     # 解析预训练权重路径
-    pre = pretrained_model.strip() or "yolov8n.pt"
+    pre = pretrained_model.strip() or "yolov8s.pt"
     if pre and not Path(pre).is_absolute():
         cand = Path(pre)
         if not cand.is_file():
             cand2 = (_repo_root() / pre).resolve()
             if cand2.is_file():
                 pre = str(cand2)
+            else:
+                # models/ 下常见放置
+                cand3 = (_repo_root() / "models" / Path(pre).name).resolve()
+                if cand3.is_file():
+                    pre = str(cand3)
 
     cmd = [
         sys.executable,
@@ -604,21 +682,48 @@ def _run_training_job(
         "weights": str(weights.resolve()) if weights.is_file() else None,
         "finished_at": time.time(),
         "evaluation": None,
+        "test_evaluation": None,
+        "deploy_ready": False,
     }
     if status == "completed" and weights.is_file():
         dev = device.strip() or detect_train_device()
-        eval_metrics = run_evaluate_subprocess(
+        val_metrics = run_evaluate_subprocess(
             _repo_root(),
             model_path=str(weights.resolve()),
             data_yaml=str(yaml_path.resolve()),
             device=dev,
+            split="val",
             log_fp=log_fp,
         )
-        payload["evaluation"] = eval_metrics
-        if eval_metrics.get("ok"):
-            payload["map50"] = eval_metrics.get("map50")
-            payload["precision"] = eval_metrics.get("precision")
-            payload["recall"] = eval_metrics.get("recall")
+        test_metrics = run_evaluate_subprocess(
+            _repo_root(),
+            model_path=str(weights.resolve()),
+            data_yaml=str(yaml_path.resolve()),
+            device=dev,
+            split="test",
+            log_fp=log_fp,
+        )
+        payload["evaluation"] = val_metrics
+        payload["test_evaluation"] = test_metrics
+        if val_metrics.get("ok"):
+            payload["map50"] = val_metrics.get("map50")
+            payload["precision"] = val_metrics.get("precision")
+            payload["recall"] = val_metrics.get("recall")
+        if test_metrics.get("ok"):
+            payload["test_map50"] = test_metrics.get("map50")
+            payload["test_precision"] = test_metrics.get("precision")
+            payload["test_recall"] = test_metrics.get("recall")
+            from jxvisionai.web.training_lab_core import check_deploy_quality_gate
+
+            ok, errs = check_deploy_quality_gate(test_metrics)
+            payload["deploy_ready"] = ok
+            payload["deploy_gate_errors"] = errs
+            payload["deploy_gate"] = dict(DEPLOY_GATE)
+        else:
+            payload["deploy_ready"] = False
+            payload["deploy_gate_errors"] = [
+                test_metrics.get("error") or "测试集评估失败"
+            ]
     with open(job_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -728,6 +833,7 @@ def _register_api_routes(app):
                     "created_at": meta.get("created_at"),
                     "image_count": len(list((d / "images").glob("*"))) if (d / "images").is_dir() else 0,
                     "labeled_count": health.labeled_images,
+                    "draft_count": health.draft_images,
                     "can_train": health.can_train,
                 }
             )
@@ -755,6 +861,7 @@ def _register_api_routes(app):
         pdir = _projects_base() / pid
         (pdir / "images").mkdir(parents=True)
         (pdir / "labels").mkdir(parents=True)
+        (pdir / "labels_draft").mkdir(parents=True)
         meta = {
             "title": title,
             "classes": classes,
@@ -819,15 +926,17 @@ def _register_api_routes(app):
         img_dir = project_dir / "images"
         if not img_dir.is_dir():
             return jsonify([])
-        labeled = set(list_labeled_stems(project_dir))
         out = []
         for p in sorted(img_dir.iterdir(), key=lambda x: x.name):
             if p.suffix.lower() not in (".jpg", ".jpeg", ".png"):
                 continue
+            status = sample_label_status(project_dir, p.stem)
             out.append(
                 {
                     "filename": p.name,
-                    "labeled": p.stem in labeled,
+                    "labeled": status == "reviewed",
+                    "status": status,
+                    "draft": status == "draft",
                 }
             )
         return jsonify(out)
@@ -848,11 +957,15 @@ def _register_api_routes(app):
             return jsonify({"success": False, "message": "文件不存在"}), 404
         stem = img_path.stem
         lbl_path = (project_dir / "labels" / f"{stem}.txt").resolve()
+        draft_path = (project_dir / "labels_draft" / f"{stem}.txt").resolve()
         labels_root = (project_dir / "labels").resolve()
+        draft_root = (project_dir / "labels_draft").resolve()
         try:
             img_path.unlink()
             if str(lbl_path).startswith(str(labels_root) + os.sep) and lbl_path.is_file():
                 lbl_path.unlink()
+            if draft_root.is_dir() and str(draft_path).startswith(str(draft_root) + os.sep) and draft_path.is_file():
+                draft_path.unlink()
         except OSError as e:
             logger.warning("删除训练样本失败: %s", e)
             return jsonify({"success": False, "message": str(e)}), 500
@@ -868,12 +981,32 @@ def _register_api_routes(app):
     @login_required
     def training_get_label(pid, filename):
         project_dir = _pid_path(pid)
-        fp = (project_dir / "labels" / filename).resolve()
-        if not str(fp).startswith(str((project_dir / "labels").resolve())):
-            abort(404)
-        if not fp.is_file():
-            return Response("", mimetype="text/plain")
-        return send_from_directory(project_dir / "labels", filename, mimetype="text/plain", max_age=0)
+        # 优先正式标注；无则回退草稿（便于审核编辑）
+        for sub in ("labels", "labels_draft"):
+            fp = (project_dir / sub / filename).resolve()
+            root = (project_dir / sub).resolve()
+            if not str(fp).startswith(str(root) + os.sep):
+                continue
+            if fp.is_file():
+                return send_from_directory(project_dir / sub, filename, mimetype="text/plain", max_age=0)
+        return Response("", mimetype="text/plain")
+
+    @app.route("/api/training/projects/<pid>/labels/approve", methods=["POST"])
+    @login_required
+    def training_approve_labels(pid):
+        project_dir = _pid_path(pid)
+        data = request.get_json(silent=True) or {}
+        approve_all = bool(data.get("all"))
+        stems = data.get("stems") or []
+        if not approve_all and not stems:
+            # 单张：由 image 文件名推导
+            image = _safe_image_basename(data.get("image") or data.get("filename"))
+            if image:
+                stems = [Path(image).stem]
+        if not approve_all and not stems:
+            return jsonify({"success": False, "message": "请提供 stems 或 image，或 all=true"}), 400
+        result = approve_draft_labels(project_dir, stems=stems, approve_all=approve_all)
+        return jsonify(result)
 
     @app.route("/api/training/projects/<pid>/labels", methods=["POST"])
     @login_required
@@ -917,7 +1050,14 @@ def _register_api_routes(app):
         stem = Path(image).stem
         lf = lbl_dir / f"{stem}.txt"
         lf.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-        return jsonify({"success": True, "lines": len(lines)})
+        # 人工保存即视为审核通过：清理同名草稿
+        draft = project_dir / "labels_draft" / f"{stem}.txt"
+        if draft.is_file():
+            try:
+                draft.unlink()
+            except OSError:
+                pass
+        return jsonify({"success": True, "lines": len(lines), "status": "reviewed"})
 
     @app.route("/api/training/projects/<pid>/train", methods=["POST"])
     @login_required
@@ -943,12 +1083,22 @@ def _register_api_routes(app):
         img_size = int(data.get("img_size") or defaults.get("imgsz") or 640)
         device = str(data.get("device") or detect_train_device()).strip()
         pretrained = str(
-            data.get("pretrained_model") or defaults.get("pretrained") or "yolov8n.pt"
+            data.get("pretrained_model") or defaults.get("pretrained") or "yolov8s.pt"
         ).strip()
 
         epochs = max(1, min(epochs, 500))
         batch_size = max(1, min(batch_size, 128))
         img_size = max(320, min(img_size, 1280))
+
+        # 生产级：禁止强制绕过开训门槛（调试可设环境变量 TRAINING_LAB_ALLOW_FORCE=1）
+        if force and os.environ.get("TRAINING_LAB_ALLOW_FORCE", "0") != "1":
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "已禁用强制开训。请补齐已审核样本后再训，或设置 TRAINING_LAB_ALLOW_FORCE=1（仅调试）",
+                    "health": health.to_dict(),
+                }
+            ), 400
 
         job_id = uuid.uuid4().hex[:16]
         job_path = _jobs_base() / f"{job_id}.json"
@@ -1061,6 +1211,9 @@ def _register_api_routes(app):
         imgsz = int(data.get("imgsz") or 640)
         conf = max(0.05, min(conf, 0.99))
         imgsz = max(320, min(imgsz, 1280))
+        class_filter = _parse_class_filter(
+            data.get("class_filter") if "class_filter" in data else data.get("class_index")
+        )
 
         frame = None
         src_label = ""
@@ -1096,10 +1249,17 @@ def _register_api_routes(app):
 
         try:
             plot_bgr, dets, candidates = _validate_infer(
-                str(wp), frame, device_arg, conf=conf, imgsz=imgsz
+                str(wp),
+                frame,
+                device_arg,
+                conf=conf,
+                imgsz=imgsz,
+                class_filter=class_filter,
             )
             snap = _validate_save_snap(project_dir, plot_bgr)
-            msg = _format_validate_infer_message(dets, candidates, float(conf))
+            msg = _format_validate_infer_message(
+                dets, candidates, float(conf), class_filter=class_filter
+            )
             _validate_append_log(
                 pid,
                 {
@@ -1109,6 +1269,7 @@ def _register_api_routes(app):
                     "candidates": candidates,
                     "conf_threshold": float(conf),
                     "candidate_conf_floor": float(_VALIDATE_CANDIDATE_FLOOR),
+                    "class_filter": class_filter,
                     "snapshot": snap,
                     "source": src_label,
                 },
@@ -1128,6 +1289,7 @@ def _register_api_routes(app):
                 "candidates": candidates,
                 "conf_threshold": float(conf),
                 "candidate_conf_floor": float(_VALIDATE_CANDIDATE_FLOOR),
+                "class_filter": class_filter,
                 "snapshot": snap,
                 "summary": msg,
             }
@@ -1150,6 +1312,9 @@ def _register_api_routes(app):
         conf = float(data.get("conf") or 0.25)
         conf = max(0.05, min(conf, 0.99))
         imgsz = max(320, min(int(data.get("imgsz") or 640), 1280))
+        class_filter = _parse_class_filter(
+            data.get("class_filter") if "class_filter" in data else data.get("class_index")
+        )
 
         _validate_stop_session(pid)
         stop_ev = threading.Event()
@@ -1164,23 +1329,26 @@ def _register_api_routes(app):
                 data.get("device"),
                 conf,
                 imgsz,
+                class_filter,
             ),
             daemon=True,
         )
         with _validate_sessions_lock:
             _validate_sessions[pid] = {"stop": stop_ev, "thread": th}
         th.start()
+        cls_tip = f"，仅类别 {class_filter}" if class_filter is not None else ""
         _validate_append_log(
             pid,
             {
                 "kind": "info",
-                "message": f"已开启 RTSP 循环验证，间隔 {interval:g}s",
+                "message": f"已开启 RTSP 循环验证，间隔 {interval:g}s{cls_tip}",
                 "detections": [],
                 "snapshot": None,
                 "source": "rtsp_loop",
+                "class_filter": class_filter,
             },
         )
-        return jsonify({"success": True, "interval_sec": interval})
+        return jsonify({"success": True, "interval_sec": interval, "class_filter": class_filter})
 
     @app.route("/api/training/projects/<pid>/validate/stop", methods=["POST"])
     @login_required
@@ -1267,12 +1435,54 @@ def _register_api_routes(app):
         if wp is None or not wp.is_file():
             return jsonify({"success": False, "message": "无效权重路径"}), 400
 
+        # 优先使用同 job 的测试集指标
+        test_metrics = data.get("test_metrics")
+        job_id = (data.get("job_id") or "").strip()
+        if (not test_metrics) and job_id and re.match(r"^[a-f0-9]{16}$", job_id):
+            jp = _jobs_base() / f"{job_id}.json"
+            if jp.is_file():
+                doc = json.loads(jp.read_text(encoding="utf-8"))
+                test_metrics = doc.get("test_evaluation")
+                if not wkey:
+                    w = doc.get("weights")
+                    if w and Path(w).is_file():
+                        wp = Path(w)
+        # 若权重路径对应 runs/<job>/... 尝试读同目录旁 job json
+        if not test_metrics:
+            # 从 weights 路径反查 job
+            try:
+                parts = wp.resolve().parts
+                if "runs" in parts:
+                    idx = parts.index("runs")
+                    if idx + 1 < len(parts):
+                        jid = parts[idx + 1]
+                        if re.match(r"^[a-f0-9]{16}$", jid):
+                            jp = _jobs_base() / f"{jid}.json"
+                            if jp.is_file():
+                                doc = json.loads(jp.read_text(encoding="utf-8"))
+                                test_metrics = doc.get("test_evaluation")
+                                job_id = jid
+            except Exception:  # noqa: BLE001
+                pass
+
+        force_deploy = bool(data.get("force"))
+        if force_deploy and os.environ.get("TRAINING_LAB_ALLOW_FORCE_DEPLOY", "0") != "1":
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "已禁用强制上线。请提升测试集指标，或设置 TRAINING_LAB_ALLOW_FORCE_DEPLOY=1（仅调试）",
+                }
+            ), 400
+
         result = deploy_weights_to_production(
             _repo_root(),
             weights_path=wp,
             target=target,
             backup=bool(data.get("backup", True)),
             patch_config=bool(data.get("patch_config", True)),
+            test_metrics=test_metrics if isinstance(test_metrics, dict) else None,
+            force=force_deploy,
+            export_device=str(data.get("device") or detect_train_device()),
         )
         status = 200 if result.get("success") else 400
         return jsonify(result), status

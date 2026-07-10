@@ -14,7 +14,7 @@
             <img class="tl-logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
             <div>
                 <h1>训练实验室</h1>
-                <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注 → 训练评估 → 一键部署 → 阈值向导</p>
+                <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注审核 → 训练评估（val+test）→ 质量门禁部署 → 阈值向导</p>
             </div>
         </div>
         <div class="tl-header-actions">
@@ -47,10 +47,11 @@
 
                 <div class="tl-block">
                     <h3>2. 样本列表</h3>
-                    <p class="tl-hint">绿点表示已保存标注。点击图片进入标注画布。</p>
+                    <p class="tl-hint">绿点=已审核可训练；黄点=预标注草稿（需审核）；灰点=未标注。点击图片进入标注画布，保存即视为审核通过。</p>
                     <div id="dataset-health" class="tl-health tl-hidden"></div>
                     <div class="tl-row">
-                        <button type="button" id="btn-prelabel" class="tl-btn tl-btn-secondary" disabled>预标注（best.pt）</button>
+                        <button type="button" id="btn-prelabel" class="tl-btn tl-btn-secondary" disabled>预标注到草稿</button>
+                        <button type="button" id="btn-approve-all" class="tl-btn tl-btn-secondary" disabled>全部草稿审核通过</button>
                         <button type="button" id="btn-refresh-health" class="tl-btn tl-btn-secondary" disabled>刷新数据检查</button>
                     </div>
                     <ul id="sample-list" class="tl-samples"></ul>
@@ -71,10 +72,16 @@
 
             <div class="tl-block tl-annotate">
                 <h3>3. 标注 <span id="annotate-filename" class="tl-muted"></span></h3>
-                <p class="tl-hint">拖拽画矩形；选中类别后在图上拖框。双击删除框。<code>S</code> 保存标注。</p>
+                <p class="tl-hint">空白处拖拽画框；点击选中后可拖移或拖角点改大小。<code>Ctrl+Z</code> 撤销 / <code>Ctrl+Y</code> 重做；<code>Delete</code> 删选中框；双击也可删；<code>←</code>/<code>→</code>（或 <code>A</code>/<code>D</code>）上一张/下一张（切换前自动保存）；<code>S</code> 保存。</p>
                 <select id="class-picker" class="tl-input tl-class-picker"></select>
                 <canvas id="anno-canvas" class="tl-canvas"></canvas>
                 <div class="tl-row">
+                    <button type="button" id="btn-prev-sample" class="tl-btn tl-btn-secondary" disabled title="上一张（← / A）">上一张</button>
+                    <span id="sample-nav-pos" class="tl-muted"></span>
+                    <button type="button" id="btn-next-sample" class="tl-btn tl-btn-secondary" disabled title="下一张（→ / D）">下一张</button>
+                    <button type="button" id="btn-undo-box" class="tl-btn tl-btn-secondary" disabled>撤销</button>
+                    <button type="button" id="btn-redo-box" class="tl-btn tl-btn-secondary" disabled>重做</button>
+                    <button type="button" id="btn-delete-box" class="tl-btn tl-btn-secondary" disabled>删除选中</button>
                     <button type="button" id="btn-save-labels" class="tl-btn tl-btn-primary">保存标注</button>
                     <span id="label-status" class="tl-muted"></span>
                 </div>
@@ -83,12 +90,13 @@
             <div class="tl-block">
                 <h3>4. 训练（后台子进程）</h3>
                 <div class="tl-train-fields">
-                    <label>epochs <input type="number" id="train-epochs" value="30" min="1" max="500" class="tl-input tl-num"></label>
+                    <label>epochs <input type="number" id="train-epochs" value="80" min="1" max="500" class="tl-input tl-num"></label>
                     <label>batch <input type="number" id="train-batch" value="8" min="1" max="128" class="tl-input tl-num"></label>
                     <label>imgsz <input type="number" id="train-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
                     <label>device <input type="text" id="train-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
-                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolov8n.pt" class="tl-input"></label>
+                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolov8s.pt" class="tl-input"></label>
                 </div>
+                <p class="tl-hint">默认 <code>yolov8s.pt</code>；开训需已审核样本达门槛（约 ≥50 张、独立 val/test）。训练完成后以<strong>测试集</strong>指标决定能否一键上线。</p>
                 <div class="tl-row">
                     <button type="button" id="btn-train" class="tl-btn tl-btn-primary">开始训练</button>
                     <span id="train-status" class="tl-muted"></span>
@@ -107,7 +115,7 @@
 
             <div class="tl-block tl-validate">
                 <h3>5. 验证模型</h3>
-                <p class="tl-hint">对已训练的 <code>best.pt</code> 做推理：可上传静态图，或用上方 RTSP 单次/循环（默认 5s）。日志含<strong>显示阈值内命中</strong>与<strong>低阈值候选框及每条 conf</strong>（便于排查「有框但被高阈值滤掉」）。仅 5 张图时模型往往泛化差，可先试把 conf 降到 0.2～0.35。</p>
+                <p class="tl-hint">对已训练的 <code>best.pt</code> 做推理：可上传静态图，或用上方 RTSP 单次/循环。可用「类别过滤」只看 <code>0=no_glasses</code> 或 <code>1=glasses</code>。上线以训练任务的<strong>测试集 mAP/P/R</strong>为准，本区仅作肉眼抽检。</p>
                 <select id="val-weights" class="tl-input"><option value="">— 选择本项目已训练权重 —</option></select>
                 <input type="text" id="val-weights-manual" class="tl-input" placeholder="可选：粘贴权重绝对路径（须在本项目目录下）">
                 <div class="tl-row tl-val-radio">
@@ -121,6 +129,11 @@
                     <label>imgsz <input type="number" id="val-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
                     <label>推理 device <input type="text" id="val-device" value="" class="tl-input tl-device-w" placeholder="空=沿用配置"></label>
                     <label>循环间隔(s) <input type="number" id="val-interval" value="5" min="1" max="120" class="tl-input tl-num"></label>
+                    <label>类别过滤
+                        <select id="val-class-filter" class="tl-input tl-device-w" title="只显示某一类，便于核验未戴眼镜">
+                            <option value="">全部</option>
+                        </select>
+                    </label>
                 </div>
                 <div class="tl-row tl-val-actions">
                     <button type="button" id="btn-val-once" class="tl-btn tl-btn-secondary">执行单次验证</button>
