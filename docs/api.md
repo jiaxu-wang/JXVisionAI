@@ -41,4 +41,4 @@
 | `POST` | `/api/preview-webrtc/*` | WebRTC 信令 |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
-训练实验室 API 见 `/training` 页面与 `jxvisionai/web/training_routes.py`。
+训练实验室 API 见 `/training` 页面与 `visionai/web/training_routes.py`。

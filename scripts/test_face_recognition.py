@@ -13,7 +13,7 @@ sys.path.insert(0, str(REPO))
 import cv2
 import numpy as np
 
-from jxvisionai.core import face_engine, face_library
+from visionai.core import face_engine, face_library
 
 
 def main() -> int:

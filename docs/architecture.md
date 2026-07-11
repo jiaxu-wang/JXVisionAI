@@ -21,7 +21,7 @@
 
 ## 进程模型
 
-单进程 `python3 -m jxvisionai` 同时运行：
+单进程 `python3 -m visionai` 同时运行：
 
 1. **Flask Web 服务**（默认 `0.0.0.0:5000`）— 管理端、API、流预览
 2. **每路 RTSP 处理线程** — 拉流 → 检测 → 截图 → 写 Redis → 发告警
@@ -71,7 +71,7 @@ flowchart TB
 
 ## 行为插件层
 
-`jxvisionai/core/behaviors/` 采用插件注册模式（`registry.py`）：
+`visionai/core/behaviors/` 采用插件注册模式（`registry.py`）：
 
 | 插件 | 键名 | 依赖 |
 |------|------|------|
@@ -101,8 +101,8 @@ flowchart TB
 ## 仓库结构
 
 ```
-# 仓库根目录（GitHub 仓库名 JXVisionAI；Python 包名 jxvisionai）
-├── jxvisionai/                    # Python 包（python -m jxvisionai）
+# 仓库根目录（GitHub 仓库名 JXVisionAI；Python 包名 visionai）
+├── visionai/                    # Python 包（python -m visionai）
 │   ├── __main__.py                # 入口：流线程 + Flask
 │   ├── config/
 │   │   ├── settings.py            # 配置加载（env > ini > 默认）

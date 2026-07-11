@@ -18,7 +18,7 @@ def _mk_project(
     n_boxes_per: int = 2,
     template_id: str = "smoking",
 ) -> Path:
-    from jxvisionai.web.training_lab_core import TRAINING_TEMPLATES
+    from visionai.web.training_lab_core import TRAINING_TEMPLATES
 
     base = REPO / "training_lab_data" / "projects"
     base.mkdir(parents=True, exist_ok=True)
@@ -79,7 +79,7 @@ def test_p0_augment_disabled():
 
 
 def test_helmet_class_contract():
-    from jxvisionai.web.training_lab_core import TRAINING_TEMPLATES, DEPLOY_TARGETS
+    from visionai.web.training_lab_core import TRAINING_TEMPLATES, DEPLOY_TARGETS
 
     assert TRAINING_TEMPLATES["safety_helmet"]["classes"] == ["no_helmet", "helmet"]
     assert TRAINING_TEMPLATES["no_glasses"]["classes"] == ["no_glasses", "glasses"]
@@ -91,13 +91,13 @@ def test_helmet_class_contract():
 
 
 def test_no_glasses_catalog():
-    from jxvisionai.config.detection_catalog import (
+    from visionai.config.detection_catalog import (
         EXTENSION_KEYS,
         EXTENSION_LABELS_ZH,
         NO_GLASSES_KEY,
         PERSON_BEHAVIOR_KEYS,
     )
-    from jxvisionai.config.settings import GLASSES_MODEL_PATH
+    from visionai.config.settings import GLASSES_MODEL_PATH
 
     assert NO_GLASSES_KEY in EXTENSION_KEYS
     assert NO_GLASSES_KEY in PERSON_BEHAVIOR_KEYS
@@ -107,7 +107,7 @@ def test_no_glasses_catalog():
 
 
 def test_dataset_health_gate():
-    from jxvisionai.web.training_lab_core import check_dataset_health
+    from visionai.web.training_lab_core import check_dataset_health
 
     pdir = _mk_project(60, 2)
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
@@ -120,7 +120,7 @@ def test_dataset_health_gate():
 
 
 def test_health_blocks_small():
-    from jxvisionai.web.training_lab_core import check_dataset_health
+    from visionai.web.training_lab_core import check_dataset_health
 
     pdir = _mk_project(12, 2)
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
@@ -132,7 +132,7 @@ def test_health_blocks_small():
 
 
 def test_split_no_leakage():
-    from jxvisionai.web.training_lab_core import materialize_yolo_split
+    from visionai.web.training_lab_core import materialize_yolo_split
 
     pdir = _mk_project(60, 2)
     meta = json.loads((pdir / "meta.json").read_text(encoding="utf-8"))
@@ -149,7 +149,7 @@ def test_split_no_leakage():
 
 
 def test_draft_prelabel_and_approve():
-    from jxvisionai.web.training_lab_core import (
+    from visionai.web.training_lab_core import (
         approve_draft_labels,
         list_draft_stems,
         list_reviewed_stems,
@@ -173,7 +173,7 @@ def test_draft_prelabel_and_approve():
 
 
 def test_deploy_gate_blocks_without_metrics():
-    from jxvisionai.web.training_lab_core import deploy_weights_to_production
+    from visionai.web.training_lab_core import deploy_weights_to_production
 
     models = REPO / "models"
     src = models / "smoking_detection.pt"
@@ -197,7 +197,7 @@ def test_deploy_gate_blocks_without_metrics():
 
 
 def test_deploy_with_good_metrics():
-    from jxvisionai.web.training_lab_core import deploy_weights_to_production
+    from visionai.web.training_lab_core import deploy_weights_to_production
 
     models = REPO / "models"
     src = models / "smoking_detection.pt"
@@ -222,8 +222,8 @@ def test_deploy_with_good_metrics():
 
 
 def test_p3_snapshot_list_import():
-    from jxvisionai.config.settings import SAVE_DIR
-    from jxvisionai.web.training_lab_core import import_snapshots_to_project, list_production_snapshots
+    from visionai.config.settings import SAVE_DIR
+    from visionai.web.training_lab_core import import_snapshots_to_project, list_production_snapshots
 
     snaps = list_production_snapshots(Path(SAVE_DIR), limit=5)
     print(f"snapshot list: found {len(snaps)} under {SAVE_DIR}")

@@ -142,7 +142,7 @@ python scripts/export.py deploy \
 
 ### 8. 在JXVisionAI中使用新模型
 
-修改 `jxvisionai/config/settings.py`：
+修改 `visionai/config/settings.py`：
 
 ```python
 # YOLO模型配置
@@ -363,7 +363,7 @@ A:
 ### Q: 如何将训练好的模型集成到JXVisionAI？
 A: 
 1. 使用export.py的deploy命令部署模型
-2. 修改jxvisionai/config/settings.py中的YOLO_MODEL配置
+2. 修改visionai/config/settings.py中的YOLO_MODEL配置
 3. 更新DETECTION_CLASSES映射
 4. 重启JXVisionAI服务
 

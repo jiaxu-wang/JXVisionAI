@@ -6,7 +6,7 @@
 
 多路 **RTSP** 视频智能分析平台：YOLO 主检测 + 行为扩展（吸烟、打电话等）+ 人脸识别；告警写入 Redis，截图可落盘或上传 MinIO/S3；Flask Web 管理端配置每路流与检测项。
 
-> 品牌名 **JXVisionAI**。GitHub 仓库与 Python 包分别为 `JXVisionAI` / `jxvisionai`。`visionai_secret`、Redis 键 `visionai:*`、对象存储前缀 `visionai/` 等技术标识保持不变，以免破坏现有部署。
+> 品牌名 **JXVisionAI**。GitHub 仓库与 Python 包分别为 `JXVisionAI` / `visionai`。`visionai_secret`、Redis 键 `visionai:*`、对象存储前缀 `visionai/` 等技术标识保持不变，以免破坏现有部署。
 
 **仓库**：<https://github.com/jiaxu-wang/JXVisionAI>
 
