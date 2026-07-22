@@ -22,7 +22,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: visionai-redis
-    command: redis-server --appendonly yes --requirepass VisionAI@2026
+    working_dir: /data
+    command: redis-server --dir /data --appendonly yes --appenddirname appendonlydir --requirepass VisionAI@2026 --stop-writes-on-bgsave-error no
     ports:
       - "16379:6379"
     volumes:
@@ -34,6 +35,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
 
   #visionai:
   #  build:

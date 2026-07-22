@@ -98,7 +98,7 @@ def _build_message(
     msg["Subject"] = Header(subject, "utf-8")
 
     lines = [
-        f"视频流: {stream_name}",
+        f"视频: {stream_name}",
         f"时间: {ts.isoformat(timespec='seconds')}",
         f"类型: {', '.join(detection_types)}",
         "",

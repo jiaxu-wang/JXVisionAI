@@ -401,23 +401,33 @@ def update_person(
 
 
 def delete_person(person_id: str) -> bool:
+    """删除人员。内存或 Redis 任一侧有记录即可删除（避免 Redis 丢键后删不掉）。"""
     with _lock:
         meta = _index.get(person_id)
-        if not meta:
-            return False
+    if not meta:
+        meta = redis_manager.get_face_person(person_id)
+    if not meta:
+        # Redis 已无此人时仍清理可能残留的内存索引
+        with _lock:
+            existed = person_id in _index
+            _index.pop(person_id, None)
+            _embeddings[:] = [(p, e) for p, e in _embeddings if p != person_id]
+        return existed
 
     store = get_object_storage()
     for ph in meta.get("photos") or []:
         okey = ph.get("object_key")
         if okey and store:
-            store.delete_object(okey)
+            try:
+                store.delete_object(okey)
+            except Exception as ex:  # noqa: BLE001
+                logger.warning("删除人脸照片对象失败 %s: %s", okey, ex)
 
-    if not redis_manager.delete_face_person(person_id):
-        return False
+    # Redis 键可能已丢失：hdel=0 不视为失败
+    redis_manager.delete_face_person(person_id)
 
     with _lock:
-        if person_id in _index:
-            del _index[person_id]
+        _index.pop(person_id, None)
         _embeddings[:] = [(p, e) for p, e in _embeddings if p != person_id]
     return True
 

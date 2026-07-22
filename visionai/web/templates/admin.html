@@ -223,10 +223,14 @@
         
         .logo img {
             width: 100%;
-            max-width: 260px;
+            max-width: 200px;
             height: auto;
             display: block;
             margin: 0 auto 10px;
+            border-radius: 0;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
         }
         
         .menu {
@@ -391,7 +395,7 @@
             color: #721c24;
         }
         
-        /* 事件监控页（视频流列表） */
+        /* 事件监控页（视频列表） */
         .stream-item {
             background: #ffffff;
             border: 1px solid #e9ecef;
@@ -1115,7 +1119,7 @@
                                 <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 吸烟</span>
                             </div>
                             <div class="status-card">
-                                <h3>在线流 / 视频流</h3>
+                                <h3>在线流 / 视频</h3>
                                 <div class="value" id="streamOnlineSummary">（0/0）</div>
                                 <span class="status" id="streamStatus">-</span>
                             </div>
@@ -1128,7 +1132,7 @@
                     </div>
                     
                     <div class="card">
-                        <h2>视频流</h2>
+                        <h2>视频</h2>
                         <div id="streamStatusList">
                             <!-- 流状态将通过JavaScript动态生成 -->
                         </div>
@@ -1140,9 +1144,9 @@
                     <div class="card">
                         <h2>监控配置</h2>
                         <div id="streamContainer">
-                            <!-- 视频流列表将通过JavaScript动态生成 -->
+                            <!-- 视频列表将通过JavaScript动态生成 -->
                         </div>
-                        <button type="button" class="btn-add" id="addStreamBtn">➕ 添加视频流</button>
+                        <button type="button" class="btn-add" id="addStreamBtn">➕ 添加视频</button>
                         <div class="button-group">
                             <button type="button" class="btn-save" id="saveStreamsBtn">💾 保存配置</button>
                             <button type="button" class="btn-restart" id="restartBtn">🔄 重启服务</button>
@@ -1161,9 +1165,9 @@
                             <label>结束时间
                                 <input type="datetime-local" id="alertFilterEnd" title="留空表示不限制">
                             </label>
-                            <label>视频流
-                                <select id="alertFilterStream" title="按视频流筛选">
-                                    <option value="">全部视频流</option>
+                            <label>视频
+                                <select id="alertFilterStream" title="按视频筛选">
+                                    <option value="">全部视频</option>
                                 </select>
                             </label>
                             <label>检测类型
@@ -1181,7 +1185,7 @@
                                 <tr>
                                     <th><input type="checkbox" id="selectAll"></th>
                                     <th>时间</th>
-                                    <th>视频流</th>
+                                    <th>视频</th>
                                     <th>检测类型</th>
                                     <th>截图</th>
                                     <th>操作</th>
@@ -1251,7 +1255,7 @@
                 <button type="button" class="config-modal-close" id="detectionConfigModalCloseBtn" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
-                <p style="font-size: 13px; color: #495057; margin: 0;">以下为当前预训练模型支持的类别；每项均可单独开启或关闭。修改后请点击「保存当前操作」写入本条视频流（仍需保存配置并重启服务后生效）。</p>
+                <p style="font-size: 13px; color: #495057; margin: 0;">以下为当前预训练模型支持的类别；每项均可单独开启或关闭。修改后请点击「保存当前操作」写入本条视频（仍需保存配置并重启服务后生效）。</p>
                 <input type="text" class="config-modal-search" id="detectionConfigSearch" placeholder="按中文或英文名称筛选…">
                 <div class="config-modal-scroll" id="detectionConfigList"></div>
                 <div id="faceRecogConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
@@ -1833,7 +1837,7 @@
                 // 统计在线流数量
                 const onlineStreams = streams.filter(stream => stream.status === '在线').length;
                 
-                // 更新状态数据（在线数/视频流总数）
+                // 更新状态数据（在线数/视频总数）
                 document.getElementById('streamOnlineSummary').textContent =
                     `（${onlineStreams}/${streams.length}）`;
                 const todayAlerts = stats.success ? (Number(stats.count) || 0) : 0;
@@ -1858,7 +1862,7 @@
                 streamStatusList.innerHTML = '';
                 
                 if (streams.length === 0) {
-                    streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">暂无视频流配置</p>';
+                    streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">暂无视频配置</p>';
                 } else {
                     streams.forEach(stream => {
                         const streamItem = document.createElement('div');
@@ -1985,7 +1989,7 @@
             try {
                 const r = await fetch('/api/streams');
                 const streams = await r.json();
-                sel.innerHTML = '<option value="">全部视频流</option>';
+                sel.innerHTML = '<option value="">全部视频</option>';
                 (streams || []).forEach(s => {
                     if (!s.id) return;
                     const o = document.createElement('option');
@@ -2170,19 +2174,23 @@
                 // 格式化检测类型
                 const detectionType = detection.detection_types.join(', ');
                 
-                // 对象存储用 API 回源；仅本地时走 /snapshots/…
-                let imageUrl;
-                if (detection.object_key) {
+                // 统一走后端回源（对象存储或本地绝对路径均可）；避免前端误拼绝对路径
+                let imageUrl = '';
+                if (detection.id) {
                     imageUrl = '/api/alert-image/' + encodeURIComponent(detection.id);
-                } else {
-                    const imagePath = detection.image_path || '';
-                    if (!imagePath) {
-                        imageUrl = '';
-                    } else {
-                        let p = imagePath;
-                        if (p.startsWith('./')) p = p.replace('./', '');
-                        else if (p.startsWith('/')) p = p.substring(1);
-                        imageUrl = '/snapshots/' + p.split('/').slice(1).join('/');
+                } else if (detection.image_path) {
+                    const norm = String(detection.image_path).replace(/\\/g, '/');
+                    const marker = '/snapshots/';
+                    const idx = norm.lastIndexOf(marker);
+                    if (idx >= 0) {
+                        imageUrl =
+                            '/snapshots/' +
+                            norm
+                                .slice(idx + marker.length)
+                                .split('/')
+                                .filter(Boolean)
+                                .map(encodeURIComponent)
+                                .join('/');
                     }
                 }
                 const noImg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4=';
@@ -2349,7 +2357,7 @@
             }
         });
         
-        // 加载视频流配置
+        // 加载视频配置
         async function loadStreams() {
             try {
                 const response = await fetch('/api/streams');
@@ -2376,7 +2384,7 @@
                 });
                 await refreshSmtpHintForStreamForm();
             } catch (error) {
-                showMessage('加载视频流配置失败', 'error');
+                showMessage('加载视频配置失败', 'error');
             }
         }
         
@@ -2398,7 +2406,7 @@
             }
         }
 
-        // 添加视频流项（新增源默认关闭全部检测项）
+        // 添加视频项（新增源默认关闭全部检测项）
         function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true, alertWebhookUrls = null, alertWebhookEnabled = false, faceRecogConfig = null) {
             const container = document.getElementById('streamContainer');
             const streamItem = document.createElement('div');
@@ -2489,12 +2497,12 @@
             button.textContent = newEnabled ? '暂停' : '启用';
         }
         
-        // 删除视频流
+        // 删除视频
         function deleteStream(button) {
             button.parentElement.parentElement.remove();
         }
         
-        // 保存视频流配置
+        // 保存视频配置
         async function saveStreams() {
             const streamItems = document.querySelectorAll('.stream-item');
             const streams = [];
@@ -2542,7 +2550,7 @@
             
             // 检查是否有流配置
             if (streams.length === 0) {
-                showMessage('请至少配置一个视频流', 'error');
+                showMessage('请至少配置一个视频', 'error');
                 return;
             }
             
@@ -2558,12 +2566,12 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage('视频流配置保存成功，需要重启服务使配置生效', 'success');
+                    showMessage('视频配置保存成功，需要重启服务使配置生效', 'success');
                 } else {
-                    showMessage('保存视频流配置失败: ' + result.message, 'error');
+                    showMessage('保存视频配置失败: ' + result.message, 'error');
                 }
             } catch (error) {
-                showMessage('保存视频流配置失败: ' + error.message, 'error');
+                showMessage('保存视频配置失败: ' + error.message, 'error');
             }
         }
         
@@ -2847,7 +2855,7 @@
             readFaceRecogPanelToDraft();
             detectionConfigTargetItem._face_recognition_config = JSON.parse(JSON.stringify(detectionFaceRecogDraft));
             updateStreamDetectionSummary(detectionConfigTargetItem);
-            showMessage('已保存本条视频流的检测类型设置（请点击「保存配置」并重启服务）', 'success');
+            showMessage('已保存本条视频的检测类型设置（请点击「保存配置」并重启服务）', 'success');
             closeDetectionConfigModal();
         });
         

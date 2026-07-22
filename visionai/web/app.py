@@ -247,7 +247,7 @@ def save_streams():
         
         # 检查是否为空数组
         if len(streams) == 0:
-            return jsonify({'success': False, 'message': '视频流配置不能为空'})
+            return jsonify({'success': False, 'message': '视频配置不能为空'})
         
         if not redis_manager:
             return jsonify({'success': False, 'message': 'Redis未连接'})
@@ -285,9 +285,9 @@ def save_streams():
                         if n and n not in stream_status:
                             stream_status[n] = "离线"
             stream_sync.notify_streams_changed()
-            return jsonify({'success': True, 'message': '视频流配置保存成功'})
+            return jsonify({'success': True, 'message': '视频配置保存成功'})
         else:
-            return jsonify({'success': False, 'message': '保存视频流配置失败'})
+            return jsonify({'success': False, 'message': '保存视频配置失败'})
     
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -742,16 +742,27 @@ def alert_image(detection_id):
         abort(404)
     if doc.get("object_key"):
         st = get_object_storage()
-        if not st:
-            abort(503)
-        try:
-            body = st.get_object_bytes(doc["object_key"])
-            return Response(body, mimetype="image/jpeg")
-        except Exception:
-            abort(404)
+        if st:
+            try:
+                body = st.get_object_bytes(doc["object_key"])
+                return Response(body, mimetype="image/jpeg")
+            except Exception:
+                # 对象存储不可用时回退本地路径（上传失败/仅本地保留场景）
+                pass
     ip = doc.get("image_path") or ""
     if ip and os.path.isfile(ip):
         return send_file(ip, mimetype="image/jpeg")
+    # 兼容仅存文件名或相对路径的旧数据
+    if ip:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        candidates = [
+            ip,
+            os.path.join(project_root, ip.lstrip("./")),
+            os.path.join(project_root, "snapshots", os.path.basename(ip)),
+        ]
+        for cand in candidates:
+            if cand and os.path.isfile(cand):
+                return send_file(cand, mimetype="image/jpeg")
     abort(404)
 
 @app.route('/api/restart', methods=['POST'])

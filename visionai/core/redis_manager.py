@@ -32,14 +32,31 @@ class RedisManager:
     def _init_redis(self):
         """建立连接并 ping；失败则 ``_redis_client`` 置空。"""
         try:
+            # lib_name/lib_version=None：避免 redis-py 发送 CLIENT SETINFO（在 MISCONF 只读时会导致 ping 失败）
             self._redis_client = redis.Redis(
                 host=REDIS_HOST,
                 port=REDIS_PORT,
                 password=REDIS_PASSWORD,
                 db=REDIS_DB,
-                decode_responses=True
+                decode_responses=True,
+                socket_connect_timeout=3,
+                lib_name=None,
+                lib_version=None,
             )
-            self._redis_client.ping()
+            try:
+                self._redis_client.ping()
+            except redis.exceptions.ResponseError as e:
+                # RDB 落盘失败时 Redis 可能拒绝写命令；先放开再探测
+                if "MISCONF" in str(e):
+                    try:
+                        self._redis_client.execute_command(
+                            "CONFIG", "SET", "stop-writes-on-bgsave-error", "no"
+                        )
+                    except Exception:
+                        pass
+                    self._redis_client.ping()
+                else:
+                    raise
             logger.info("Redis连接成功")
         except Exception as e:
             logger.error(f"Redis连接失败: {e}")
@@ -47,7 +64,13 @@ class RedisManager:
     
     def is_connected(self):
         """检查是否连接到Redis"""
-        return self._redis_client is not None
+        if self._redis_client is None:
+            return False
+        try:
+            self._redis_client.ping()
+            return True
+        except Exception:
+            return False
     
     def _get_stream_hash_key(self, stream_id):
         """获取视频流检测记录的Redis Hash键"""
