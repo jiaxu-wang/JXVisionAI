@@ -619,6 +619,153 @@
             background: #218838;
             transform: translateY(-2px);
         }
+
+        .stream-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stream-toolbar .btn-add {
+            width: auto;
+            flex: 1 1 160px;
+            margin-top: 0;
+        }
+        .stream-toolbar .btn-add.btn-onvif {
+            background: #1565c0;
+        }
+        .stream-toolbar .btn-add.btn-onvif:hover {
+            background: #0d47a1;
+        }
+        .onvif-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .onvif-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #495057;
+        }
+        .onvif-field input {
+            width: 72px;
+            padding: 6px 8px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+        }
+        .onvif-manual {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #343a40;
+        }
+        .onvif-manual input {
+            padding: 8px 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+        }
+        .onvif-table-wrap {
+            max-height: 240px;
+            overflow: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .onvif-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .onvif-table th, .onvif-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eef0f2;
+            text-align: left;
+        }
+        .onvif-table th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+        }
+        .onvif-table tr.selected {
+            background: #e3f2fd;
+        }
+        .onvif-creds, .onvif-join {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+            margin-bottom: 8px;
+        }
+        .onvif-creds label, .onvif-join label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 13px;
+            color: #343a40;
+        }
+        .onvif-creds input, .onvif-join input, .onvif-join select {
+            min-width: 160px;
+            padding: 8px 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+        }
+        .onvif-password-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            min-width: 160px;
+        }
+        .onvif-password-wrap input {
+            flex: 1;
+            min-width: 0;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+            border-right: none;
+        }
+        .onvif-pass-toggle {
+            flex-shrink: 0;
+            height: 38px;
+            width: 40px;
+            padding: 0;
+            border: 1px solid #ced4da;
+            border-radius: 0 6px 6px 0;
+            background: #f8f9fa;
+            color: #495057;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .onvif-pass-toggle:hover {
+            background: #e9ecef;
+            color: #1565c0;
+        }
+        .onvif-join select {
+            min-width: 280px;
+        }
+        .onvif-msg {
+            font-size: 13px;
+            color: #495057;
+            min-height: 1.2em;
+            margin: 4px 0 8px;
+        }
+        .onvif-msg.error { color: #c62828; }
+        .onvif-msg.ok { color: #2e7d32; }
+        .onvif-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        .onvif-badge.pending { background: #fff3cd; color: #856404; }
+        .onvif-badge.normal { background: #d4edda; color: #155724; }
+        .onvif-badge.failed { background: #f8d7da; color: #721c24; }
         
         .button-group {
             display: flex;
@@ -1146,7 +1293,10 @@
                         <div id="streamContainer">
                             <!-- 视频列表将通过JavaScript动态生成 -->
                         </div>
-                        <button type="button" class="btn-add" id="addStreamBtn">➕ 添加视频</button>
+                        <div class="stream-toolbar">
+                            <button type="button" class="btn-add btn-onvif" id="onvifDiscoverBtn">📡 ONVIF 发现</button>
+                            <button type="button" class="btn-add" id="addStreamBtn">➕ 添加视频</button>
+                        </div>
                         <div class="button-group">
                             <button type="button" class="btn-save" id="saveStreamsBtn">💾 保存配置</button>
                             <button type="button" class="btn-restart" id="restartBtn">🔄 重启服务</button>
@@ -1299,26 +1449,90 @@
             </div>
             <div class="config-modal-body">
                 <p id="streamPreviewHint" style="font-size: 13px; color: #495057; margin: 0 0 10px 0;">
-                    <strong>传输方式</strong>：<strong>WebRTC</strong>（需 <code>pip install aiortc</code>）走 SRTP，延迟通常低于 JPEG/WebSocket 与 HLS；<strong>WebSocket / MJPEG</strong> 为逐帧 JPEG；<strong>HLS</strong> 依赖 <code>ffmpeg</code> 二次转码（约 1～4 秒）。勾选「检测框」仅对 MJPEG / WebSocket 生效；WebRTC 与 HLS 为<strong>原画</strong>。关闭窗口会结束 WebRTC / WebSocket 并释放 HLS 转码。
+                    <strong>MJPEG / WebSocket</strong>：服务端按 RTSP URL 直拉画面（仅视频，无声音），适合快速查看。
+                    <strong>HLS</strong>：ffmpeg 转码，摄像头有音轨时可听声（延迟约 1～几秒）。检测识别仍只用视频帧，与预览听声无关。
+                    关窗即停止拉流/转码。
                 </p>
                 <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 12px;">
                     <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
                         <span>预览方式</span>
-                        <select id="streamPreviewMode" style="min-width: 240px; padding: 4px 8px;">
-                            <option value="webrtc" selected>WebRTC（推荐，超低延迟）</option>
-                            <option value="ws">WebSocket（JPEG）</option>
-                            <option value="mjpeg">MJPEG（兼容）</option>
-                            <option value="hls">HLS（需 ffmpeg）</option>
+                        <select id="streamPreviewMode" style="min-width: 280px; padding: 4px 8px;">
+                            <option value="mjpeg" selected>MJPEG（直拉画面，无声）</option>
+                            <option value="ws">WebSocket（直拉 + 可叠加检测框，无声）</option>
+                            <option value="hls">HLS（含音频，需 ffmpeg）</option>
                         </select>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
+                    <label id="streamPreviewAnnLabel" style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
                         <input type="checkbox" id="streamPreviewAnnotated" style="width: auto;">
-                        显示检测框（仅 MJPEG / WebSocket；WebRTC / HLS 无效）
+                        显示检测框（仅 MJPEG / WebSocket）
                     </label>
                 </div>
+                <p id="streamPreviewAudioHint" style="display:none; font-size: 12px; color: #1565c0; margin: 0 0 8px 0;"></p>
                 <div style="background: #000; border-radius: 8px; overflow: hidden; min-height: 200px; display: flex; align-items: center; justify-content: center;">
                     <img id="streamPreviewImg" alt="视频预览" style="max-width: 100%; max-height: 72vh; display: block;">
-                    <video id="streamPreviewVideo" playsinline muted controls style="display: none; max-width: 100%; max-height: 72vh;"></video>
+                    <video id="streamPreviewVideo" playsinline controls style="display: none; max-width: 100%; max-height: 72vh; width: 100%;"></video>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="onvifModal" class="config-modal-overlay" aria-hidden="true">
+        <div class="config-modal-panel" role="dialog" aria-labelledby="onvifModalTitle" style="max-width: 920px; width: min(920px, 96vw);">
+            <div class="config-modal-header">
+                <h3 id="onvifModalTitle">ONVIF 发现与接入</h3>
+                <button type="button" class="config-modal-close" id="onvifModalCloseBtn" aria-label="关闭">&times;</button>
+            </div>
+            <div class="config-modal-body">
+                <p style="font-size: 13px; color: #495057; margin: 0 0 12px 0;">
+                    扫描局域网 ONVIF 设备，或手动填写 IP。检测通过（状态正常）后选择码流 Profile，一键加入监控（写入 RTSP，无需再点「保存配置」）。
+                    海康等请填<strong>集成协议</strong>里的 ONVIF 用户（非网页登录用户亦可）。若本机开了 HTTP 代理，服务会绕过代理直连摄像机。
+                </p>
+                <div class="onvif-toolbar">
+                    <button type="button" class="btn-add" id="onvifScanBtn">扫描局域网</button>
+                    <label class="onvif-field">超时(秒)
+                        <input type="number" id="onvifScanTimeout" value="5" min="1" max="20" step="1">
+                    </label>
+                </div>
+                <div class="onvif-manual">
+                    <strong>手动探测</strong>
+                    <input type="text" id="onvifManualHost" placeholder="IP / 主机名" style="min-width:140px;">
+                    <input type="number" id="onvifManualPort" placeholder="端口" value="80" style="width:88px;">
+                    <button type="button" class="btn-filter-apply" id="onvifManualAddBtn">加入列表</button>
+                </div>
+                <div class="onvif-table-wrap">
+                    <table class="onvif-table" id="onvifDeviceTable">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>名称</th>
+                                <th>地址</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="onvifDeviceTbody">
+                            <tr><td colspan="4" style="color:#6c757d;text-align:center;">点击「扫描局域网」或手动添加 IP</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="onvif-creds">
+                    <label>用户名 <input type="text" id="onvifUsername" value="admin" autocomplete="username"></label>
+                    <label>密码
+                        <span class="onvif-password-wrap">
+                            <input type="password" id="onvifPassword" value="" autocomplete="current-password">
+                            <button type="button" class="onvif-pass-toggle" id="onvifPassToggle" title="显示/隐藏密码" aria-label="显示或隐藏密码">👁</button>
+                        </span>
+                    </label>
+                    <button type="button" class="btn-filter-apply" id="onvifProbeBtn">检测选中设备</button>
+                </div>
+                <p id="onvifStatusMsg" class="onvif-msg"></p>
+                <div class="onvif-join" id="onvifJoinPanel" style="display:none;">
+                    <label>码流 Profile
+                        <select id="onvifProfileSelect"></select>
+                    </label>
+                    <label>监控名称
+                        <input type="text" id="onvifStreamName" placeholder="流名称">
+                    </label>
+                    <button type="button" class="btn-save" id="onvifAddStreamBtn">加入监控</button>
                 </div>
             </div>
         </div>
@@ -1419,24 +1633,15 @@
                 };
                 const sel = document.getElementById('streamPreviewMode');
                 const optHls = sel ? sel.querySelector('option[value="hls"]') : null;
-                const optRtc = sel ? sel.querySelector('option[value="webrtc"]') : null;
                 if (optHls) {
-                    optHls.disabled = !streamPreviewCapabilities.hls_enabled;
-                    optHls.title = streamPreviewCapabilities.hls_enabled
-                        ? ''
-                        : '需要服务器安装 ffmpeg 并在配置中启用 HLS（preview_hls_enabled）';
-                }
-                if (optRtc) {
-                    optRtc.disabled = !streamPreviewCapabilities.webrtc_enabled;
-                    optRtc.title = streamPreviewCapabilities.webrtc_enabled
-                        ? ''
-                        : '需要 pip install aiortc，且 preview_webrtc_enabled=true';
-                }
-                if (sel && optHls && optHls.disabled && sel.value === 'hls') {
-                    sel.value = 'ws';
-                }
-                if (sel && optRtc && optRtc.disabled && sel.value === 'webrtc') {
-                    sel.value = 'ws';
+                    const ok = !!(streamPreviewCapabilities.hls_enabled && streamPreviewCapabilities.ffmpeg);
+                    optHls.disabled = !ok;
+                    optHls.title = ok
+                        ? '摄像头有音轨时可听声；延迟约 1～几秒'
+                        : '需要服务器安装 ffmpeg，且配置 preview_hls_enabled=true';
+                    if (!ok && sel.value === 'hls') {
+                        sel.value = 'mjpeg';
+                    }
                 }
             } catch (e) {
                 console.warn(e);
@@ -1537,114 +1742,34 @@
             const sid = img.dataset.streamId;
             if (!sid) return;
             const modeEl = document.getElementById('streamPreviewMode');
-            const mode = modeEl ? modeEl.value : 'ws';
+            let mode = modeEl ? modeEl.value : 'mjpeg';
+            if (mode !== 'mjpeg' && mode !== 'ws' && mode !== 'hls') {
+                mode = 'mjpeg';
+                if (modeEl) modeEl.value = 'mjpeg';
+            }
             const ann = document.getElementById('streamPreviewAnnotated');
-            const annotated = !!(ann && ann.checked);
-            stopStreamPreviewPipeline();
-            if (mode === 'webrtc') {
-                if (annotated && ann) {
-                    showMessage('WebRTC 仅原画，不支持检测框；已取消勾选', 'error');
-                    ann.checked = false;
-                }
-                const vid = document.getElementById('streamPreviewVideo');
-                if (!vid) return;
-                if (typeof RTCPeerConnection === 'undefined') {
-                    showMessage('当前浏览器不支持 WebRTC', 'error');
-                    return;
-                }
-                img.style.display = 'none';
-                vid.style.display = 'block';
-                const pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-                });
-                streamPreviewPc = pc;
-                pc.addTransceiver('video', { direction: 'recvonly' });
-                pc.ontrack = function (ev) {
-                    if (ev.streams && ev.streams[0]) {
-                        vid.srcObject = ev.streams[0];
-                        vid.play().catch(function () {});
-                    }
-                };
-                pc.oniceconnectionstatechange = function () {
-                    if (pc.iceConnectionState === 'failed') {
-                        showMessage('WebRTC 连接失败（可检查防火墙/NAT 或改用 WebSocket）', 'error');
-                    }
-                };
-                pc.createOffer({ offerToReceiveVideo: true })
-                    .then(function (offer) {
-                        return pc.setLocalDescription(offer);
-                    })
-                    .then(function () {
-                        return waitIceGatheringComplete(pc);
-                    })
-                    .then(function () {
-                        return fetch('/api/preview-webrtc/offer', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'same-origin',
-                            body: JSON.stringify({
-                                stream_id: sid,
-                                sdp: pc.localDescription.sdp,
-                                type: pc.localDescription.type,
-                            }),
-                        });
-                    })
-                    .then(function (r) {
-                        return r.json().then(function (data) {
-                            if (!r.ok || !data.success) {
-                                throw new Error(data.message || 'HTTP ' + r.status);
-                            }
-                            return data;
-                        });
-                    })
-                    .then(function (data) {
-                        streamPreviewWebrtcSession = data.session_id;
-                        return pc.setRemoteDescription(
-                            new RTCSessionDescription({ type: data.type, sdp: data.sdp })
-                        );
-                    })
-                    .catch(function (err) {
-                        showMessage(
-                            'WebRTC 预览失败: ' + (err && err.message ? err.message : err),
-                            'error'
-                        );
-                        stopStreamPreviewPipeline();
-                        img.style.display = 'block';
-                        vid.style.display = 'none';
-                    });
-                return;
-            }
-            if (mode === 'mjpeg') {
-                let url = '/api/preview?stream_id=' + encodeURIComponent(sid);
-                if (annotated) url += '&annotated=1';
-                img.style.display = 'block';
-                img.src = url;
-                return;
-            }
-            if (mode === 'ws') {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const ws = new WebSocket(proto + '//' + location.host + '/ws/preview');
-                streamPreviewWs = ws;
-                ws.binaryType = 'arraybuffer';
-                img.style.display = 'block';
-                ws.onopen = function () {
-                    ws.send(JSON.stringify({ stream_id: sid, annotated: annotated }));
-                };
-                ws.onmessage = function (ev) {
-                    const buf = ev.data;
-                    if (streamPreviewObjectUrl) URL.revokeObjectURL(streamPreviewObjectUrl);
-                    streamPreviewObjectUrl = URL.createObjectURL(
-                        new Blob([buf], { type: 'image/jpeg' })
-                    );
-                    img.src = streamPreviewObjectUrl;
-                };
-                return;
+            const annLabel = document.getElementById('streamPreviewAnnLabel');
+            const audioHint = document.getElementById('streamPreviewAudioHint');
+            if (audioHint) {
+                audioHint.style.display = 'none';
+                audioHint.textContent = '';
             }
             if (mode === 'hls') {
-                const vid = document.getElementById('streamPreviewVideo');
+                if (ann) ann.checked = false;
+                if (annLabel) annLabel.style.opacity = '0.45';
+            } else if (annLabel) {
+                annLabel.style.opacity = '1';
+            }
+            const annotated = !!(ann && ann.checked);
+            stopStreamPreviewPipeline();
+            const vid = document.getElementById('streamPreviewVideo');
+            if (mode === 'hls') {
                 if (!vid) return;
                 img.style.display = 'none';
+                img.src = '';
                 vid.style.display = 'block';
+                vid.removeAttribute('muted');
+                vid.muted = false;
                 fetch('/api/preview-hls/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1662,6 +1787,14 @@
                             return;
                         }
                         streamPreviewHlsSession = data.session_id;
+                        if (audioHint) {
+                            if (data.audio) {
+                                audioHint.textContent = '已检测到音轨：请点击播放/取消静音后可听声（浏览器可能拦截自动出声）。';
+                            } else {
+                                audioHint.textContent = '该路未检测到音轨或音频转码失败，当前为纯画面 HLS。';
+                            }
+                            audioHint.style.display = 'block';
+                        }
                         const src = data.playlist;
                         if (window.Hls && window.Hls.isSupported()) {
                             streamPreviewHls = new Hls({
@@ -1675,6 +1808,9 @@
                             });
                             streamPreviewHls.loadSource(src);
                             streamPreviewHls.attachMedia(vid);
+                            streamPreviewHls.on(Hls.Events.MANIFEST_PARSED, function () {
+                                vid.play().catch(function () {});
+                            });
                             streamPreviewHls.on(Hls.Events.ERROR, function () {});
                         } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
                             vid.src = src;
@@ -1685,7 +1821,42 @@
                     })
                     .catch(function () {
                         showMessage('HLS 请求失败', 'error');
+                        vid.style.display = 'none';
+                        img.style.display = 'block';
                     });
+                return;
+            }
+            if (vid) {
+                vid.style.display = 'none';
+                vid.removeAttribute('src');
+                vid.srcObject = null;
+            }
+            img.style.display = 'block';
+            if (mode === 'mjpeg') {
+                let url = '/api/preview?stream_id=' + encodeURIComponent(sid);
+                if (annotated) url += '&annotated=1';
+                img.src = url;
+                return;
+            }
+            if (mode === 'ws') {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(proto + '//' + location.host + '/ws/preview');
+                streamPreviewWs = ws;
+                ws.binaryType = 'arraybuffer';
+                ws.onopen = function () {
+                    ws.send(JSON.stringify({ stream_id: sid, annotated: annotated }));
+                };
+                ws.onmessage = function (ev) {
+                    const buf = ev.data;
+                    if (streamPreviewObjectUrl) URL.revokeObjectURL(streamPreviewObjectUrl);
+                    streamPreviewObjectUrl = URL.createObjectURL(
+                        new Blob([buf], { type: 'image/jpeg' })
+                    );
+                    img.src = streamPreviewObjectUrl;
+                };
+                ws.onerror = function () {
+                    showMessage('WebSocket 预览失败，可改用 MJPEG', 'error');
+                };
             }
         }
         
@@ -1710,11 +1881,7 @@
             const modeEl = document.getElementById('streamPreviewMode');
             refreshPreviewCapabilities().then(function () {
                 if (modeEl) {
-                    if (streamPreviewCapabilities.webrtc_enabled) {
-                        modeEl.value = 'webrtc';
-                    } else {
-                        modeEl.value = 'ws';
-                    }
+                    modeEl.value = 'mjpeg';
                 }
                 rebuildStreamPreview();
             });
@@ -2787,6 +2954,266 @@
                 window.location.href = '/logout';
             }
         }
+
+        // ---- ONVIF 发现 ----
+        let onvifDevices = [];
+        let onvifSelectedIdx = -1;
+        let onvifProbeInfo = null;
+        let onvifProfiles = [];
+
+        function openOnvifModal() {
+            const m = document.getElementById('onvifModal');
+            if (!m) return;
+            m.classList.add('show');
+            m.setAttribute('aria-hidden', 'false');
+            setOnvifMsg('');
+        }
+        function closeOnvifModal() {
+            const m = document.getElementById('onvifModal');
+            if (!m) return;
+            m.classList.remove('show');
+            m.setAttribute('aria-hidden', 'true');
+        }
+        function setOnvifMsg(text, kind) {
+            const el = document.getElementById('onvifStatusMsg');
+            if (!el) return;
+            el.textContent = text || '';
+            el.className = 'onvif-msg' + (kind ? ' ' + kind : '');
+        }
+        function statusBadge(status) {
+            const s = status || 'pending';
+            const label = s === 'normal' ? '正常' : (s === 'failed' ? '失败' : '未验证');
+            const cls = s === 'normal' ? 'normal' : (s === 'failed' ? 'failed' : 'pending');
+            return `<span class="onvif-badge ${cls}">${label}</span>`;
+        }
+        function renderOnvifDevices() {
+            const tb = document.getElementById('onvifDeviceTbody');
+            if (!tb) return;
+            if (!onvifDevices.length) {
+                tb.innerHTML = '<tr><td colspan="4" style="color:#6c757d;text-align:center;">暂无设备</td></tr>';
+                return;
+            }
+            tb.innerHTML = onvifDevices.map((d, i) => {
+                const sel = i === onvifSelectedIdx ? 'selected' : '';
+                return `<tr class="${sel}" data-idx="${i}" style="cursor:pointer;">
+                    <td><input type="radio" name="onvifDev" ${i === onvifSelectedIdx ? 'checked' : ''}></td>
+                    <td>${escapeHtml(d.name || d.host)}</td>
+                    <td>${escapeHtml(d.host)}:${escapeHtml(String(d.port || 80))}</td>
+                    <td>${statusBadge(d.status)}${d.error ? ' <span style="color:#c62828;font-size:12px;">' + escapeHtml(d.error) + '</span>' : ''}</td>
+                </tr>`;
+            }).join('');
+            tb.querySelectorAll('tr[data-idx]').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    onvifSelectedIdx = parseInt(tr.getAttribute('data-idx'), 10);
+                    onvifProbeInfo = null;
+                    onvifProfiles = [];
+                    document.getElementById('onvifJoinPanel').style.display = 'none';
+                    renderOnvifDevices();
+                });
+            });
+        }
+        function selectedOnvifDevice() {
+            if (onvifSelectedIdx < 0 || onvifSelectedIdx >= onvifDevices.length) return null;
+            return onvifDevices[onvifSelectedIdx];
+        }
+        async function onvifScan() {
+            setOnvifMsg('正在扫描局域网…');
+            const timeout = parseFloat(document.getElementById('onvifScanTimeout')?.value || '5');
+            try {
+                const res = await fetch('/api/onvif/discover', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timeout_sec: timeout })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    setOnvifMsg(data.message || '扫描失败', 'error');
+                    return;
+                }
+                onvifDevices = (data.devices || []).map(d => ({ ...d, status: 'pending', error: '' }));
+                onvifSelectedIdx = onvifDevices.length ? 0 : -1;
+                onvifProbeInfo = null;
+                onvifProfiles = [];
+                document.getElementById('onvifJoinPanel').style.display = 'none';
+                renderOnvifDevices();
+                setOnvifMsg(onvifDevices.length ? `发现 ${onvifDevices.length} 台设备` : '未发现设备（可改用手动 IP；Docker 桥接网络可能扫不到）', onvifDevices.length ? 'ok' : '');
+            } catch (e) {
+                setOnvifMsg('扫描请求失败: ' + e, 'error');
+            }
+        }
+        function onvifManualAdd() {
+            const host = (document.getElementById('onvifManualHost')?.value || '').trim();
+            const port = parseInt(document.getElementById('onvifManualPort')?.value || '80', 10) || 80;
+            if (!host) {
+                setOnvifMsg('请填写 IP / 主机名', 'error');
+                return;
+            }
+            const key = `${host}:${port}`;
+            const exists = onvifDevices.findIndex(d => `${d.host}:${d.port}` === key);
+            if (exists >= 0) {
+                onvifSelectedIdx = exists;
+            } else {
+                onvifDevices.push({
+                    host, port, name: host, endpoint: `http://${host}:${port}/onvif/device_service`,
+                    status: 'pending', error: '', scopes: []
+                });
+                onvifSelectedIdx = onvifDevices.length - 1;
+            }
+            onvifProbeInfo = null;
+            onvifProfiles = [];
+            document.getElementById('onvifJoinPanel').style.display = 'none';
+            renderOnvifDevices();
+            setOnvifMsg('已加入列表，请填写账号密码后检测', 'ok');
+        }
+        async function onvifProbeSelected() {
+            const dev = selectedOnvifDevice();
+            if (!dev) {
+                setOnvifMsg('请先选择设备', 'error');
+                return;
+            }
+            const username = document.getElementById('onvifUsername')?.value || '';
+            const password = document.getElementById('onvifPassword')?.value || '';
+            setOnvifMsg(`正在检测 ${dev.host}…`);
+            document.getElementById('onvifJoinPanel').style.display = 'none';
+            try {
+                const res = await fetch('/api/onvif/probe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dev.host,
+                        port: dev.port || 80,
+                        username,
+                        password
+                    })
+                });
+                const data = await res.json();
+                if (!data.success && !data.ok) {
+                    dev.status = 'failed';
+                    dev.error = data.error || data.message || '探测失败';
+                    onvifProbeInfo = null;
+                    renderOnvifDevices();
+                    setOnvifMsg(dev.error, 'error');
+                    return;
+                }
+                dev.status = 'normal';
+                dev.error = '';
+                if (data.manufacturer || data.model) {
+                    dev.name = [data.manufacturer, data.model].filter(Boolean).join(' ') || dev.name;
+                }
+                onvifProbeInfo = data;
+                renderOnvifDevices();
+                setOnvifMsg('设备正常，正在加载码流 Profile…', 'ok');
+                await onvifLoadProfiles();
+            } catch (e) {
+                setOnvifMsg('检测失败: ' + e, 'error');
+            }
+        }
+        async function onvifLoadProfiles() {
+            const dev = selectedOnvifDevice();
+            if (!dev || dev.status !== 'normal') return;
+            const username = document.getElementById('onvifUsername')?.value || '';
+            const password = document.getElementById('onvifPassword')?.value || '';
+            try {
+                const res = await fetch('/api/onvif/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: dev.host,
+                        port: dev.port || 80,
+                        username,
+                        password
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    setOnvifMsg(data.message || '获取 Profile 失败', 'error');
+                    return;
+                }
+                onvifProfiles = data.profiles || [];
+                const sel = document.getElementById('onvifProfileSelect');
+                sel.innerHTML = onvifProfiles.map((p, i) => {
+                    const resLabel = (p.width && p.height) ? `${p.width}x${p.height}` : '';
+                    const enc = p.encoding || '';
+                    const label = [p.name || p.token, enc, resLabel].filter(Boolean).join(' · ');
+                    return `<option value="${i}">${escapeHtml(label)}</option>`;
+                }).join('');
+                const defaultName = (onvifProbeInfo && (onvifProbeInfo.manufacturer || onvifProbeInfo.model))
+                    ? [onvifProbeInfo.manufacturer, onvifProbeInfo.model].filter(Boolean).join(' ')
+                    : (dev.name || dev.host);
+                document.getElementById('onvifStreamName').value = defaultName;
+                document.getElementById('onvifJoinPanel').style.display = 'flex';
+                setOnvifMsg(`设备正常，共 ${onvifProfiles.length} 路码流，选择后可加入监控`, 'ok');
+            } catch (e) {
+                setOnvifMsg('加载 Profile 失败: ' + e, 'error');
+            }
+        }
+        function hostFromRtsp(url) {
+            try {
+                const u = new URL(url.replace(/^rtsps:/i, 'https:').replace(/^rtsp:/i, 'http:'));
+                return u.hostname;
+            } catch (_) {
+                return '';
+            }
+        }
+        async function onvifAddToMonitor() {
+            const dev = selectedOnvifDevice();
+            if (!dev || dev.status !== 'normal') {
+                setOnvifMsg('仅状态「正常」的设备可加入监控', 'error');
+                return;
+            }
+            const idx = parseInt(document.getElementById('onvifProfileSelect')?.value || '0', 10);
+            const prof = onvifProfiles[idx];
+            if (!prof || !prof.rtsp_url) {
+                setOnvifMsg('请选择有效的 Profile', 'error');
+                return;
+            }
+            const name = (document.getElementById('onvifStreamName')?.value || '').trim();
+            if (!name) {
+                setOnvifMsg('请填写监控名称', 'error');
+                return;
+            }
+            // 弱提示：同 host 可能已在监控中
+            try {
+                const existing = await (await fetch('/api/streams')).json();
+                const host = hostFromRtsp(prof.rtsp_url) || dev.host;
+                const dup = (existing || []).some(s => hostFromRtsp(s.url || '') === host);
+                if (dup && !confirm(`监控列表中可能已有来自 ${host} 的流，仍要加入吗？`)) {
+                    return;
+                }
+            } catch (_) { /* ignore */ }
+
+            setOnvifMsg('正在加入监控…');
+            try {
+                const res = await fetch('/api/onvif/add-stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name,
+                        rtsp_url: prof.rtsp_url,
+                        onvif: {
+                            host: dev.host,
+                            port: dev.port || 80,
+                            profile_token: prof.token || '',
+                            manufacturer: (onvifProbeInfo && onvifProbeInfo.manufacturer) || '',
+                            model: (onvifProbeInfo && onvifProbeInfo.model) || ''
+                        }
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    setOnvifMsg(data.message || '加入失败', 'error');
+                    return;
+                }
+                setOnvifMsg('已加入监控', 'ok');
+                closeOnvifModal();
+                if (typeof loadStreams === 'function') {
+                    await loadStreams();
+                }
+                alert('已加入监控：' + name);
+            } catch (e) {
+                setOnvifMsg('加入失败: ' + e, 'error');
+            }
+        }
         
         // 事件监听器
         document.getElementById('addStreamBtn')?.addEventListener('click', () => {
@@ -2796,6 +3223,23 @@
         document.getElementById('saveStreamsBtn')?.addEventListener('click', saveStreams);
         
         document.getElementById('restartBtn')?.addEventListener('click', restartService);
+
+        document.getElementById('onvifDiscoverBtn')?.addEventListener('click', openOnvifModal);
+        document.getElementById('onvifModalCloseBtn')?.addEventListener('click', closeOnvifModal);
+        document.getElementById('onvifScanBtn')?.addEventListener('click', onvifScan);
+        document.getElementById('onvifManualAddBtn')?.addEventListener('click', onvifManualAdd);
+        document.getElementById('onvifProbeBtn')?.addEventListener('click', onvifProbeSelected);
+        document.getElementById('onvifAddStreamBtn')?.addEventListener('click', onvifAddToMonitor);
+        document.getElementById('onvifPassToggle')?.addEventListener('click', () => {
+            const input = document.getElementById('onvifPassword');
+            const btn = document.getElementById('onvifPassToggle');
+            if (!input || !btn) return;
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.textContent = show ? '🙈' : '👁';
+            btn.title = show ? '隐藏密码' : '显示密码';
+        });
+
         
         // 图片预览功能
         const modal = document.getElementById('imageModal');
@@ -2828,6 +3272,10 @@
             const spm = document.getElementById('streamPreviewModal');
             if (e.target === spm) {
                 closeStreamPreview();
+            }
+            const ov = document.getElementById('onvifModal');
+            if (e.target === ov) {
+                closeOnvifModal();
             }
         });
         

@@ -10,7 +10,7 @@
 
 **仓库**：<https://github.com/jiaxu-wang/JXVisionAI>
 
-本项目由 **jiaxu** 在业余时间持续维护——提升自己并继续完善功能、文档与工程质量。欢迎 Issue 与 PR。
+本项目由 **JX** 持续维护。欢迎 Issue 与 PR。
 
 ---
 
@@ -25,7 +25,7 @@
 | [配置说明](docs/configuration.md) | `config.ini` 与环境变量 |
 | [使用指南](docs/user-guide.md) | Web 管理端、人脸识别操作 |
 | [检测与模型](docs/detection.md) | 检测类型、专模、训练管线 |
-| [训练示例：未戴眼镜](docs/training-glasses-guide.md) | 采图→标注→训练→测试→一键部署全流程 |
+| [训练示例：戴眼镜](docs/training-glasses-guide.md) | 采图→标注→训练→测试→一键部署全流程 |
 | [HTTP API](docs/api.md) | 管理端 API 一览 |
 | [运维与排障](docs/operations.md) | 日志、常见问题、路线图 |
 | [人脸识别设计](docs/face_recognition_design.md) | 人脸识别详细设计与实现 |

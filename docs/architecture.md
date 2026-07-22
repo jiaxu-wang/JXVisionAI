@@ -118,6 +118,7 @@ flowchart TB
 │   │   ├── face_recognition_config.py
 │   │   ├── behaviors/             # 行为插件（吸烟、人脸识别等）
 │   │   ├── object_storage.py      # S3/MinIO
+│   │   ├── onvif_client.py        # ONVIF 发现 / 探测 / Profile→RTSP
 │   │   └── preview_*.py           # MJPEG / WebSocket / HLS / WebRTC 预览
 │   ├── utils/                     # 日志、RTSP URL、邮件、Webhook
 │   └── web/

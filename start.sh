@@ -49,9 +49,9 @@ export REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
 export REDIS_PORT="${REDIS_PORT:-16379}"
 export SAVE_DIR="${SAVE_DIR:-./snapshots}"
 export LOG_DIR="${LOG_DIR:-./logs}"
-# 本机直跑 + compose 起 MinIO 时：须用宿主机端口，且勿让 http(s)_proxy 劫持 S3
-# （否则 HeadBucket/PutObject 常被代理成 502 / SlowDownWrite）
-_PROXY_BYPASS="127.0.0.1,localhost,::1"
+# 本机直跑 + compose 起 MinIO 时：须用宿主机端口，且勿让 http(s)_proxy 劫持 S3 / 局域网摄像机
+# （否则 HeadBucket/PutObject 常被代理成 502 / SlowDownWrite；ONVIF 探测会鉴权失败）
+_PROXY_BYPASS="127.0.0.1,localhost,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 if [ -n "${NO_PROXY:-}" ]; then
     export NO_PROXY="$NO_PROXY,$_PROXY_BYPASS"
 else

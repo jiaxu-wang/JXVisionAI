@@ -56,7 +56,11 @@ from visionai.utils.alert_webhook import (
 )
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.config.detection_catalog import catalog_items_for_api, normalize_detections
-from visionai.core.face_recognition_config import normalize_face_recognition_config
+from visionai.core.face_recognition_config import (
+    default_face_recognition_config,
+    normalize_face_recognition_config,
+)
+from visionai.core import onvif_client
 from visionai.config.ini_manager import (
     config_meta,
     patch_config_updates,
@@ -292,6 +296,143 @@ def save_streams():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+
+@app.route("/api/onvif/discover", methods=["POST"])
+@login_required
+def onvif_discover():
+    """局域网 WS-Discovery 扫描 ONVIF 设备。"""
+    limited = onvif_client.check_discover_rate_limit()
+    if limited:
+        return jsonify({"success": False, "message": limited}), 429
+    data = request.get_json(silent=True) or {}
+    timeout_sec = data.get("timeout_sec", 5)
+    try:
+        devices = onvif_client.discover_devices(timeout_sec=float(timeout_sec))
+        return jsonify({"success": True, "devices": devices, "count": len(devices)})
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+@app.route("/api/onvif/probe", methods=["POST"])
+@login_required
+def onvif_probe():
+    """探测设备鉴权、信息与 Media/RTSP 可用性。"""
+    limited = onvif_client.check_probe_rate_limit()
+    if limited:
+        return jsonify({"success": False, "message": limited}), 429
+    data = request.get_json(silent=True) or {}
+    host = (data.get("host") or "").strip()
+    if not host:
+        return jsonify({"success": False, "message": "缺少 host"}), 400
+    try:
+        port = int(data.get("port") or 80)
+    except (TypeError, ValueError):
+        port = 80
+    username = data.get("username") or ""
+    password = data.get("password") or ""
+    result = onvif_client.probe_device(host, port, username, password)
+    code = 200 if result.get("ok") else 400
+    return jsonify({"success": bool(result.get("ok")), **result}), code
+
+
+@app.route("/api/onvif/profiles", methods=["POST"])
+@login_required
+def onvif_profiles():
+    """列举 Media Profile 及 RTSP URI。"""
+    data = request.get_json(silent=True) or {}
+    host = (data.get("host") or "").strip()
+    if not host:
+        return jsonify({"success": False, "message": "缺少 host"}), 400
+    try:
+        port = int(data.get("port") or 80)
+    except (TypeError, ValueError):
+        port = 80
+    username = data.get("username") or ""
+    password = data.get("password") or ""
+    try:
+        profiles = onvif_client.list_profiles(host, port, username, password)
+        usable = [
+            p
+            for p in profiles
+            if (p.get("rtsp_url") or "").lower().startswith(("rtsp://", "rtsps://"))
+        ]
+        if not usable:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "未获取到有效 RTSP 地址",
+                    "profiles": profiles,
+                }
+            ), 400
+        return jsonify({"success": True, "profiles": usable})
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+@app.route("/api/onvif/add-stream", methods=["POST"])
+@login_required
+def onvif_add_stream():
+    """将 ONVIF 解析出的 RTSP 追加到 Redis streamlist。"""
+    if not redis_manager:
+        return jsonify({"success": False, "message": "Redis未连接"}), 500
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    rtsp_url = normalize_rtsp_url((data.get("rtsp_url") or "").strip())
+    if not name:
+        return jsonify({"success": False, "message": "缺少流名称"}), 400
+    if not rtsp_url.lower().startswith(("rtsp://", "rtsps://")):
+        return jsonify({"success": False, "message": "无效的 RTSP 地址"}), 400
+
+    import uuid
+
+    onvif_meta = data.get("onvif") if isinstance(data.get("onvif"), dict) else {}
+    # 元数据不存密码
+    safe_meta = {
+        "host": str(onvif_meta.get("host") or "").strip(),
+        "port": int(onvif_meta.get("port") or 80) if onvif_meta.get("port") not in (None, "") else 80,
+        "profile_token": str(onvif_meta.get("profile_token") or "").strip(),
+        "manufacturer": str(onvif_meta.get("manufacturer") or "").strip(),
+        "model": str(onvif_meta.get("model") or "").strip(),
+    }
+
+    stream = {
+        "id": f"stream_{uuid.uuid4().hex[:8]}",
+        "name": name,
+        "url": rtsp_url,
+        "enabled": True,
+        "detections": normalize_detections(None),
+        "alert_emails": [],
+        "alert_email_enabled": True,
+        "alert_webhook_urls": [],
+        "alert_webhook_enabled": False,
+        "face_recognition_config": default_face_recognition_config(),
+        "onvif": safe_meta,
+    }
+
+    existing = redis_manager.get_streams() or []
+    # 同名提示仍允许加入（子码流场景由前端弱提示）
+    if not redis_manager.save_stream(stream):
+        return jsonify({"success": False, "message": "写入 Redis 失败"}), 500
+
+    if stream_status_lock:
+        with stream_status_lock:
+            if name not in stream_status:
+                stream_status[name] = "离线"
+    stream_sync.notify_streams_changed()
+
+    streams = redis_manager.get_streams() or []
+    return jsonify(
+        {
+            "success": True,
+            "message": "已加入监控",
+            "stream": stream,
+            "streams": streams,
+            "count": len(streams),
+            "existing_count_before": len(existing),
+        }
+    )
+
+
 @app.route('/api/config', methods=['GET'])
 @login_required
 def get_config():
@@ -511,10 +652,17 @@ def preview_hls_start():
     parsed = urlparse(url)
     if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
         return jsonify({"success": False, "message": "不支持的流地址协议"}), 400
-    sid, playlist = hls_start_session(stream_id, url)
+    sid, playlist, has_audio = hls_start_session(stream_id, url)
     if not sid or not playlist:
         return jsonify({"success": False, "message": "启动 HLS 转码失败，请查看服务器日志"}), 500
-    return jsonify({"success": True, "session_id": sid, "playlist": playlist})
+    return jsonify(
+        {
+            "success": True,
+            "session_id": sid,
+            "playlist": playlist,
+            "audio": bool(has_audio),
+        }
+    )
 
 
 @app.route("/api/preview-hls/stop", methods=["POST"])

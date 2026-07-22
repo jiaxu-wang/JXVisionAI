@@ -109,6 +109,8 @@ models/buffalo_l/
 
 `docker-compose.yaml` 中 `visionai` 服务块默认注释。取消注释并挂载 `./config`、`./snapshots`、`./logs`、`./models` 后可容器化运行。容器内访问摄像机 RTSP **勿用** `127.0.0.1`，应使用摄像头局域网 IP。
 
+**ONVIF 扫描**：依赖 UDP 组播。桥接网络下「扫描局域网」常无结果，请用管理端 **手动 IP**，或将应用改为 `network_mode: host`。
+
 ---
 
 ## 下一步

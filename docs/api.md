@@ -11,6 +11,10 @@
 | `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`） |
 | `POST` | `/api/streams` | 保存流配置到 Redis |
 | `GET` | `/api/stream-status` | 各流在线状态 |
+| `POST` | `/api/onvif/discover` | 局域网 WS-Discovery（body: `timeout_sec?`） |
+| `POST` | `/api/onvif/probe` | 探测设备（`host/port/username/password`） |
+| `POST` | `/api/onvif/profiles` | 列举 Profile 与 RTSP URI |
+| `POST` | `/api/onvif/add-stream` | 追加一路流到 Redis（`name` + `rtsp_url` + 可选 `onvif` 元数据） |
 | `GET` | `/api/detection-catalog` | 可配置的检测类型目录 |
 | `GET` | `/api/detections` | 历史记录（支持时间/流/类型/分页） |
 | `DELETE` | `/api/detections/<id>` | 删除单条记录 |
@@ -36,9 +40,12 @@
 | `GET/PUT` | `/api/system/config` | 读取/保存 `config.ini` |
 | `GET` | `/api/config` | 运行时配置摘要（含预览能力） |
 | `POST` | `/api/restart` | 重启服务（依赖 `start.sh` 布局） |
-| `GET` | `/api/preview` | MJPEG 预览 |
-| `WS` | `/ws/preview` | WebSocket 预览 |
-| `POST` | `/api/preview-webrtc/*` | WebRTC 信令 |
+| `GET` | `/api/preview` | MJPEG 预览（仅画面） |
+| `WS` | `/ws/preview` | WebSocket JPEG 预览（仅画面） |
+| `POST` | `/api/preview-hls/start` | 启动 HLS（可含音频）；返回 `playlist`、`audio` |
+| `POST` | `/api/preview-hls/stop` | 停止 HLS 会话 |
+| `GET` | `/api/preview-hls/data/<session>/<file>` | HLS 分片 / m3u8 |
+| `POST` | `/api/preview-webrtc/*` | WebRTC 信令（可选） |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
 训练实验室 API 见 `/training` 页面与 `visionai/web/training_routes.py`。
