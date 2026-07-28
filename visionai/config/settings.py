@@ -1,16 +1,19 @@
 """
 运行时配置。
 
-优先级：环境变量 > ``config/config.ini`` 的 ``[visionai]`` 节 > 本文件内置默认。
+优先级：环境变量 > ``config/config.ini``（多分节，映射为规范键）> 本文件内置默认。
 修改 ini 或环境变量后需重启进程。可用 ``VISIONAI_CONFIG`` 指定其它 ini 路径。
 
-节名与 Redis/对象存储等键前缀沿用历史标识 ``visionai``（与品牌名 JXVisionAI 解耦）。
+分节示例：``[basic]`` ``[redis]`` ``[minio]`` ``[email]`` ``[models]`` ``[preview]``。
+仍兼容旧版单节 ``[visionai]``。Redis/对象存储等键前缀沿用历史标识 ``visionai``。
 """
 
 import configparser
 import os
 import warnings
 from typing import Dict, List, Optional, Union
+
+from visionai.config.ini_sections import flatten_configparser, has_valid_sections
 
 _DEFAULT_SECRET = "123456-bb6b-4889-a715-d9eb2d1925cc"
 
@@ -29,9 +32,9 @@ def _read_ini() -> Dict[str, str]:
     try:
         cp = configparser.ConfigParser(interpolation=None)
         read = cp.read(path, encoding="utf-8")
-        if not read or "visionai" not in cp:
+        if not read or not has_valid_sections(cp.sections()):
             return {}
-        return {k.lower().strip(): v.strip() for k, v in cp["visionai"].items() if v is not None}
+        return flatten_configparser(cp)
     except Exception as e:  # noqa: BLE001
         warnings.warn(f"读取配置文件失败，已忽略: {path}: {e}", stacklevel=2)
         return {}
@@ -143,28 +146,7 @@ CONF_THRESHOLD = _cfg_float("CONF_THRESHOLD", 0.5)
 GATHER_MIN_PERSONS = max(3, _cfg_int("GATHER_MIN_PERSONS", 3))
 GATHER_MIN_DURATION_SEC = max(3, _cfg_float("GATHER_MIN_DURATION_SEC", 3))
 
-# 吸烟（行为层：人物裁剪 + ONNX 二分类；需配置 SMOKING_MODEL_PATH）
-SMOKING_MODEL_PATH = _cfg_path("SMOKING_MODEL_PATH", "")
-# 与导出模型一致：imagenet（ResNet 等）| vit_hf（HuggingFace ViT 常用 0.5/0.5，见 scripts/export_smoking_onnx.py）
-SMOKING_PREPROCESS = _cfg_str("SMOKING_PREPROCESS", "imagenet").strip().lower()
-SMOKING_CONF_THRESHOLD = _cfg_float("SMOKING_CONF_THRESHOLD", 0.5)
-SMOKING_INPUT_SIZE = max(32, _cfg_int("SMOKING_INPUT_SIZE", 224))
-SMOKING_PERSON_PAD_RATIO = max(0.0, _cfg_float("SMOKING_PERSON_PAD_RATIO", 0.15))
-SMOKING_MIN_DURATION_SEC = max(0.0, _cfg_float("SMOKING_MIN_DURATION_SEC", 0.5))
-SMOKING_MAX_PERSONS_PER_FRAME = max(1, _cfg_int("SMOKING_MAX_PERSONS_PER_FRAME", 8))
-SMOKING_POSITIVE_CLASS_INDEX = max(0, _cfg_int("SMOKING_POSITIVE_CLASS_INDEX", 1))
-# 每轮吸烟 ONNX 推理后打印各人体置信度（调试用；生产可 smoking_log_scores = false）
-SMOKING_LOG_SCORES = _cfg_bool("SMOKING_LOG_SCORES", True)
-# 可选：专训单/多类「香烟」小目标 YOLO（.pt）；非空时仅当该帧人物与香烟框有关联时才做下方 ViT 吸烟二分类，降低手靠近脸误报
-SMOKING_CIGARETTE_DETECTOR_PATH = _cfg_path("SMOKING_CIGARETTE_DETECTOR_PATH", "")
-SMOKING_CIGARETTE_DETECTOR_CONF = max(0.05, min(0.99, _cfg_float("SMOKING_CIGARETTE_DETECTOR_CONF", 0.35)))
-# 逗号分隔类 id，默认 0（单类 cigarette）；留空则表示不限制类别
-SMOKING_CIGARETTE_CLASS_IDS = _cfg_str("SMOKING_CIGARETTE_CLASS_IDS", "").strip()
-# 专训单类「smoking」等 YOLO（.pt）：与人物框重叠即告警，不跑 ViT ONNX（见 smoking_cigarette_detector_path）
-SMOKING_YOLO_DIRECT = _cfg_bool("SMOKING_YOLO_DIRECT", False)
-SMOKING_REQUIRE_PERSON_OVERLAP = _cfg_bool("SMOKING_REQUIRE_PERSON_OVERLAP", False)
-
-# ---------- 专模扩展检测（models/ 下 .pt / .onnx；与 COCO 主检测并行）----------
+# ---------- 内置专模（models/ 下 .pt / .onnx；与 COCO 主检测并行）----------
 def _models_default(filename: str) -> str:
     return f"models/{filename}"
 
@@ -177,10 +159,6 @@ DEDICATED_DEFAULT_SCORE_THRESHOLD = max(
 DEDICATED_DEFAULT_MIN_DURATION_SEC = max(
     0.0, _cfg_float("DEDICATED_DEFAULT_MIN_DURATION_SEC", 1.0)
 )
-
-FACE_MODEL_PATH = _cfg_path("FACE_MODEL_PATH", _models_default("face_detection.onnx"))
-FACE_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FACE_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
-FACE_MIN_DURATION_SEC = max(0.0, _cfg_float("FACE_MIN_DURATION_SEC", 0.0))
 
 # 人脸识别（InsightFace buffalo_l，模型目录 models/buffalo_l/）
 FACE_RECOG_MODEL_ROOT = _cfg_path("FACE_RECOG_MODEL_ROOT", PROJECT_ROOT)
@@ -211,29 +189,6 @@ FACE_RECOGNITION_MAX_FACES_PER_FRAME = max(
     1, _cfg_int("FACE_RECOGNITION_MAX_FACES_PER_FRAME", 5)
 )
 
-FALL_MODEL_PATH = _cfg_path("FALL_MODEL_PATH", _models_default("fall_detection.onnx"))
-FALL_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FALL_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
-FALL_SCORE_THRESHOLD = max(
-    0.05, min(0.99, _cfg_float("FALL_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD))
-)
-FALL_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("FALL_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
-FLAME_MODEL_PATH = _cfg_path("FLAME_MODEL_PATH", _models_default("flame.pt"))
-FLAME_MODEL_CONF = max(0.05, min(0.99, _cfg_float("FLAME_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
-FLAME_MIN_DURATION_SEC = max(0.0, _cfg_float("FLAME_MIN_DURATION_SEC", 0.5))
-
-LICENSE_PLATE_MODEL_PATH = _cfg_path(
-    "LICENSE_PLATE_MODEL_PATH", _models_default("license_plate_detection.onnx")
-)
-LICENSE_PLATE_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("LICENSE_PLATE_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-LICENSE_PLATE_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("LICENSE_PLATE_MIN_DURATION_SEC", 0.0)
-)
-
 MAKE_CALL_MODEL_PATH = _cfg_path("MAKE_CALL_MODEL_PATH", _models_default("make_call.onnx"))
 MAKE_CALL_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("MAKE_CALL_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -247,89 +202,16 @@ MAKE_CALL_MIN_DURATION_SEC = max(
 MAKE_CALL_USE_DEDICATED = _cfg_bool("MAKE_CALL_USE_DEDICATED", True)
 MAKE_CALL_REQUIRE_PERSON_OVERLAP = _cfg_bool("MAKE_CALL_REQUIRE_PERSON_OVERLAP", False)
 
-MASK_MODEL_PATH = _cfg_path("MASK_MODEL_PATH", _models_default("mask.onnx"))
-MASK_MODEL_CONF = max(0.05, min(0.99, _cfg_float("MASK_MODEL_CONF", DEDICATED_DEFAULT_CONF)))
-MASK_SCORE_THRESHOLD = max(
-    0.05, min(0.99, _cfg_float("MASK_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD))
-)
-MASK_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("MASK_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
-REFLECTIVE_VEST_MODEL_PATH = _cfg_path(
-    "REFLECTIVE_VEST_MODEL_PATH", _models_default("reflective_vest.pt")
-)
-REFLECTIVE_VEST_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("REFLECTIVE_VEST_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-REFLECTIVE_VEST_SCORE_THRESHOLD = max(
-    0.05,
-    min(0.99, _cfg_float("REFLECTIVE_VEST_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD)),
-)
-REFLECTIVE_VEST_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("REFLECTIVE_VEST_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
-ROAD_WATERLOGGING_MODEL_PATH = _cfg_path(
-    "ROAD_WATERLOGGING_MODEL_PATH", _models_default("road_waterlogging.onnx")
-)
-ROAD_WATERLOGGING_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("ROAD_WATERLOGGING_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-ROAD_WATERLOGGING_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("ROAD_WATERLOGGING_MIN_DURATION_SEC", 0.5)
-)
-
-SAFETY_HELMET_MODEL_PATH = _cfg_path(
-    "SAFETY_HELMET_MODEL_PATH", _models_default("safety_helmet.pt")
-)
-SAFETY_HELMET_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("SAFETY_HELMET_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-SAFETY_HELMET_SCORE_THRESHOLD = max(
-    0.05,
-    min(0.99, _cfg_float("SAFETY_HELMET_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD)),
-)
-SAFETY_HELMET_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("SAFETY_HELMET_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
-# 未戴眼镜（专模 glasses_detection.pt：0=no_glasses 违规，1=glasses 合规）
-GLASSES_MODEL_PATH = _cfg_path(
-    "GLASSES_MODEL_PATH", _models_default("glasses_detection.pt")
-)
-GLASSES_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("GLASSES_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-GLASSES_SCORE_THRESHOLD = max(
-    0.05,
-    min(0.99, _cfg_float("GLASSES_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD)),
-)
-GLASSES_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("GLASSES_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
-SLEEPING_MODEL_PATH = _cfg_path("SLEEPING_MODEL_PATH", _models_default("sleeping.pt"))
-SLEEPING_MODEL_CONF = max(
-    0.05, min(0.99, _cfg_float("SLEEPING_MODEL_CONF", DEDICATED_DEFAULT_CONF))
-)
-SLEEPING_SCORE_THRESHOLD = max(
-    0.05, min(0.99, _cfg_float("SLEEPING_SCORE_THRESHOLD", DEDICATED_DEFAULT_SCORE_THRESHOLD))
-)
-SLEEPING_MIN_DURATION_SEC = max(
-    0.0, _cfg_float("SLEEPING_MIN_DURATION_SEC", DEDICATED_DEFAULT_MIN_DURATION_SEC)
-)
-
 # 保存
 SAVE_DIR = _cfg_path("SAVE_DIR", "./snapshots")
 SAVE_FORMAT = "%Y%m%d_%H%M%S_%f.jpg"
 SAVE_INTERVAL = _cfg_int("SAVE_INTERVAL", 10)
 
 # YOLO
-YOLO_MODEL = _cfg_path("YOLO_MODEL", _models_default("yolov8n.pt"))
+YOLO_MODEL = _cfg_path("YOLO_MODEL", _models_default("yolo26s.pt"))
 
-# 打电话 / 玩手机：YOLO+COCO overlap 后用工单人体姿态（YOLOv8 pose）把手机中心与耳根/口鼻/手腕比距分类
-POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolov8n-pose.pt"))
+# 打电话 / 玩手机：YOLO+COCO overlap 后用人体姿态（YOLO26-pose）把手机中心与耳根/口鼻/手腕比距分类
+POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolo26s-pose.pt"))
 POSE_FOR_PHONE_ENABLED = _cfg_bool("POSE_FOR_PHONE_ENABLED", True)
 
 # 关键点置信低于此值不参加「贴头/贴腕」距离（仍可走竖直带 fallback）
@@ -404,14 +286,42 @@ S3_ADDRESSING_STYLE = _cfg_str("S3_ADDRESSING_STYLE", "path")
 # 启动时对桶写入生命周期规则：前缀 S3_PATH_PREFIX + snapshots/，过期天数 = DETECTION_RETENTION_DAYS
 S3_LIFECYCLE_ENABLED = _cfg_bool("S3_LIFECYCLE_ENABLED", True)
 
-# YOLO / Ultralytics 推理设备：（主检测 + yolov8-pose）见 `yolo_inference_device()`
+# 总开关（推荐）：cpu | gpu —— 同时控制 YOLO(PyTorch) 与 ONNX；改完重启即生效
+# 留空则分别看 yolo_device / onnx_provider（高级拆分）
+INFERENCE_DEVICE = (_lookup_str("INFERENCE_DEVICE") or "").strip().lower()
+# YOLO / Ultralytics：留空=自动；cpu；GPU 序号如 0（仅当 inference_device 未设时单独生效）
 YOLO_DEVICE = (_lookup_str("YOLO_DEVICE") or "").strip()
-# ONNX（吸烟等）：cpu | cuda_first
+# ONNX Runtime：cpu | cuda_first/gpu（仅当 inference_device 未设时单独生效）
 ONNX_PROVIDER = (_lookup_str("ONNX_PROVIDER") or "cpu").strip().lower() or "cpu"
+
+
+def _normalized_inference_device() -> str:
+    """返回 cpu | gpu | ''（空表示用分项配置）。"""
+    d = INFERENCE_DEVICE.strip().lower()
+    if d in ("cpu", "gpu", "cuda"):
+        return "cpu" if d == "cpu" else "gpu"
+    return ""
 
 
 def yolo_inference_device() -> Optional[Union[str, int]]:
     """传给 Ultralytics `model(..., device=...)`；None 表示不传参（沿用库默认 Auto）。"""
+    mode = _normalized_inference_device()
+    if mode == "cpu":
+        return "cpu"
+    if mode == "gpu":
+        raw = YOLO_DEVICE.strip()
+        if raw.isdigit():
+            try:
+                return int(raw)
+            except ValueError:
+                return 0
+        lo = raw.lower()
+        if lo and lo not in ("auto", "none", "default", "gpu", "cuda"):
+            if lo == "cpu":
+                return 0  # 总开关为 gpu 时忽略分项 cpu
+            return raw
+        return 0
+
     raw = YOLO_DEVICE.strip()
     if not raw:
         return None
@@ -420,6 +330,8 @@ def yolo_inference_device() -> Optional[Union[str, int]]:
         return None
     if lo == "cpu":
         return "cpu"
+    if lo in ("gpu", "cuda"):
+        return 0
     if raw.isdigit():
         try:
             return int(raw)
@@ -430,7 +342,14 @@ def yolo_inference_device() -> Optional[Union[str, int]]:
 
 def onnx_runtime_providers_ordered() -> List[str]:
     """InferenceSession(..., providers=...) 顺序；运行时探测 onnxruntime 是否含 CUDA EP。"""
-    pref = ONNX_PROVIDER.strip().lower()
+    mode = _normalized_inference_device()
+    if mode == "cpu":
+        pref = "cpu"
+    elif mode == "gpu":
+        pref = "cuda_first"
+    else:
+        pref = ONNX_PROVIDER.strip().lower()
+
     if pref == "cpu":
         return ["CPUExecutionProvider"]
 
@@ -443,8 +362,8 @@ def onnx_runtime_providers_ordered() -> List[str]:
     if pref in ("cuda", "cuda_first", "gpu", "cuda_auto"):
         if "CUDAExecutionProvider" not in avail:
             warnings.warn(
-                "onnx_provider 为 CUDA 首选但 onnxruntime 无 CUDAExecutionProvider "
-                "（通常需 onnxruntime-gpu），已退回 CPUExecutionProvider",
+                "需要 CUDA 推理但 onnxruntime 无 CUDAExecutionProvider "
+                "（请安装 onnxruntime-gpu 并卸载纯 CPU 的 onnxruntime），已退回 CPU",
                 stacklevel=2,
             )
             return ["CPUExecutionProvider"]
@@ -455,3 +374,13 @@ def onnx_runtime_providers_ordered() -> List[str]:
         stacklevel=2,
     )
     return ["CPUExecutionProvider"]
+
+
+def describe_inference_backend() -> str:
+    """启动日志用：当前有效的 YOLO / ONNX 设备摘要。"""
+    mode = _normalized_inference_device() or "split"
+    yolo = yolo_inference_device()
+    yolo_s = "auto" if yolo is None else str(yolo)
+    onnx = onnx_runtime_providers_ordered()
+    onnx_s = "+".join(onnx)
+    return f"inference_device={mode or 'auto'} yolo={yolo_s} onnx=[{onnx_s}]"

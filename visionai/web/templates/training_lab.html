@@ -28,6 +28,10 @@
             <h2>项目</h2>
             <button type="button" id="btn-new-project" class="tl-btn tl-btn-primary">新建项目</button>
             <ul id="project-list" class="tl-list"></ul>
+            <h3 class="tl-subsection">已部署专模</h3>
+            <p class="tl-hint">训练实验室部署的专模；可在管理平台「检测类型配置」中按流勾选。</p>
+            <ul id="specialist-list" class="tl-list"></ul>
+            <button type="button" id="btn-refresh-specialists" class="tl-btn tl-btn-secondary">刷新专模列表</button>
         </section>
 
         <section class="tl-panel tl-workspace">
@@ -94,9 +98,9 @@
                     <label>batch <input type="number" id="train-batch" value="8" min="1" max="128" class="tl-input tl-num"></label>
                     <label>imgsz <input type="number" id="train-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
                     <label>device <input type="text" id="train-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
-                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolov8s.pt" class="tl-input"></label>
+                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolo26s.pt" class="tl-input"></label>
                 </div>
-                <p class="tl-hint">默认 <code>yolov8s.pt</code>；开训需已审核样本达门槛（约 ≥50 张、独立 val/test）。训练完成后以<strong>测试集</strong>指标决定能否一键上线。</p>
+                <p class="tl-hint">默认 <code>yolo26s.pt</code>（本项目统一 YOLO26）；开训需已审核样本达门槛（约 ≥50 张、独立 val/test）。训练完成后以<strong>测试集</strong>指标决定能否一键上线。</p>
                 <div class="tl-row">
                     <button type="button" id="btn-train" class="tl-btn tl-btn-primary">开始训练</button>
                     <span id="train-status" class="tl-muted"></span>
@@ -147,7 +151,7 @@
 
             <div class="tl-block tl-threshold-wizard">
                 <h3>6. 阈值向导</h3>
-                <p class="tl-hint">在验证集上扫描置信度，建议 detector_conf 与告警阈值（吸烟项目可写入 config.ini）。</p>
+                <p class="tl-hint">在验证集上扫描置信度，建议 detector_conf 与告警阈值（仅供参考，不会自动写入 config.ini）。</p>
                 <div class="tl-row">
                     <button type="button" id="btn-threshold-suggest" class="tl-btn tl-btn-secondary" disabled>分析并建议阈值</button>
                     <label class="tl-check"><input type="checkbox" id="threshold-apply-config" /> 写入 config.ini（需重启）</label>

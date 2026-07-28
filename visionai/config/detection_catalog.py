@@ -1,4 +1,7 @@
-"""COCO 80 类与「打电话」扩展：与 Ultralytics 预训练 YOLOv8（COCO）类别索引一致。"""
+"""COCO 80 类与内置扩展：与 Ultralytics 预训练 YOLO26（COCO）类别索引一致。
+
+专模检测类型由 ``visionai.config.specialists`` 动态注册，不在此硬编码。
+"""
 
 from __future__ import annotations
 
@@ -189,60 +192,28 @@ NUM_COCO_CLASSES = 80
 CALL_KEY = "call"
 PHONE_PLAY_KEY = "phone_play"
 GATHER_KEY = "gather"
-SMOKE_KEY = "smoking"
-FACE_KEY = "face"
 FACE_RECOG_KEY = "face_recognition"
-FALL_KEY = "fall"
-FLAME_KEY = "flame"
-LICENSE_PLATE_KEY = "license_plate"
-MASK_KEY = "mask"
-REFLECTIVE_VEST_KEY = "reflective_vest"
-ROAD_WATERLOGGING_KEY = "road_waterlogging"
-SAFETY_HELMET_KEY = "safety_helmet"
-SLEEPING_KEY = "sleeping"
-NO_GLASSES_KEY = "no_glasses"
 
+# 内置扩展（非专模）
 EXTENSION_KEYS: Tuple[str, ...] = (
     CALL_KEY,
     PHONE_PLAY_KEY,
     GATHER_KEY,
-    SMOKE_KEY,
-    FACE_KEY,
     FACE_RECOG_KEY,
-    FALL_KEY,
-    FLAME_KEY,
-    LICENSE_PLATE_KEY,
-    MASK_KEY,
-    REFLECTIVE_VEST_KEY,
-    ROAD_WATERLOGGING_KEY,
-    SAFETY_HELMET_KEY,
-    SLEEPING_KEY,
-    NO_GLASSES_KEY,
 )
 
 EXTENSION_LABELS_ZH: Dict[str, str] = {
     CALL_KEY: "打电话",
     PHONE_PLAY_KEY: "玩手机",
     GATHER_KEY: "人员聚集",
-    SMOKE_KEY: "吸烟",
-    FACE_KEY: "人脸",
     FACE_RECOG_KEY: "人脸识别",
-    FALL_KEY: "跌倒",
-    FLAME_KEY: "火焰",
-    LICENSE_PLATE_KEY: "车牌",
-    MASK_KEY: "未戴口罩",
-    REFLECTIVE_VEST_KEY: "未穿反光衣",
-    ROAD_WATERLOGGING_KEY: "道路积水",
-    SAFETY_HELMET_KEY: "未戴安全帽",
-    SLEEPING_KEY: "睡觉",
-    NO_GLASSES_KEY: "未戴眼镜",
 }
 
 EXTENSION_CATALOG_META: List[Dict[str, str]] = [
     {
         "key": CALL_KEY,
-        "name_en": "calling (make_call.onnx dedicated detector)",
-        "name_zh": "打电话（make_call.onnx）",
+        "name_en": "calling (pose / make_call.onnx)",
+        "name_zh": "打电话",
     },
     {
         "key": PHONE_PLAY_KEY,
@@ -255,73 +226,66 @@ EXTENSION_CATALOG_META: List[Dict[str, str]] = [
         "name_zh": EXTENSION_LABELS_ZH[GATHER_KEY],
     },
     {
-        "key": SMOKE_KEY,
-        "name_en": "smoking (smoking_detection.pt dedicated detector)",
-        "name_zh": "吸烟（smoking_detection.pt）",
-    },
-    {"key": FACE_KEY, "name_en": "face detection", "name_zh": EXTENSION_LABELS_ZH[FACE_KEY]},
-    {
         "key": FACE_RECOG_KEY,
         "name_en": "face recognition (library match / stranger alert)",
         "name_zh": EXTENSION_LABELS_ZH[FACE_RECOG_KEY],
     },
-    {"key": FALL_KEY, "name_en": "fall detection", "name_zh": EXTENSION_LABELS_ZH[FALL_KEY]},
-    {"key": FLAME_KEY, "name_en": "fire and smoke", "name_zh": EXTENSION_LABELS_ZH[FLAME_KEY]},
-    {
-        "key": LICENSE_PLATE_KEY,
-        "name_en": "license plate detection",
-        "name_zh": EXTENSION_LABELS_ZH[LICENSE_PLATE_KEY],
-    },
-    {
-        "key": MASK_KEY,
-        "name_en": "face without mask",
-        "name_zh": EXTENSION_LABELS_ZH[MASK_KEY],
-    },
-    {
-        "key": REFLECTIVE_VEST_KEY,
-        "name_en": "person without reflective vest",
-        "name_zh": EXTENSION_LABELS_ZH[REFLECTIVE_VEST_KEY],
-    },
-    {
-        "key": ROAD_WATERLOGGING_KEY,
-        "name_en": "road waterlogging / puddle",
-        "name_zh": EXTENSION_LABELS_ZH[ROAD_WATERLOGGING_KEY],
-    },
-    {
-        "key": SAFETY_HELMET_KEY,
-        "name_en": "person without safety helmet",
-        "name_zh": EXTENSION_LABELS_ZH[SAFETY_HELMET_KEY],
-    },
-    {"key": SLEEPING_KEY, "name_en": "sleeping", "name_zh": EXTENSION_LABELS_ZH[SLEEPING_KEY]},
-    {
-        "key": NO_GLASSES_KEY,
-        "name_en": "person without glasses (glasses_detection.pt)",
-        "name_zh": EXTENSION_LABELS_ZH[NO_GLASSES_KEY],
-    },
 ]
 
-PERSON_BEHAVIOR_KEYS: Tuple[str, ...] = (
-    CALL_KEY,
-    SMOKE_KEY,
-    FALL_KEY,
-    MASK_KEY,
-    REFLECTIVE_VEST_KEY,
-    SAFETY_HELMET_KEY,
-    SLEEPING_KEY,
-    NO_GLASSES_KEY,
-)
 
-SCENE_BEHAVIOR_KEYS: Tuple[str, ...] = (
-    FACE_KEY,
-    FLAME_KEY,
-    LICENSE_PLATE_KEY,
-    ROAD_WATERLOGGING_KEY,
-)
+def _specialist_label_map() -> Dict[str, str]:
+    try:
+        from visionai.config.specialists import list_specialists
+
+        return {m["key"]: m["name_zh"] for m in list_specialists()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _specialist_keys() -> Tuple[str, ...]:
+    try:
+        from visionai.config.specialists import specialist_keys
+
+        return specialist_keys()
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+def all_extension_keys() -> Tuple[str, ...]:
+    """内置扩展 + 已部署专模键。"""
+    return tuple(dict.fromkeys([*EXTENSION_KEYS, *_specialist_keys()]))
+
+
+def person_behavior_keys() -> Tuple[str, ...]:
+    """人物关联行为：打电话专模 + person_event/violation 专模。"""
+    keys: List[str] = [CALL_KEY]
+    try:
+        from visionai.config.specialists import list_specialists
+
+        for m in list_specialists():
+            if m.get("kind") in ("person_event", "violation"):
+                keys.append(m["key"])
+    except Exception:  # noqa: BLE001
+        pass
+    return tuple(dict.fromkeys(keys))
+
+
+def scene_behavior_keys() -> Tuple[str, ...]:
+    keys: List[str] = []
+    try:
+        from visionai.config.specialists import list_specialists
+
+        for m in list_specialists():
+            if m.get("kind") == "scene":
+                keys.append(m["key"])
+    except Exception:  # noqa: BLE001
+        pass
+    return tuple(keys)
 
 
 def default_detections_dict() -> Dict[str, bool]:
     d = {str(i): False for i in range(NUM_COCO_CLASSES)}
-    for key in EXTENSION_KEYS:
+    for key in all_extension_keys():
         d[key] = False
     return d
 
@@ -329,13 +293,14 @@ def default_detections_dict() -> Dict[str, bool]:
 def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
     """合并旧版配置键与新版「字符串类别 id」键，缺省全部为 False。"""
     out = default_detections_dict()
+    allowed_ext = frozenset(all_extension_keys())
     if not raw:
         return out
     for k, v in raw.items():
         if v is None:
             continue
         key = str(k)
-        if key in EXTENSION_KEYS:
+        if key in allowed_ext:
             out[key] = bool(v)
         elif key in out and key.isdigit():
             out[key] = bool(v)
@@ -348,7 +313,9 @@ def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
 
 
 def label_zh_for_extension(key: str) -> str:
-    return EXTENSION_LABELS_ZH.get(key, key)
+    if key in EXTENSION_LABELS_ZH:
+        return EXTENSION_LABELS_ZH[key]
+    return _specialist_label_map().get(key, key)
 
 
 def catalog_items_for_api() -> List[Dict[str, Any]]:
@@ -361,6 +328,8 @@ def catalog_items_for_api() -> List[Dict[str, Any]]:
                 "name_en": COCO_NAMES[i],
                 "name_zh": COCO_NAMES_ZH.get(i, COCO_NAMES[i]),
                 "supported": True,
+                "source": "coco",
+                "deletable": False,
             }
         )
     for meta in EXTENSION_CATALOG_META:
@@ -371,8 +340,16 @@ def catalog_items_for_api() -> List[Dict[str, Any]]:
                 "name_en": meta["name_en"],
                 "name_zh": meta["name_zh"],
                 "supported": True,
+                "source": "builtin",
+                "deletable": False,
             }
         )
+    try:
+        from visionai.config.specialists import catalog_items_for_specialists
+
+        items.extend(catalog_items_for_specialists())
+    except Exception:  # noqa: BLE001
+        pass
     return items
 
 

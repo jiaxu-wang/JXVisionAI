@@ -9,9 +9,9 @@
 | **状态概览** | 各流在线/离线、今日告警数 |
 | **事件监控** | 添加/编辑 RTSP 流、**ONVIF 发现**、检测类型、邮件/Webhook 告警 |
 | **历史告警** | 分页查看检测记录与截图 |
-| **系统设置** | 在线编辑 `config.ini` 各配置单元 |
+| **系统设置** | 在线编辑 `config.ini` 各分节（basic / redis / minio / email / models / preview） |
 | **人脸库管理** | 录入人员、查看照片 |
-| **训练实验室** | 可上线专模：审核标注 → train/val/test → 测试集门禁 → 一键部署（含未戴眼镜） |
+| **训练实验室** | 可上线专模：审核标注 → train/val/test → 测试集门禁 → 一键部署（含未戴眼镜）；部署后专模出现在检测类型目录 |
 
 ---
 
@@ -19,10 +19,10 @@
 
 1. 点击 **+ 添加视频**，填写名称与 RTSP URL  
    - 密码含 `@` 时需编码为 `%40`（如 `inrico@123` → `inrico%40123`）
-2. 点击 **检测类型配置**，勾选需要的检测项（如「人脸识别」）
+2. 点击 **检测类型配置**，勾选需要的检测项（内置项 + 已部署 **专模**；如「人脸识别」、训练实验室部署的「未戴眼镜」等）
 3. 配置 **邮件告警** / **Webhook**（可选）
 4. 点击 **保存配置**
-5. 若修改了 `config.ini` 或模型文件，点击 **重启服务** 或执行 `./stop.sh && ./start.sh`
+5. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径，点击 **重启服务** 或执行 `./stop.sh && ./start.sh`；**训练专模** 部署后一般热加载，无需重启
 
 ### ONVIF 发现（推荐局域网摄像头）
 
@@ -55,6 +55,7 @@
 | **MJPEG**（默认） | 服务端按 RTSP URL 直拉画面 → JPEG，**无声音**，最快最稳 |
 | **WebSocket** | 同样直拉，可勾选「显示检测框」，**无声音** |
 | **HLS** | 需服务器 `ffmpeg`；有音轨时 AAC 编码，浏览器可**听声**（延迟约 1～几秒）。无音轨则自动纯画面 |
+| **WebRTC**（可选） | 低延迟预览；需 `[preview]` 与信令配置，见 [HTTP API - 预览](api.md#系统与预览) |
 
 听声时请选 **HLS**，必要时在播放器里取消静音 / 点播放（浏览器可能拦截自动出声）。
 
@@ -62,7 +63,7 @@
 
 ## 人脸识别
 
-基于 InsightFace **buffalo_l**（纯 `onnxruntime` 推理，无需安装 `insightface` pip 包）。详细设计见 [face_recognition_design.md](face_recognition_design.md)。
+基于 InsightFace **buffalo_l**（`onnxruntime-gpu` / `onnxruntime` 推理，由 `[basic]` `inference_device` 控制 CPU/GPU；无需安装 `insightface` pip 包）。详细设计见 [face_recognition_design.md](face_recognition_design.md)。
 
 ### 存储结构
 
@@ -120,7 +121,7 @@ python scripts/test_face_recognition.py --image /path/to/test.jpg
 
 | 现象 | 原因与处理 |
 |------|------------|
-| 完全无告警 | 检查 `models/yolov8n.pt` 是否存在；日志是否有「开始处理视频流」 |
+| 完全无告警 | 检查 `models/yolo26s.pt` 是否存在；日志是否有「开始处理视频流」 |
 | 画面有人但检测不到脸 | 摄像头倒置 → 设 `rotate=180`；人脸过小 → 调低 `face_recog_det_conf` |
 | 自己是库内人员却显示陌生人 | 重新录入照片；站近镜头；检查阈值是否过高 |
 | 多人画面只标一人 | 已修复：现绘制所有检出人脸；告警仍按持续时长过滤 |

@@ -10,9 +10,9 @@
 |------|------|
 | [getting-started.md](getting-started.md) | 环境要求、安装依赖、模型准备、启动与 Docker |
 | [architecture.md](architecture.md) | 系统架构、处理流水线、行为插件、数据存储、仓库结构 |
-| [configuration.md](configuration.md) | `config.ini` 与环境变量、对象存储 |
+| [configuration.md](configuration.md) | `config.ini` 分节（basic/redis/minio/email/models/preview）与环境变量 |
 | [user-guide.md](user-guide.md) | Web 管理端各页面、添加视频流、人脸识别使用 |
-| [detection.md](detection.md) | 检测类型总览、吸烟/打电话逻辑、训练管线 |
+| [detection.md](detection.md) | 内置检测 + 训练专模、打电话/聚集逻辑、训练管线 |
 | [training-glasses-guide.md](training-glasses-guide.md) | **训练操作示例**：未戴眼镜全流程（采图→标注→训练→测试→部署） |
 | [api.md](api.md) | HTTP API 一览 |
 | [operations.md](operations.md) | 日志、排障、性能与安全、路线图 |

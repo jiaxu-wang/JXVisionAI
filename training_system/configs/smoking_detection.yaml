@@ -26,7 +26,7 @@ data:
 # ==================== 训练配置 ====================
 training:
   # 预训练模型
-  pretrained_model: "yolov8n.pt"
+  pretrained_model: "yolo26s.pt"
   
   # 训练轮数
   epochs: 100

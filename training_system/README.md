@@ -1,5 +1,8 @@
 # YOLO模型训练系统
 
+> **推荐路径**：生产环境请优先使用 Web **训练实验室**（管理端 `/training`）——采图、标注、门禁、一键部署专模到 `models/specialists/<key>/` 并自动注册检测类型。  
+> 本目录为 **离线 CLI** 工具链，适合批量脚本、本地实验或与训练实验室并行使用。
+
 完整的YOLO模型训练、验证和部署系统，支持从数据准备到模型部署的完整流程。
 
 ## 目录结构
@@ -16,7 +19,7 @@ training_system/
 │   └── labels/              # 标注文件
 │       ├── train/           # 训练集标注
 │       ├── val/             # 验证集标注
-│       └── test/            # 测试集标注
+│       └── test/             # 测试集标注
 ├── scripts/                 # 脚本目录
 │   ├── prepare_data.py      # 数据准备脚本
 │   ├── train.py             # 模型训练脚本
@@ -35,7 +38,7 @@ training_system/
 
 确保已安装所需依赖：
 ```bash
-cd /home/wjx/code/JXVisionAI
+cd /home/wjx/code/python/JXVisionAI
 source env/bin/activate
 pip install ultralytics opencv-python numpy pyyaml
 ```
@@ -77,7 +80,7 @@ python scripts/prepare_data.py \
 在 `configs/` 目录创建 `data.yaml` 文件：
 
 ```yaml
-path: /home/wjx/code/JXVisionAI/training_system/data
+path: /home/wjx/code/python/JXVisionAI/training_system/data
 train: images/train
 val: images/val
 test: images/test
@@ -93,7 +96,7 @@ names:
 ```bash
 python scripts/train.py \
     --data_yaml configs/data.yaml \
-    --pretrained_model yolov8n.pt \
+    --pretrained_model ../models/yolo26s.pt \
     --epochs 100 \
     --batch_size 16 \
     --img_size 640 \
@@ -133,36 +136,20 @@ python scripts/export.py export \
     --format onnx \
     --imgsz 640
 
-# 部署到JXVisionAI系统
+# 仅复制权重文件到项目根（不注册检测类型）
 python scripts/export.py deploy \
     --model outputs/smoking_detection/weights/best.pt \
     --target_dir ../ \
     --model_name smoking_detection.pt
 ```
 
-### 8. 在JXVisionAI中使用新模型
+### 8. 在 JXVisionAI 中使用新模型
 
-修改 `visionai/config/settings.py`：
+**生产环境（推荐）**：在 Web **训练实验室**（`/training`）完成标注、训练与 **一键部署**，产物写入 `models/specialists/<key>/`（`model.pt` + `specialist.json`），检测类型自动出现在事件监控的配置列表中，**热加载、一般无需重启**。
 
-```python
-# YOLO模型配置
-YOLO_MODEL = "smoking_detection.pt"
+**CLI `export.py deploy`**：仅将 `.pt` 复制到指定目录，**不会** 写入 `specialist.json`，也**不会** 注册为检测类型。若要用 CLI 训练的权重上线，请手动整理到 `models/specialists/<key>/` 并参照现有专模的 `specialist.json` 结构，或导入训练实验室项目后再点部署。
 
-# 更新检测类别映射
-DETECTION_CLASSES = {
-    "person": 0,
-    "smoking": 1,
-    "cigarette": 2,
-    # ... 其他类别
-}
-```
-
-重启JXVisionAI服务：
-```bash
-cd ..
-./stop.sh
-./start.sh
-```
+**特例 `make_call`（打电话）**：仍走内置路径——部署时复制到 `models/` 并 patch `config.ini` 的 `make_call_model_path`，**须重启** 后生效。其余场景（吸烟、安全帽、未戴眼镜、自定义等）均部署为 **专模**，不在 `config.ini` 中为每项单独配路径。
 
 ## 详细使用说明
 
@@ -206,7 +193,7 @@ python scripts/prepare_data.py \
 
 **参数说明**：
 - `--data_yaml`: 数据配置文件路径（必需）
-- `--pretrained_model`: 预训练模型路径（默认：yolov8n.pt）
+- `--pretrained_model`: 预训练模型路径（默认：`../models/yolo26s.pt` 或 `yolo26s.pt`）
 - `--epochs`: 训练轮数（默认：100）
 - `--batch_size`: 批次大小（默认：16）
 - `--img_size`: 输入图像大小（默认：640）
@@ -227,7 +214,7 @@ python scripts/train.py --data_yaml configs/data.yaml
 # 完整参数
 python scripts/train.py \
     --data_yaml configs/data.yaml \
-    --pretrained_model yolov8s.pt \
+    --pretrained_model ../models/yolo26s.pt \
     --epochs 200 \
     --batch_size 32 \
     --img_size 640 \
@@ -334,15 +321,15 @@ python scripts/train.py \
 4. 正负样本平衡：确保各类别样本数量均衡
 
 ### 训练策略
-1. 从预训练模型开始：使用yolov8n.pt或yolov8s.pt
+1. 从预训练模型开始：使用 `models/yolo26s.pt`（YOLO26）
 2. 学习率调整：从较小的学习率开始（0.001-0.01）
 3. 批次大小：根据GPU内存调整（16-64）
 4. 训练轮数：100-300轮，观察验证集指标
 
 ### 模型选择
-- **yolov8n.pt**: 轻量级，速度快，适合实时检测
-- **yolov8s.pt**: 中等大小，准确率更高，速度稍慢
-- **yolov8m.pt**: 大模型，准确率最高，需要更多计算资源
+- **yolo26n.pt**：最轻量，速度最快
+- **yolo26s.pt**：默认推荐，速度与精度平衡
+- **yolo26m.pt**：更大模型，准确率更高，需要更多算力
 
 ## 常见问题
 
@@ -356,16 +343,15 @@ A: 观察验证集mAP指标，当连续多个epoch不再提升时可以停止训
 A: 
 1. 增加训练数据量
 2. 改进标注质量
-3. 使用更大的模型（yolov8s, yolov8m）
+3. 使用更大的模型（yolo26m）
 4. 调整超参数（学习率、批次大小等）
 5. 进行数据增强
 
 ### Q: 如何将训练好的模型集成到JXVisionAI？
 A: 
-1. 使用export.py的deploy命令部署模型
-2. 修改visionai/config/settings.py中的YOLO_MODEL配置
-3. 更新DETECTION_CLASSES映射
-4. 重启JXVisionAI服务
+1. **推荐**：在 Web 训练实验室导入数据或关联项目 → 训练 → **一键部署为专模**
+2. CLI 路径：`export.py deploy` 仅复制文件；须再通过训练实验室部署或手动维护 `models/specialists/<key>/`
+3. 仅 `make_call` 使用内置 deploy（改 `config.ini` + 重启）
 
 ## 技术支持
 

@@ -1,5 +1,5 @@
 """
-检测核心：YOLOv8 主检 + 行为插件融合 + 画框截图。
+检测核心：YOLO26 主检 + 行为插件融合 + 画框截图。
 
 每路流对应一个 Detector 实例。主循环由 ``__main__.run_video_processing`` 驱动：
 按 ``detection_interval`` 取帧 → ``detect()`` → ``process_results()`` → ``save_snapshot()``。
@@ -22,17 +22,16 @@ from ultralytics import YOLO
 from visionai.config.detection_catalog import (
     CALL_KEY,
     COCO_NAMES,
-    EXTENSION_KEYS,
     GATHER_KEY,
     NUM_COCO_CLASSES,
-    PERSON_BEHAVIOR_KEYS,
     PHONE_PLAY_KEY,
-    SCENE_BEHAVIOR_KEYS,
-    SMOKE_KEY,
     FACE_RECOG_KEY,
+    all_extension_keys,
     normalize_detections,
     label_zh_for_class,
     label_zh_for_extension,
+    person_behavior_keys,
+    scene_behavior_keys,
 )
 from visionai.config.settings import (
     CONF_THRESHOLD,
@@ -41,7 +40,6 @@ from visionai.config.settings import (
     MAKE_CALL_MODEL_PATH,
     MAKE_CALL_REQUIRE_PERSON_OVERLAP,
     MAKE_CALL_USE_DEDICATED,
-    SMOKING_REQUIRE_PERSON_OVERLAP,
     OBJECT_STORAGE_KEEP_LOCAL,
     POSE_FOR_PHONE_ENABLED,
     SAVE_DIR,
@@ -60,7 +58,7 @@ from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
 from visionai.utils.alert_email import notify_alert_by_email
 from visionai.utils.alert_webhook import notify_alert_by_webhooks
-from visionai.utils.frame_draw import draw_labeled_box, put_text
+from visionai.utils.frame_draw import draw_labeled_box, label_font_px, put_text
 
 logger = logging.getLogger(__name__)
 
@@ -81,19 +79,16 @@ def _center_xyxy(box: tuple[int, int, int, int]) -> tuple[float, float]:
 
 _BEHAVIOR_COLORS = {
     CALL_KEY: (0, 0, 255),
-    SMOKE_KEY: (60, 180, 255),
-    "fall": (0, 140, 255),
-    "mask": (180, 80, 255),
-    "reflective_vest": (0, 200, 200),
-    "safety_helmet": (0, 215, 255),
-    "no_glasses": (200, 100, 255),
-    "sleeping": (200, 160, 60),
-    "face": (80, 200, 255),
     FACE_RECOG_KEY: (0, 200, 0),
-    "flame": (0, 80, 255),
-    "license_plate": (255, 180, 0),
-    "road_waterlogging": (255, 120, 0),
 }
+
+
+def _color_for_behavior(key: str):
+    if key in _BEHAVIOR_COLORS:
+        return _BEHAVIOR_COLORS[key]
+    h = (abs(hash(key)) % 1000) / 1000.0
+    r, g, b = colorsys.hsv_to_rgb(h, 0.75, 0.95)
+    return int(b * 255), int(g * 255), int(r * 255)
 
 
 def _boxes_overlap_xyxy(box_a, box_b) -> bool:
@@ -158,11 +153,11 @@ class Detector:
         「人员聚集」：单帧检出人物数 ≥ GATHER_MIN_PERSONS 即满足条件；可选持续
         GATHER_MIN_DURATION_SEC 防抖（0 为立即告警）。仅依赖 person 框。
 
-        「吸烟」：行为层插件，YOLO person 框裁剪后经 ONNX 分类（见 SMOKING_* 配置）。
-
-        「打电话 / 玩手机」：均需人物框与手机框交集。安装姿态模型时用 YOLOv8-pose
+        「打电话 / 玩手机」：均需人物框与手机框交集。安装姿态模型时用 YOLO26-pose
         将手机中心与肩头耳根/手腕距离分为「打电话」与「玩手机」；无姿态或未加载则按
         手机竖直占比粗分。
+
+        专模：训练实验室部署的 scene / person_event / violation 插件。
 
         绘制：
         - 仅开「人物/手机」告警：按开关绘制全部检出的人物或手机。
@@ -178,10 +173,11 @@ class Detector:
         call_on = self.detections.get(CALL_KEY, False)
         phone_play_on = self.detections.get(PHONE_PLAY_KEY, False)
         gather_on = self.detections.get(GATHER_KEY, False)
-        smoke_on = self.detections.get(SMOKE_KEY, False)
         face_recog_on = self.detections.get(FACE_RECOG_KEY, False)
-        person_behavior_on = any(self.detections.get(k, False) for k in PERSON_BEHAVIOR_KEYS)
-        scene_behavior_on = any(self.detections.get(k, False) for k in SCENE_BEHAVIOR_KEYS)
+        p_keys = person_behavior_keys()
+        s_keys = scene_behavior_keys()
+        person_behavior_on = any(self.detections.get(k, False) for k in p_keys)
+        scene_behavior_on = any(self.detections.get(k, False) for k in s_keys)
         use_dedicated_call = (
             call_on
             and MAKE_CALL_USE_DEDICATED
@@ -190,22 +186,18 @@ class Detector:
         need_coco_for_call = call_on and (
             not use_dedicated_call or MAKE_CALL_REQUIRE_PERSON_OVERLAP
         )
-        need_coco_for_smoke = smoke_on and SMOKING_REQUIRE_PERSON_OVERLAP
         other_person_behaviors = any(
-            self.detections.get(k, False)
-            for k in PERSON_BEHAVIOR_KEYS
-            if k not in (CALL_KEY, SMOKE_KEY)
+            self.detections.get(k, False) for k in p_keys if k != CALL_KEY
         )
         collect_person = (
             alarm_person
             or gather_on
             or phone_play_on
             or need_coco_for_call
-            or need_coco_for_smoke
             or other_person_behaviors
         )
         collect_phone = alarm_phone or (call_on and not use_dedicated_call) or phone_play_on
-        behavior_needed = smoke_on or person_behavior_on or scene_behavior_on or face_recog_on
+        behavior_needed = person_behavior_on or scene_behavior_on or face_recog_on
         behavior_src = frame.copy() if behavior_needed else None
 
         for result in results:
@@ -227,17 +219,8 @@ class Detector:
                     det = {"box": (x1, y1, x2, y2), "confidence": conf}
                     by_class[cls].append(det)
                     color = _bgr_for_class(cls)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    label = COCO_NAMES.get(cls, str(cls))
-                    cv2.putText(
-                        frame,
-                        f"{label}: {conf:.2f}",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        color,
-                        2,
-                    )
+                    label = f"{COCO_NAMES.get(cls, str(cls))}: {conf:.2f}"
+                    draw_labeled_box(frame, (x1, y1, x2, y2), label, color)
 
         if alarm_person:
             for p in persons:
@@ -348,17 +331,8 @@ class Detector:
                         }
                     )
 
-        smoke_result = behaviors_out.get(SMOKE_KEY, {})
-        smoking_alert = bool(smoke_result.get("alert"))
-        smoking_indices = (
-            set()
-            if smoke_result.get("standalone")
-            else set(smoke_result.get("person_indices", []))
-        )
         person_behavior_alerts: dict[str, set[int]] = {}
-        for bk in PERSON_BEHAVIOR_KEYS:
-            if bk == SMOKE_KEY:
-                continue
+        for bk in p_keys:
             if bk == CALL_KEY and not use_dedicated_call:
                 continue
             if not self.detections.get(bk, False):
@@ -378,28 +352,24 @@ class Detector:
                 return True
             if gather_on and gathering_alert and idx in gather_cluster_set:
                 return True
-            if smoke_on and smoking_alert and idx in smoking_indices:
-                return True
             for bk, pset in person_behavior_alerts.items():
                 if idx in pset:
                     return True
             return False
 
+        fs_px = label_font_px(frame)
         for i, person in enumerate(persons):
             if not _person_should_draw(i):
                 continue
             x1, y1, x2, y2 = person["box"]
             conf = person["confidence"]
             color = _bgr_for_class(0)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(
+            draw_labeled_box(
                 frame,
+                (x1, y1, x2, y2),
                 f"{COCO_NAMES[0]}: {conf:.2f}",
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
                 color,
-                2,
+                font_px=fs_px,
             )
 
         for i, phone in enumerate(cell_phones):
@@ -412,86 +382,50 @@ class Detector:
             x1, y1, x2, y2 = phone["box"]
             conf = phone["confidence"]
             color = _bgr_for_class(67)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(
+            draw_labeled_box(
                 frame,
+                (x1, y1, x2, y2),
                 f"cell phone: {conf:.2f}",
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
                 color,
-                2,
+                font_px=fs_px,
             )
 
         for c in calls:
             pb = c["person"]["box"]
             conf = c["confidence"]
-            cv2.putText(
+            put_text(
                 frame,
                 f"CALLING: {conf:.2f}",
-                (pb[0], pb[1] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                (pb[0], max(pb[1] - 10, 20)),
                 (0, 0, 255),
-                2,
+                font_px=fs_px,
             )
 
         for ph_ev in phone_play_matches:
             pb = ph_ev["person"]["box"]
             conf = ph_ev["confidence"]
-            cv2.putText(
+            put_text(
                 frame,
                 f"PLAY_PHONE: {conf:.2f}",
-                (pb[0], pb[1] - 35),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                (pb[0], max(pb[1] - 28, 20)),
                 (204, 120, 0),
-                2,
+                font_px=fs_px,
             )
 
-        if smoking_alert and smoke_on:
-            color_smoke = _BEHAVIOR_COLORS[SMOKE_KEY]
-            for si in smoking_indices:
-                if si < 0 or si >= len(persons):
-                    continue
-                pb = persons[si]["box"]
-                sc = float(smoke_result.get("scores", {}).get(str(si), 0.0))
-                cv2.putText(
-                    frame,
-                    f"SMOKING: {sc:.2f}",
-                    (pb[0], pb[1] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    color_smoke,
-                    2,
-                )
-            ev_boxes = smoke_result.get("event_boxes") or smoke_result.get("smoking_boxes") or []
-            for sb in ev_boxes:
-                nm = str(sb.get("name") or "smoking")
-                sconf = float(sb.get("confidence", 0.0))
-                label = (
-                    f"{label_zh_for_extension(SMOKE_KEY)}: {sconf:.2f}"
-                    if smoke_result.get("standalone")
-                    else f"{nm}: {sconf:.2f}"
-                )
-                draw_labeled_box(frame, sb.get("box"), label, color_smoke)
-
         if use_dedicated_call and call_on and call_result.get("alert"):
-            color_call = _BEHAVIOR_COLORS[CALL_KEY]
+            color_call = _color_for_behavior(CALL_KEY)
             for pi in call_result.get("person_indices") or []:
                 pi = int(pi)
                 if pi < 0 or pi >= len(persons):
                     continue
                 pb = persons[pi]["box"]
                 sc = float(call_result.get("scores", {}).get(str(pi), 0.0))
-                cv2.putText(
+                put_text(
                     frame,
                     f"CALLING: {sc:.2f}",
-                    (pb[0], pb[1] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    (pb[0], max(pb[1] - 10, 20)),
                     color_call,
-                    2,
+                    font_px=fs_px,
                 )
             for eb in call_result.get("event_boxes") or []:
                 nm = str(eb.get("name") or "phone")
@@ -501,13 +435,15 @@ class Detector:
                     if call_result.get("standalone")
                     else f"{nm}: {sconf:.2f}"
                 )
-                draw_labeled_box(frame, eb.get("box"), label, color_call)
+                draw_labeled_box(
+                    frame, eb.get("box"), label, color_call, font_px=fs_px
+                )
 
         for bk, pset in person_behavior_alerts.items():
             if bk == CALL_KEY:
                 continue
             br = behaviors_out.get(bk, {})
-            color = _BEHAVIOR_COLORS.get(bk, (200, 200, 0))
+            color = _color_for_behavior(bk)
             tag = label_zh_for_extension(bk)
             for pi in pset:
                 if pi < 0 or pi >= len(persons):
@@ -517,27 +453,31 @@ class Detector:
                 put_text(
                     frame,
                     f"{tag}: {sc:.2f}",
-                    (pb[0], pb[1] - 20),
+                    (pb[0], max(pb[1] - 10, 20)),
                     color,
-                    font_scale=0.6,
+                    font_px=fs_px,
                 )
             for eb in br.get("event_boxes") or []:
                 nm = str(eb.get("name") or bk)
                 sconf = float(eb.get("confidence", 0.0))
-                draw_labeled_box(frame, eb.get("box"), f"{nm}: {sconf:.2f}", color)
+                draw_labeled_box(
+                    frame, eb.get("box"), f"{nm}: {sconf:.2f}", color, font_px=fs_px
+                )
 
-        for sk in SCENE_BEHAVIOR_KEYS:
+        for sk in s_keys:
             if not self.detections.get(sk, False):
                 continue
             sr = behaviors_out.get(sk, {})
             if not sr.get("alert"):
                 continue
-            color = _BEHAVIOR_COLORS.get(sk, (180, 180, 0))
+            color = _color_for_behavior(sk)
             tag = label_zh_for_extension(sk)
             for bx in sr.get("boxes") or []:
                 nm = str(bx.get("name") or tag)
                 sconf = float(bx.get("confidence", 0.0))
-                draw_labeled_box(frame, bx.get("box"), f"{nm}: {sconf:.2f}", color)
+                draw_labeled_box(
+                    frame, bx.get("box"), f"{nm}: {sconf:.2f}", color, font_px=fs_px
+                )
 
         fr_result = behaviors_out.get(FACE_RECOG_KEY, {})
         if face_recog_on:
@@ -573,7 +513,7 @@ class Detector:
                     label = f"{name} {gzh} {sim:.2f}"
                 elif age is not None:
                     label = f"{name} {age}岁 {sim:.2f}"
-                draw_labeled_box(frame, box, label, color)
+                draw_labeled_box(frame, box, label, color, font_px=fs_px)
 
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
@@ -582,21 +522,20 @@ class Detector:
                 pts.append((int(cx), int(cy)))
             pts_np = np.array(pts, dtype=np.int32)
             color_gather = (0, 165, 255)
+            thick = 3 if fs_px >= 48 else 2
             if len(pts_np) >= 3:
                 hull = cv2.convexHull(pts_np)
-                cv2.polylines(frame, [hull], True, color_gather, 2)
+                cv2.polylines(frame, [hull], True, color_gather, thick)
             elif len(pts_np) == 2:
-                cv2.line(frame, tuple(pts_np[0]), tuple(pts_np[1]), color_gather, 2)
+                cv2.line(frame, tuple(pts_np[0]), tuple(pts_np[1]), color_gather, thick)
             cx = int(sum(p[0] for p in pts) / len(pts))
             cy = int(sum(p[1] for p in pts) / len(pts))
-            cv2.putText(
+            put_text(
                 frame,
                 f"GATHERING: {len(gather_cluster_indices)}",
                 (cx, max(cy - 10, 20)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
                 color_gather,
-                2,
+                font_px=fs_px,
             )
 
         detections = {
@@ -652,23 +591,17 @@ class Detector:
             detection_types.append("人员聚集")
 
         behaviors_saved = detections.get("behaviors", {}) or {}
-        smoke_saved = behaviors_saved.get(SMOKE_KEY, {})
-        if self.detections.get(SMOKE_KEY, False) and smoke_saved.get("alert"):
-            should_save = True
-            if smoke_saved.get("standalone"):
-                n_s = len(smoke_saved.get("event_boxes") or [])
-            else:
-                n_s = len(smoke_saved.get("person_indices") or [])
-            info.append(f"吸烟: {n_s}")
-            detection_types.append("吸烟")
 
         fr_saved = behaviors_saved.get(FACE_RECOG_KEY, {})
         if self.detections.get(FACE_RECOG_KEY, False) and fr_saved.get("alert"):
             alert_matches = fr_saved.get("alert_matches") or []
             if alert_matches:
                 should_save = True
+                # 告警仍由 alert_matches 触发；检测类型与截图对齐，写入本帧全部 matches
+                # （持续时长防抖会导致「框上已有库内人+陌生人，类型却只写其中一个」）
+                frame_matches = fr_saved.get("matches") or alert_matches
                 fr_extra_matches = []
-                for m in alert_matches:
+                for m in frame_matches:
                     name = str(m.get("person_name") or "陌生人")
                     mt = m.get("match_type")
                     sim = float(m.get("similarity", 0.0))
@@ -707,11 +640,24 @@ class Detector:
                     "face_recognition": {
                         "trigger_types": fr_saved.get("trigger_types") or [],
                         "matches": fr_extra_matches,
+                        "alert_matches": [
+                            {
+                                "person_id": m.get("person_id"),
+                                "person_name": str(m.get("person_name") or "陌生人"),
+                                "similarity": float(m.get("similarity", 0.0)),
+                                "match_type": m.get("match_type"),
+                            }
+                            for m in alert_matches
+                        ],
                     }
                 }
 
-        for ek in EXTENSION_KEYS:
-            if ek in (SMOKE_KEY, FACE_RECOG_KEY):
+        p_keys = person_behavior_keys()
+        for ek in all_extension_keys():
+            if ek in (FACE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY):
+                continue
+            if ek == CALL_KEY and detections.get("calls"):
+                # 已在上方按 calls 记录
                 continue
             if not self.detections.get(ek, False):
                 continue
@@ -722,7 +668,7 @@ class Detector:
             zh = label_zh_for_extension(ek)
             if br.get("standalone"):
                 n = len(br.get("event_boxes") or [])
-            elif ek in PERSON_BEHAVIOR_KEYS or ek == CALL_KEY:
+            elif ek in p_keys or ek == CALL_KEY:
                 n = len(br.get("person_indices") or [])
             else:
                 n = int(br.get("count") or len(br.get("boxes") or []))

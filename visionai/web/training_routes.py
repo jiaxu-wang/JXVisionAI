@@ -36,6 +36,7 @@ from visionai.web.training_lab_core import (
     approve_draft_labels,
     check_dataset_health,
     deploy_weights_to_production,
+    deploy_as_specialist,
     detect_train_device,
     import_snapshots_to_project,
     list_draft_stems,
@@ -623,7 +624,7 @@ def _run_training_job(
     out_base.mkdir(parents=True, exist_ok=True)
 
     # 解析预训练权重路径
-    pre = pretrained_model.strip() or "yolov8s.pt"
+    pre = pretrained_model.strip() or "yolo26s.pt"
     if pre and not Path(pre).is_absolute():
         cand = Path(pre)
         if not cand.is_file():
@@ -789,6 +790,8 @@ def _register_api_routes(app):
                     "description": tpl.get("description"),
                     "classes": tpl.get("classes") or [],
                     "deploy_target": tpl.get("deploy_target"),
+                    "deploy_mode": tpl.get("deploy_mode"),
+                    "specialist_defaults": tpl.get("specialist_defaults"),
                     "defaults": {
                         "epochs": tpl.get("default_epochs"),
                         "batch": tpl.get("default_batch"),
@@ -830,6 +833,7 @@ def _register_api_routes(app):
                     "classes": meta.get("classes", []),
                     "template_id": meta.get("template_id"),
                     "deploy_target": meta.get("deploy_target"),
+                    "deploy_mode": meta.get("deploy_mode"),
                     "created_at": meta.get("created_at"),
                     "image_count": len(list((d / "images").glob("*"))) if (d / "images").is_dir() else 0,
                     "labeled_count": health.labeled_images,
@@ -867,6 +871,7 @@ def _register_api_routes(app):
             "classes": classes,
             "template_id": template_id,
             "deploy_target": tpl.get("deploy_target"),
+            "deploy_mode": tpl.get("deploy_mode"),
             "created_at": time.time(),
             "train_defaults": {
                 "epochs": tpl.get("default_epochs"),
@@ -1083,7 +1088,7 @@ def _register_api_routes(app):
         img_size = int(data.get("img_size") or defaults.get("imgsz") or 640)
         device = str(data.get("device") or detect_train_device()).strip()
         pretrained = str(
-            data.get("pretrained_model") or defaults.get("pretrained") or "yolov8s.pt"
+            data.get("pretrained_model") or defaults.get("pretrained") or "yolo26s.pt"
         ).strip()
 
         epochs = max(1, min(epochs, 500))
@@ -1411,15 +1416,43 @@ def _register_api_routes(app):
             abort(404)
         return send_from_directory(d, fn, max_age=0)
 
+    @app.route("/api/training/specialists", methods=["GET"])
+    @login_required
+    def training_list_specialists():
+        from visionai.config.specialists import list_specialists
+
+        return jsonify(list_specialists(_repo_root()))
+
+    @app.route("/api/training/specialists/<key>", methods=["DELETE"])
+    @login_required
+    def training_delete_specialist(key):
+        from visionai.config.specialists import delete_specialist, scrub_detection_key_from_streams
+        from visionai.core.behaviors.registry import reload_plugins
+
+        result = delete_specialist((key or "").strip(), _repo_root())
+        if result.get("success"):
+            scrub_detection_key_from_streams((key or "").strip())
+            reload_plugins()
+        status = 200 if result.get("success") else 400
+        return jsonify(result), status
+
     @app.route("/api/training/projects/<pid>/deploy", methods=["POST"])
     @login_required
     def training_deploy(pid):
         project_dir = _pid_path(pid)
         meta = _read_meta(project_dir)
         data = request.get_json(silent=True) or {}
+        template_id = meta.get("template_id") or "custom"
+        tpl = TRAINING_TEMPLATES.get(template_id, TRAINING_TEMPLATES["custom"])
+        deploy_mode = (data.get("deploy_mode") or meta.get("deploy_mode") or tpl.get("deploy_mode") or "").strip()
         target = (data.get("target") or meta.get("deploy_target") or "").strip()
-        if not target:
-            return jsonify({"success": False, "message": "请指定部署目标 target（如 smoking）"}), 400
+        is_builtin = deploy_mode == "builtin" or target == "make_call"
+
+        if is_builtin:
+            if not target:
+                target = "make_call"
+        elif not (data.get("key") or (tpl.get("specialist_defaults") or {}).get("key_suggestion")):
+            return jsonify({"success": False, "message": "专模部署需提供 key（或选择带默认键名的模板）"}), 400
 
         wkey = (data.get("weights_path") or data.get("weights") or data.get("job_id") or "").strip()
         wp: Optional[Path] = None
@@ -1474,16 +1507,55 @@ def _register_api_routes(app):
                 }
             ), 400
 
-        result = deploy_weights_to_production(
+        if is_builtin:
+            result = deploy_weights_to_production(
+                _repo_root(),
+                weights_path=wp,
+                target=target,
+                backup=bool(data.get("backup", True)),
+                patch_config=bool(data.get("patch_config", True)),
+                test_metrics=test_metrics if isinstance(test_metrics, dict) else None,
+                force=force_deploy,
+                export_device=str(data.get("device") or detect_train_device()),
+            )
+            status = 200 if result.get("success") else 400
+            return jsonify(result), status
+
+        sd = tpl.get("specialist_defaults") or {}
+        spec_key = (data.get("key") or sd.get("key_suggestion") or "").strip()
+        spec_kind = (data.get("kind") or sd.get("kind") or "person_event").strip().lower()
+        name_zh = (data.get("name_zh") or sd.get("name_zh") or spec_key).strip()
+        name_en = (data.get("name_en") or sd.get("name_en") or name_zh).strip()
+
+        def _int_list(raw, fallback):
+            if raw is None:
+                return list(fallback) if fallback is not None else None
+            if isinstance(raw, (list, tuple)):
+                return [int(x) for x in raw]
+            return None
+
+        result = deploy_as_specialist(
             _repo_root(),
             weights_path=wp,
-            target=target,
-            backup=bool(data.get("backup", True)),
-            patch_config=bool(data.get("patch_config", True)),
+            key=spec_key,
+            kind=spec_kind,
+            name_zh=name_zh,
+            name_en=name_en,
+            positive_class_ids=_int_list(data.get("positive_class_ids"), sd.get("positive_class_ids")),
+            subject_class_ids=_int_list(data.get("subject_class_ids"), sd.get("subject_class_ids")),
+            comply_class_ids=_int_list(data.get("comply_class_ids"), sd.get("comply_class_ids")),
+            class_ids=_int_list(data.get("class_ids"), sd.get("class_ids")),
+            needs_persons=bool(data.get("needs_persons", sd.get("needs_persons", True))),
+            expected_classes=meta.get("classes") or tpl.get("classes") or None,
             test_metrics=test_metrics if isinstance(test_metrics, dict) else None,
             force=force_deploy,
-            export_device=str(data.get("device") or detect_train_device()),
+            source_project_id=pid,
+            backup=bool(data.get("backup", True)),
         )
+        if result.get("success"):
+            from visionai.core.behaviors.registry import reload_plugins
+
+            reload_plugins()
         status = 200 if result.get("success") else 400
         return jsonify(result), status
 
@@ -1564,20 +1636,6 @@ def _register_api_routes(app):
         )
         if not result.get("ok"):
             return jsonify({"success": False, **result}), 400
-        # 可选写入 config.ini（吸烟相关键）
-        apply = bool(data.get("apply_config"))
-        if apply and meta.get("deploy_target") == "smoking":
-            from visionai.config.ini_manager import patch_config_updates
-
-            patch_config_updates(
-                {
-                    "smoking_cigarette_detector_conf": str(result["suggested_detector_conf"]),
-                    "smoking_conf_threshold": str(result["suggested_alert_conf"]),
-                    "smoking_min_duration_sec": str(result.get("suggested_min_duration_sec", 1.5)),
-                }
-            )
-            result["config_patched"] = True
-            result["restart_required"] = True
         return jsonify({"success": True, **result})
 
 

@@ -30,7 +30,7 @@ minio-data/
 *.onnx
 *.npy
 models/hf_smoking/
-models/buffalo_l/
+models/buffalo_l*
 
 # 误下到仓库根目录的 HF 配置副本
 /config.json

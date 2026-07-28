@@ -9,7 +9,7 @@ from ultralytics import YOLO
 from pathlib import Path
 
 
-def auto_label_images(image_dir, output_dir, model_path='yolov8n.pt', confidence_threshold=0.5):
+def auto_label_images(image_dir, output_dir, model_path='yolo26s.pt', confidence_threshold=0.5):
     """自动为图片生成标注文件"""
     # 加载预训练模型
     print(f"加载模型: {model_path}")
@@ -76,7 +76,7 @@ def main():
     parser = argparse.ArgumentParser(description='自动标注脚本')
     parser.add_argument('--image_dir', type=str, default='data/raw', help='图片目录')
     parser.add_argument('--output_dir', type=str, default='data/raw', help='标注文件输出目录')
-    parser.add_argument('--model', type=str, default='yolov8n.pt', help='预训练模型路径')
+    parser.add_argument('--model', type=str, default='yolo26s.pt', help='预训练模型路径')
     parser.add_argument('--conf', type=float, default=0.5, help='置信度阈值')
     
     args = parser.parse_args()

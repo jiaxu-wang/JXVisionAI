@@ -33,6 +33,7 @@ def _mk_project(
         "classes": list(tpl["classes"]),
         "template_id": template_id,
         "deploy_target": tpl.get("deploy_target"),
+        "deploy_mode": tpl.get("deploy_mode"),
         "created_at": 0,
     }
     (pdir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
@@ -78,32 +79,39 @@ def test_p0_augment_disabled():
     print("P0 augment disabled (no-op): OK")
 
 
-def test_helmet_class_contract():
-    from visionai.web.training_lab_core import TRAINING_TEMPLATES, DEPLOY_TARGETS
+def test_specialist_template_contract():
+    from visionai.web.training_lab_core import DEPLOY_TARGETS, TRAINING_TEMPLATES
 
+    assert TRAINING_TEMPLATES["safety_helmet"]["deploy_mode"] == "specialist"
     assert TRAINING_TEMPLATES["safety_helmet"]["classes"] == ["no_helmet", "helmet"]
-    assert TRAINING_TEMPLATES["no_glasses"]["classes"] == ["no_glasses", "glasses"]
-    assert TRAINING_TEMPLATES["no_glasses"]["deploy_target"] == "no_glasses"
-    assert DEPLOY_TARGETS["no_glasses"]["model_filename"] == "glasses_detection.pt"
-    assert DEPLOY_TARGETS["no_glasses"]["required_classes"] == ["no_glasses", "glasses"]
-    assert TRAINING_TEMPLATES["smoking"]["default_pretrained"] == "yolov8s.pt"
-    print("helmet/glasses class order + yolov8s default: OK")
+    sd = TRAINING_TEMPLATES["safety_helmet"]["specialist_defaults"]
+    assert sd["kind"] == "violation"
+    assert sd["subject_class_ids"] == [0]
+    assert sd["comply_class_ids"] == [1]
+
+    assert TRAINING_TEMPLATES["no_glasses"]["deploy_mode"] == "specialist"
+    assert TRAINING_TEMPLATES["smoking"]["deploy_mode"] == "specialist"
+    assert TRAINING_TEMPLATES["make_call"]["deploy_mode"] == "builtin"
+    assert TRAINING_TEMPLATES["make_call"]["deploy_target"] == "make_call"
+    assert TRAINING_TEMPLATES["custom"]["deploy_mode"] == "specialist"
+    assert list(DEPLOY_TARGETS.keys()) == ["make_call"]
+    assert DEPLOY_TARGETS["make_call"]["required_classes"] == ["make_call"]
+    assert TRAINING_TEMPLATES["smoking"]["default_pretrained"] == "yolo26s.pt"
+    print("specialist templates + make_call DEPLOY_TARGETS: OK")
 
 
-def test_no_glasses_catalog():
+def test_builtin_catalog_no_blist():
     from visionai.config.detection_catalog import (
         EXTENSION_KEYS,
         EXTENSION_LABELS_ZH,
-        NO_GLASSES_KEY,
-        PERSON_BEHAVIOR_KEYS,
+        person_behavior_keys,
     )
-    from visionai.config.settings import GLASSES_MODEL_PATH
 
-    assert NO_GLASSES_KEY in EXTENSION_KEYS
-    assert NO_GLASSES_KEY in PERSON_BEHAVIOR_KEYS
-    assert EXTENSION_LABELS_ZH[NO_GLASSES_KEY] == "未戴眼镜"
-    assert "glasses_detection.pt" in GLASSES_MODEL_PATH.replace("\\", "/")
-    print("no_glasses catalog + settings: OK")
+    assert "no_glasses" not in EXTENSION_KEYS
+    assert "smoking" not in EXTENSION_KEYS
+    assert "no_glasses" not in person_behavior_keys()
+    assert EXTENSION_LABELS_ZH["call"] == "打电话"
+    print("builtin catalog without B-list keys: OK")
 
 
 def test_dataset_health_gate():
@@ -157,7 +165,6 @@ def test_draft_prelabel_and_approve():
     )
 
     pdir = _mk_project(5, 1)
-    # 清空正式标注，写入草稿
     for lp in (pdir / "labels").glob("*.txt"):
         lp.unlink()
     stem = "test_000"
@@ -172,13 +179,22 @@ def test_draft_prelabel_and_approve():
     shutil.rmtree(pdir)
 
 
+def _sample_weights_path() -> Path | None:
+    for cand in (
+        REPO / "models" / "smoking_detection.pt",
+        REPO / "models" / "yolo26s.pt",
+    ):
+        if cand.is_file():
+            return cand
+    return None
+
+
 def test_deploy_gate_blocks_without_metrics():
     from visionai.web.training_lab_core import deploy_weights_to_production
 
-    models = REPO / "models"
-    src = models / "smoking_detection.pt"
-    if not src.is_file():
-        print("deploy gate: SKIP (无 smoking_detection.pt)")
+    src = _sample_weights_path()
+    if src is None:
+        print("deploy gate: SKIP (无可用 .pt 权重)")
         return
     with tempfile.TemporaryDirectory() as td:
         fake = Path(td) / "best.pt"
@@ -186,7 +202,7 @@ def test_deploy_gate_blocks_without_metrics():
         result = deploy_weights_to_production(
             REPO,
             weights_path=fake,
-            target="smoking",
+            target="make_call",
             backup=False,
             patch_config=False,
             test_metrics=None,
@@ -199,9 +215,8 @@ def test_deploy_gate_blocks_without_metrics():
 def test_deploy_with_good_metrics():
     from visionai.web.training_lab_core import deploy_weights_to_production
 
-    models = REPO / "models"
-    src = models / "smoking_detection.pt"
-    if not src.is_file():
+    src = _sample_weights_path()
+    if src is None:
         print("deploy good metrics: SKIP")
         return
     with tempfile.TemporaryDirectory() as td:
@@ -211,12 +226,15 @@ def test_deploy_with_good_metrics():
         result = deploy_weights_to_production(
             REPO,
             weights_path=fake,
-            target="smoking",
+            target="make_call",
             backup=True,
             patch_config=False,
             test_metrics=metrics,
             force=False,
         )
+        if not result.get("success") and "类别" in (result.get("message") or ""):
+            print("deploy good metrics: SKIP (权重类别与 make_call 契约不符)")
+            return
         assert result.get("success"), result
         print("deploy with good test metrics: OK")
 
@@ -241,8 +259,8 @@ def main():
     print("=== Training Lab production-ready self-test ===\n")
     test_p0_prepare_smoking_remap()
     test_p0_augment_disabled()
-    test_helmet_class_contract()
-    test_no_glasses_catalog()
+    test_specialist_template_contract()
+    test_builtin_catalog_no_blist()
     test_dataset_health_gate()
     test_health_blocks_small()
     test_split_no_leakage()

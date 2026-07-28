@@ -9,9 +9,9 @@ from ultralytics import YOLO
 
 def detect_smoking(image_path, conf_threshold=0.5):
     """检测图片中是否有人在抽烟"""
-    # 加载预训练的YOLOv8模型
+    # 加载预训练的YOLO26模型
     print("加载预训练模型...")
-    model = YOLO('yolov8n.pt')
+    model = YOLO('yolo26s.pt')
     
     # 读取图片
     print(f"读取图片: {image_path}")

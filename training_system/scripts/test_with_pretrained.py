@@ -8,9 +8,9 @@ from ultralytics import YOLO
 
 def test_with_pretrained(image_path):
     """使用预训练模型测试抽烟检测"""
-    # 加载预训练的YOLOv8模型
+    # 加载预训练的YOLO26模型
     print("加载预训练模型...")
-    model = YOLO('yolov8n.pt')  # 使用nano模型，速度快
+    model = YOLO('yolo26s.pt')  # 本项目统一 YOLO26；也可用 models/yolo26s.pt
     
     # 读取图片
     print(f"读取图片: {image_path}")

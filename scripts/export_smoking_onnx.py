@@ -30,7 +30,7 @@
     cd ../..
     ./env/bin/python scripts/export_smoking_onnx.py --local-dir models/hf_smoking -o models/smoking_vit.onnx
 
-导出后在 config.ini 的 [visionai] 中配置:
+导出后在 config.ini 的 [models] 中配置:
   smoking_model_path = （本脚本输出的路径）
   smoking_preprocess = vit_hf
   smoking_positive_class_index = 1
@@ -133,7 +133,7 @@ def main() -> None:
 
     print(f"已导出 ONNX: {out}")
     print("")
-    print("请在 config.ini 的 [visionai] 中增加或修改:")
+    print("请在 config.ini 的 [models] 中增加或修改:")
     print(f"  smoking_model_path = {out}")
     print("  smoking_preprocess = vit_hf")
     print("  smoking_positive_class_index = 1")

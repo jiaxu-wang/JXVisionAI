@@ -1263,7 +1263,7 @@
                             <div class="status-card">
                                 <h3>检测能力</h3>
                                 <div class="value" id="detectionCapabilityCount">—</div>
-                                <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 吸烟</span>
+                                <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 人脸识别 + 训练专模</span>
                             </div>
                             <div class="status-card">
                                 <h3>在线流 / 视频</h3>
@@ -2215,17 +2215,47 @@
                 const row = document.createElement('div');
                 row.className = 'config-modal-item';
                 const checked = !!detectionModalDraft[item.key];
+                const isSpec = item.source === 'specialist';
+                const delBtn = isSpec && item.deletable
+                    ? `<button type="button" class="btn-specialist-delete" data-specialist-key="${item.key}" title="删除专模" style="margin-right:8px;padding:4px 8px;font-size:12px;">删除</button>`
+                    : '';
                 row.innerHTML = `
                     <div style="flex:1;min-width:0;">
-                        <div class="switch-name">${item.name_zh} <span style="color:#868e96;font-weight:400;">/ ${item.name_en}</span></div>
-                        <div class="detection-key-hint">系统支持检测 · 键 ${item.key}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
+                        <div class="switch-name">${item.name_zh}${isSpec ? ' <span style="background:#e7f5ff;color:#1971c2;padding:1px 6px;border-radius:4px;font-size:11px;">专模</span>' : ''} <span style="color:#868e96;font-weight:400;">/ ${item.name_en}</span></div>
+                        <div class="detection-key-hint">${isSpec ? '训练实验室专模' : '系统支持检测'} · 键 ${item.key}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
                     </div>
+                    ${delBtn}
                     <label class="switch" style="flex-shrink:0;">
                         <input type="checkbox" data-detection-key="${item.key}" class="detection-modal-toggle" ${checked ? 'checked' : ''}>
                         <span class="slider"></span>
                     </label>
                 `;
                 list.appendChild(row);
+            });
+            list.querySelectorAll('.btn-specialist-delete').forEach(btn => {
+                btn.addEventListener('click', async function(ev) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    const key = this.getAttribute('data-specialist-key');
+                    if (!key) return;
+                    if (!window.confirm('确定删除专模「' + key + '」？权重将移除，各流检测配置中的该项也会被清除。')) return;
+                    try {
+                        const resp = await fetch('/api/training/specialists/' + encodeURIComponent(key), {
+                            method: 'DELETE',
+                            credentials: 'same-origin',
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.success) {
+                            alert(data.message || '删除失败');
+                            return;
+                        }
+                        if (detectionModalDraft) delete detectionModalDraft[key];
+                        await loadDetectionCatalog();
+                        renderDetectionModalList(document.getElementById('detectionConfigSearch').value);
+                    } catch (e) {
+                        alert('删除失败: ' + e);
+                    }
+                });
             });
             list.querySelectorAll('.detection-modal-toggle').forEach(cb => {
                 cb.addEventListener('change', function() {
@@ -2601,7 +2631,7 @@
                 </div>
                 <div class="stream-detection-row">
                     <div style="flex:1;min-width:220px;">
-                        <span class="badge-supported">系统支持 · COCO 80类 + 扩展检测 + 人脸识别</span>
+                        <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 训练专模 + 人脸识别</span>
                         <div class="stream-detection-summary"></div>
                     </div>
                 </div>

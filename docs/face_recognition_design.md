@@ -2,7 +2,9 @@
 
 > 版本：v0.1  
 > 日期：2026-07-07  
-> 状态：设计阶段（待评审）
+> 状态：**已实现并上线**
+
+> **说明**：实现细节以当前代码与 [detection.md](detection.md) 为准；本文保留设计过程与评审记录，部分章节可能与最终实现略有出入。
 
 ---
 
@@ -29,14 +31,14 @@
 | 陌生人预警 | `["unknown"]` | 仅未录入人员出现时告警 |
 | 全面监控 | `["known", "unknown"]` | 两种类型均告警（默认） |
 
-### 1.2 与现有「人脸检测」的区别
+### 1.2 与历史「人脸检测」的关系
 
-| 能力 | 检测项 Key | 现有状态 | 说明 |
-|------|-----------|---------|------|
-| 人脸检测 | `face` | ✅ 已实现 | `face_detection.onnx`，检测到人脸即告警，无身份 |
-| 人脸识别 | `face_recognition` | ❌ 待开发 | 检测人脸 + 提取特征 + 与库 1:N 比对 + 按触发类型配置告警 |
+| 能力 | 检测项 Key | 状态 | 说明 |
+|------|-----------|------|------|
+| 人脸检测（旧） | `face` | **已移除** | 原 B 类独立项；硬编码 `face` 检测已从内置目录删除 |
+| 人脸识别 | `face_recognition` | ✅ **已实现** | SCRFD 检测 + ArcFace 特征 + 与库 1:N 比对 + 按触发类型告警 |
 
-两者**独立检测项**，避免改变现有 `face` 语义，降低回归风险。通常业务场景只开启 `face_recognition` 即可。
+身份相关场景 **仅使用 `face_recognition`**；不再提供单独的「有人脸即告警、无身份」内置项。
 
 ### 1.3 可行性结论
 
@@ -45,7 +47,7 @@
 - 行为插件框架（`visionai/core/behaviors/`）
 - 按流检测开关（Redis `detections` 字段）
 - 告警入库与通知（`detector.save_snapshot` → Redis → SMTP / Webhook）
-- ONNX 推理栈（`onnxruntime`，与吸烟检测同类）
+- ONNX 推理栈（`onnxruntime-gpu` / `onnxruntime`，由 `[basic]` `inference_device` 或 `onnx_provider` 选择 CPU/CUDA provider）
 
 ---
 
@@ -343,13 +345,13 @@ class FaceRecognitionBehaviorPlugin:
 
 | 文件 | 大小 | 用途 | 本功能是否使用 |
 |------|------|------|--------------|
-| `det_10g.onnx` | ~16 MB | 人脸检测（SCRFD-10GF） | ✅ 人脸识别流水线 |
-| `2d106det.onnx` | ~5 MB | 106 点关键点 | ✅ 人脸对齐 |
+| `det_10g.onnx` | ~16 MB | 人脸检测（SCRFD-10GF，含 5 点关键点） | ✅ 人脸识别流水线 |
+| `2d106det.onnx` | ~5 MB | 106 点关键点 | ❌ 当前实现未单独加载（对齐用 SCRFD 5 点） |
 | `w600k_r50.onnx` | ~166 MB | 特征提取（ResNet50@WebFace600K，512 维） | ✅ 1:N 比对 |
 | `1k3d68.onnx` | ~137 MB | 3D 关键点 | ❌ 不使用 |
 | `genderage.onnx` | ~1 MB | 性别 / 年龄 | ✅ 按流可选（检测类型配置勾选「性别与年龄」；全局 `face_recog_genderage_enabled`） |
 
-> **与现有 `face` 检测项的关系**：现有 `face` 检测项仍走 `face_model_path`（默认 `models/face_detection.onnx`，YOLO 格式）；**人脸识别**独立使用 `buffalo_l` 全套（检测 + 对齐 + 特征），精度更好，互不依赖。
+> **说明**：旧版独立检测项 `face`（`face_detection.onnx`）已从内置目录移除。身份相关场景请使用 **`face_recognition`**（buffalo_l）。
 
 ### 4.2 推荐方案
 
@@ -387,7 +389,7 @@ class FaceRecognitionBehaviorPlugin:
 
 ## 5. 配置设计
 
-### 5.1 全局配置（config.ini / 环境变量）
+### 5.1 全局配置（config.ini `[models]` / 环境变量）
 
 | 键 | 环境变量 | 默认值 | 说明 |
 |----|---------|--------|------|
@@ -400,12 +402,7 @@ class FaceRecognitionBehaviorPlugin:
 | `face_recognition_max_faces_per_frame` | `FACE_RECOGNITION_MAX_FACES_PER_FRAME` | `5` | 每帧最多处理人脸数 |
 | `face_recog_det_conf` | `FACE_RECOG_DET_CONF` | `0.5` | SCRFD 检测置信度 |
 
-现有 `face` 检测项配置（与人脸识别独立，可选保留）：
-
-| 键 | 说明 |
-|----|------|
-| `face_model_path` | 现有 `face` 检测项，默认 `models/face_detection.onnx`（YOLO 格式） |
-| `face_model_conf` | 检测置信度阈值 |
+> 旧键 `face_model_path` / `face_model_conf` 已废弃（对应已移除的 `face` 检测项）。
 
 ### 5.2 检测目录扩展
 
@@ -764,20 +761,16 @@ person_id = "p_" + uuid.uuid4().hex[:12]
 ### 14.3 配置示例（config.ini 片段）
 
 ```ini
-[visionai]
+[models]
 # 人脸识别（buffalo_l，已下载至 models/buffalo_l/）
 face_recog_det_model_path = models/buffalo_l/det_10g.onnx
-face_recog_landmark_model_path = models/buffalo_l/2d106det.onnx
 face_recog_embed_model_path = models/buffalo_l/w600k_r50.onnx
+face_recog_genderage_model_path = models/buffalo_l/genderage.onnx
 face_recog_det_conf = 0.5
 face_recognition_threshold = 0.45
 face_recognition_min_duration_sec = 2.0
 face_library_dir = ./face_library
 face_recognition_max_faces_per_frame = 5
-
-# 现有 face 检测项（与人脸识别独立，可选）
-# face_model_path = models/face_detection.onnx
-# face_model_conf = 0.5
 ```
 
 ### 14.4 模型文件说明

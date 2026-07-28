@@ -282,7 +282,13 @@ def main():
     # 设置日志
     logger = setup_logger()
     logger.info("JXVisionAI 启动")
-    
+    try:
+        from visionai.config.settings import describe_inference_backend
+
+        logger.info("推理后端: %s", describe_inference_backend())
+    except Exception as ex:  # noqa: BLE001
+        logger.warning("无法打印推理后端信息: %s", ex)
+
     # 创建保存根目录
     os.makedirs(SAVE_DIR, exist_ok=True)
     

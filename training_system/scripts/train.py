@@ -92,7 +92,7 @@ def train_model(config):
 def main():
     parser = argparse.ArgumentParser(description='YOLO模型训练脚本')
     parser.add_argument('--data_yaml', type=str, required=True, help='数据配置文件路径')
-    parser.add_argument('--pretrained_model', type=str, default='yolov8n.pt', help='预训练模型路径')
+    parser.add_argument('--pretrained_model', type=str, default='yolo26s.pt', help='预训练模型路径')
     parser.add_argument('--epochs', type=int, default=100, help='训练轮数')
     parser.add_argument('--batch_size', type=int, default=16, help='批次大小')
     parser.add_argument('--img_size', type=int, default=640, help='输入图像大小')

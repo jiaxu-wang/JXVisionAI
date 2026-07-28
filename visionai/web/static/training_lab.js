@@ -5,6 +5,7 @@
     projectId: null,
     projectClasses: [],
     deployTarget: null,
+    deployMode: null,
     templateId: null,
     imageName: null,
     naturalW: 0,
@@ -309,6 +310,90 @@
     return h;
   }
 
+  function getCurrentTemplate() {
+    return (
+      state.templates.find(function (x) {
+        return x.id === state.templateId;
+      }) || null
+    );
+  }
+
+  function canShowDeployButton() {
+    if (state.deployTarget === 'make_call') return true;
+    var t = getCurrentTemplate();
+    if (t && t.deploy_mode === 'specialist') return true;
+    if (state.deployMode === 'specialist') return true;
+    if (state.templateId === 'custom') return true;
+    return false;
+  }
+
+  function isSpecialistDeploy() {
+    if (state.deployTarget === 'make_call') return false;
+    var t = getCurrentTemplate();
+    if (t && t.deploy_mode === 'specialist') return true;
+    if (state.deployMode === 'specialist') return true;
+    if (state.templateId === 'custom') return true;
+    return !state.deployTarget;
+  }
+
+  async function loadSpecialists() {
+    var ul = $('specialist-list');
+    if (!ul) return;
+    var r = await api('/api/training/specialists');
+    var items = await r.json();
+    ul.innerHTML = '';
+    if (!items.length) {
+      var empty = document.createElement('li');
+      empty.className = 'tl-muted';
+      empty.textContent = '尚无已部署专模';
+      ul.appendChild(empty);
+      return;
+    }
+    items.forEach(function (sp) {
+      var li = document.createElement('li');
+      li.className = 'tl-specialist-item';
+      var inner = document.createElement('div');
+      inner.className = 'tl-project-inner';
+      inner.innerHTML =
+        '<strong>' +
+        esc(sp.name_zh || sp.key) +
+        '</strong> <span class="tl-muted">(' +
+        esc(sp.key) +
+        ' · ' +
+        esc(sp.kind || '') +
+        ')</span>';
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'tl-btn tl-btn-ghost tl-btn-sm';
+      del.textContent = '删除';
+      del.addEventListener('click', function () {
+        deleteSpecialist(sp.key, sp.name_zh || sp.key);
+      });
+      li.appendChild(inner);
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+  }
+
+  async function deleteSpecialist(key, label) {
+    if (
+      !window.confirm(
+        '确定删除专模「' + label + '」（键 ' + key + '）？\n权重将移除，各流检测配置中的该项也会被清除。'
+      )
+    ) {
+      return;
+    }
+    var r = await api('/api/training/specialists/' + encodeURIComponent(key), { method: 'DELETE' });
+    var j = await r.json().catch(function () {
+      return {};
+    });
+    if (!r.ok || !j.success) {
+      alert(j.message || '删除失败');
+      return;
+    }
+    await loadSpecialists();
+  }
+
   async function loadTemplates() {
     var r = await api('/api/training/templates');
     state.templates = await r.json();
@@ -366,9 +451,16 @@
     });
     state.projectClasses = (p && p.classes) || [];
     state.deployTarget = (p && p.deploy_target) || null;
+    state.deployMode = (p && p.deploy_mode) || null;
     state.templateId = (p && p.template_id) || null;
     $('current-project-label').textContent = p
-      ? '\u00b7 ' + p.title + (state.deployTarget ? ' [' + state.deployTarget + ']' : '')
+      ? '\u00b7 ' +
+        p.title +
+        (state.deployTarget
+          ? ' [' + state.deployTarget + ']'
+          : state.deployMode === 'specialist'
+            ? ' [专模]'
+            : '')
       : '';
     fillClassPicker();
     setProjectActionButtons(!!id);
@@ -1106,7 +1198,7 @@
       batch_size: parseInt($('train-batch').value, 10) || 8,
       img_size: parseInt($('train-imgsz').value, 10) || 640,
       device: $('train-device').value.trim() || 'cpu',
-      pretrained_model: $('train-pretrained').value.trim() || 'yolov8s.pt',
+      pretrained_model: $('train-pretrained').value.trim() || 'yolo26s.pt',
       force: false,
     };
     const r = await api('/api/training/projects/' + state.projectId + '/train', {
@@ -1172,9 +1264,12 @@
           testLine = '<br>Test 评估失败: ' + esc(j.test_evaluation.error || '');
         }
         var gateLine = '';
-        if (j.deploy_ready) {
+        if (j.deploy_ready && canShowDeployButton()) {
           gateLine = '<br><span class="tl-gate-ok">已达上线门禁，可部署</span>';
-          if (state.deployTarget) $('btn-deploy').classList.remove('tl-hidden');
+          $('btn-deploy').classList.remove('tl-hidden');
+        } else if (j.deploy_ready) {
+          gateLine = '<br><span class="tl-gate-ok">已达上线门禁</span>';
+          $('btn-deploy').classList.add('tl-hidden');
         } else {
           gateLine =
             '<br><span class="tl-gate-bad">未达上线门禁</span> ' +
@@ -1196,32 +1291,64 @@
 
   $('btn-deploy').addEventListener('click', async function () {
     if (!state.projectId || !state.lastJobId) return;
-    if (!state.deployTarget) {
-      alert('该项目未绑定部署目标');
+    if (!canShowDeployButton()) {
+      alert('当前项目不可部署');
       return;
     }
-    if (
-      !window.confirm(
-        '将通过测试集门禁的 best.pt 部署到 models/ 并更新 config.ini（' +
-          state.deployTarget +
-          '）。\nmake_call 会自动导出 ONNX。\n部署后需重启服务。继续？'
-      )
-    ) {
-      return;
+    var body = {
+      job_id: state.lastJobId,
+      backup: true,
+      force: false,
+    };
+    var specialist = isSpecialistDeploy();
+    if (specialist) {
+      var t = getCurrentTemplate();
+      var sd = (t && t.specialist_defaults) || {};
+      var key = window.prompt('专模键名（小写 a-z 开头，如 smoking）', sd.key_suggestion || 'custom_model');
+      if (!key || !key.trim()) return;
+      var nameZh = window.prompt('中文显示名', sd.name_zh || key.trim());
+      if (nameZh === null) return;
+      var kind = window.prompt('类型：scene / person_event / violation', sd.kind || 'person_event');
+      if (!kind || !kind.trim()) return;
+      body.deploy_mode = 'specialist';
+      body.key = key.trim();
+      body.name_zh = (nameZh || key).trim();
+      body.kind = kind.trim();
+      if (sd.positive_class_ids) body.positive_class_ids = sd.positive_class_ids;
+      if (sd.subject_class_ids) body.subject_class_ids = sd.subject_class_ids;
+      if (sd.comply_class_ids) body.comply_class_ids = sd.comply_class_ids;
+      if (sd.class_ids) body.class_ids = sd.class_ids;
+      if (sd.needs_persons !== undefined) body.needs_persons = sd.needs_persons;
+      if (
+        !window.confirm(
+          '部署专模到 models/specialists/' +
+            body.key +
+            '？插件将热加载，可在管理平台检测类型中勾选。继续？'
+        )
+      ) {
+        return;
+      }
+    } else {
+      body.target = state.deployTarget || 'make_call';
+      body.patch_config = true;
+      if (
+        !window.confirm(
+          '将通过测试集门禁的 best.pt 部署到 models/ 并更新 config.ini（' +
+            body.target +
+            '）。\nmake_call 会自动导出 ONNX。\n部署后需重启服务。继续？'
+        )
+      ) {
+        return;
+      }
     }
     var r = await api('/api/training/projects/' + state.projectId + '/deploy', {
       method: 'POST',
-      body: JSON.stringify({
-        job_id: state.lastJobId,
-        target: state.deployTarget,
-        backup: true,
-        patch_config: true,
-        force: false,
-      }),
+      body: JSON.stringify(body),
     });
     var j = await r.json();
     $('deploy-status').textContent = j.message || (j.success ? '部署成功' : '部署失败');
     if (!j.success) alert(j.message || '部署失败');
+    else if (specialist) loadSpecialists().catch(function () {});
   });
 
   $('btn-refresh-health').addEventListener('click', function () {
@@ -1511,5 +1638,14 @@
     .then(function () {
       return loadProjects();
     })
+    .then(function () {
+      return loadSpecialists();
+    })
     .then(loadStreams);
+
+  if ($('btn-refresh-specialists')) {
+    $('btn-refresh-specialists').addEventListener('click', function () {
+      loadSpecialists().catch(function () {});
+    });
+  }
 })();

@@ -10,10 +10,11 @@
 | 项 | 内容 |
 |----|------|
 | 检测键 | `no_glasses`（管理端显示：**未戴眼镜**） |
-| 模型文件 | `models/glasses_detection.pt` |
+| 模型目录 | `models/specialists/no_glasses/`（`model.pt` + `specialist.json`） |
+| 专模类型 | `kind = violation`（双类违规：违规类 vs 合规类） |
 | 类别契约 | `0 = no_glasses`（未戴，**违规/告警**）· `1 = glasses`（已戴，合规） |
 | 训练模板 | 训练实验室 → 场景模板 **「未戴眼镜」** |
-| 基础模型 | `models/yolov8s.pt`（须已下载） |
+| 基础模型 | `models/yolo26s.pt`（须已下载，见 getting-started） |
 | 告警逻辑 | 人物框附近有「未戴」框，且无关联「已戴」框 → 持续时长达标后告警 |
 
 > 类别顺序不可颠倒，否则会出现「戴眼镜反而告警」。
@@ -23,13 +24,13 @@
 ## 2. 前置条件
 
 ```bash
-cd /home/Video/python/JXVisionAI
+cd /home/wjx/code/python/JXVisionAI
 
-# 确认预训练权重
-ls -lh models/yolov8s.pt
+# 确认预训练权重（YOLO26）
+ls -lh models/yolo26s.pt
 
 # Redis + 应用
-docker-compose -p visionai up -d redis   # 已运行可跳过
+docker compose up -d redis   # 已运行可跳过
 ./stop.sh 2>/dev/null; ./start.sh
 ```
 
@@ -50,7 +51,7 @@ docker-compose -p visionai up -d redis   # 已运行可跳过
    - batch：`8`
    - imgsz：`640`
    - device：有 GPU 填 `0`，否则 `cpu`
-   - pretrained：`yolov8s.pt`（建议写成 `models/yolov8s.pt`）
+   - pretrained：`yolo26s.pt`（建议写成 `models/yolo26s.pt`）
 
 ---
 
@@ -115,7 +116,7 @@ docker-compose -p visionai up -d redis   # 已运行可跳过
 - Precision ≥ **0.35**
 - Recall ≥ **0.35**
 
-未达标：补难例、平衡两类、加 epochs，或换 `yolov8m.pt` 再训。  
+未达标：补难例、平衡两类、加 epochs，或换 `yolo26m.pt` 再训。  
 达标后界面显示 **「已达上线门禁，可部署」**。
 
 ---
@@ -142,16 +143,8 @@ docker-compose -p visionai up -d redis   # 已运行可跳过
 ### 7.3 阈值向导（可选）
 
 「6. 阈值向导」在验证集上扫 conf，得到建议阈值。  
-眼镜项部署后也可在 `config.ini` 中手动调：
-
-```ini
-glasses_model_path = models/glasses_detection.pt
-glasses_model_conf = 0.40
-glasses_score_threshold = 0.45
-glasses_min_duration_sec = 1.0
-```
-
-修改后需重启服务。
+部署时向导建议值会写入 `models/specialists/no_glasses/specialist.json`（如 `conf`、`score_threshold`、`min_duration_sec`）。  
+后续调参需 **重新部署** 或手动编辑该 JSON 后刷新检测目录（**无需** 改 `config.ini`，也**没有** `glasses_*` 配置项）。
 
 ---
 
@@ -159,17 +152,17 @@ glasses_min_duration_sec = 1.0
 
 1. 训练任务显示 **已达上线门禁**
 2. 点击 **一键部署到线上**
-3. 系统将：
-   - 复制 `best.pt` → `models/glasses_detection.pt`（旧文件自动 `.bak_*.pt`）
+3. 按提示确认（或使用模板默认值）：
+   - **key**：`no_glasses`（建议与模板一致）
+   - **name_zh**：未戴眼镜
+   - **kind**：`violation`
+4. 系统将：
+   - 复制 `best.pt` → `models/specialists/no_glasses/model.pt`（旧文件自动 `.bak_*.pt`）
    - 校验类别顺序为 `no_glasses, glasses`
-   - 写入 `config.ini`：`glasses_model_path = models/glasses_detection.pt`
-4. **必须重启**：
-
-```bash
-./stop.sh && ./start.sh
-```
-
-5. 打开 **事件监控** → 对应流 **检测类型配置** → 勾选 **未戴眼镜** → 保存
+   - 写入 `specialist.json`（含阈值、kind、类别契约等）
+   - **不会** 写入 `config.ini` 的 `glasses_model_path`（该键已废弃）
+5. 专模 **热加载**：一般 **无需重启**；刷新管理端检测类型目录即可
+6. 打开 **事件监控** → 对应流 **检测类型配置** → 勾选 **未戴眼镜** → 保存
 
 ---
 
@@ -186,8 +179,11 @@ glasses_min_duration_sec = 1.0
 
 ```
 models/
-├── yolov8s.pt                 # 预训练（训练用）
-└── glasses_detection.pt       # 部署产物（线上推理）
+├── yolo26s.pt                              # 预训练（训练用，YOLO26）
+└── specialists/no_glasses/
+    ├── model.pt                            # 部署产物（线上推理）
+    ├── specialist.json                     # 元数据与阈值
+    └── classes.txt                         # 类别核对（可选）
 
 training_lab_data/projects/<项目ID>/
 ├── images/
@@ -203,11 +199,11 @@ training_lab_data/projects/<项目ID>/
 
 | 现象 | 处理 |
 |------|------|
-| 检测类型里没有「未戴眼镜」 | 确认已部署并重启；刷新管理端 |
+| 检测类型里没有「未戴眼镜」 | 确认已部署专模；刷新管理端 / 检测目录（通常无需重启） |
 | 一键部署按钮灰/没有 | Test 未过门禁；看任务区门禁错误 |
 | 戴眼镜也告警 | 检查类别是否标反；须 `0=no_glasses, 1=glasses` |
-| 训练卡住下载权重 | 确认 `models/yolov8s.pt` 存在，pretrained 填该路径 |
-| 自定义模板无部署 | 眼镜请用模板 **「未戴眼镜」**，不要用「自定义」 |
+| 训练卡住下载权重 | 确认 `models/yolo26s.pt` 存在，pretrained 填 `models/yolo26s.pt` |
+| 自定义模板也能部署 | 「自定义」同样可部署为专模（填写 key/name/kind）；眼镜场景仍推荐模板 **「未戴眼镜」** 以自动填充类别与 kind |
 
 ---
 

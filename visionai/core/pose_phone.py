@@ -1,4 +1,4 @@
-"""人+手机框重叠 → YOLOv8-pose：用手机中心与肩头/耳根/手腕距离区分「打电话」与「玩手机」。"""
+"""人+手机框重叠 → YOLO26-pose：用手机中心与肩头/耳根/手腕距离区分「打电话」与「玩手机」。"""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def ensure_pose_model() -> Optional[Any]:
                 _pose_load_fail_logged = True
                 logger.warning(
                     "姿态模型加载失败，「打电话/玩手机」仅用画面竖直比例粗分。"
-                    "请将 yolov8n-pose.pt 下载到本机后把 config.ini 中 pose_model 设为绝对路径"
+                    "请将 yolo26s-pose.pt 下载到 models/ 后配置 pose_model（见 docs/getting-started.md）"
                     "（见 README / config.example.ini）。原因: %s",
                     ex,
                 )

@@ -27,6 +27,7 @@ from visionai.config.settings import (
     FACE_RECOG_GENDERAGE_ENABLED,
     FACE_RECOG_GENDERAGE_MODEL_PATH,
     PROJECT_ROOT,
+    onnx_runtime_providers_ordered,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,11 +80,14 @@ def _ensure_genderage_session() -> bool:
         try:
             opts = ort.SessionOptions()
             opts.log_severity_level = 3
-            _ga_sess = ort.InferenceSession(
-                ga_path, opts, providers=["CPUExecutionProvider"]
-            )
+            providers = list(onnx_runtime_providers_ordered())
+            _ga_sess = ort.InferenceSession(ga_path, opts, providers=providers)
             _ga_input_name = _ga_sess.get_inputs()[0].name
-            logger.info("性别年龄 ONNX 已加载: %s", ga_path)
+            logger.info(
+                "性别年龄 ONNX 已加载: %s providers=%s",
+                ga_path,
+                _ga_sess.get_providers(),
+            )
             return True
         except Exception as ex:  # noqa: BLE001
             logger.warning("性别年龄 ONNX 加载失败，已跳过: %s", ex)
@@ -112,11 +116,16 @@ def _ensure_sessions() -> bool:
         try:
             opts = ort.SessionOptions()
             opts.log_severity_level = 3
-            providers = ["CPUExecutionProvider"]
+            providers = list(onnx_runtime_providers_ordered())
             _det_sess = ort.InferenceSession(det_path, opts, providers=providers)
             _emb_sess = ort.InferenceSession(emb_path, opts, providers=providers)
             _ready = True
-            logger.info("人脸 ONNX 已加载: %s , %s", det_path, emb_path)
+            logger.info(
+                "人脸 ONNX 已加载: %s , %s providers=%s",
+                det_path,
+                emb_path,
+                _det_sess.get_providers(),
+            )
             _ensure_genderage_session()
         except Exception as ex:  # noqa: BLE001
             logger.error("人脸 ONNX 加载失败: %s", ex, exc_info=True)

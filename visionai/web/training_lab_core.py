@@ -19,43 +19,68 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # ---------- 场景模板 ----------
-# 安全帽类别顺序必须与线上 ViolationSpec 一致：
-# subject_class_ids=(0,) = 违规（未戴帽），comply_class_ids=(1,) = 合规（戴帽）
+# deploy_mode: builtin → DEPLOY_TARGETS（仅 make_call）；specialist → models/specialists/
 TRAINING_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "smoking": {
         "id": "smoking",
         "title": "吸烟检测",
-        "description": "单类 smoking，部署为 models/smoking_detection.pt",
+        "description": "单类 smoking；部署为训练专模 models/specialists/smoking/",
         "classes": ["smoking"],
-        "deploy_target": "smoking",
+        "deploy_mode": "specialist",
+        "deploy_target": None,
+        "specialist_defaults": {
+            "kind": "person_event",
+            "key_suggestion": "smoking",
+            "name_zh": "吸烟",
+            "positive_class_ids": [0],
+            "needs_persons": True,
+        },
         "default_epochs": 80,
         "default_batch": 8,
         "default_imgsz": 640,
-        "default_pretrained": "yolov8s.pt",
+        "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 120,
     },
     "safety_helmet": {
         "id": "safety_helmet",
         "title": "安全帽",
-        "description": "0=no_helmet（违规）1=helmet（合规），与线上 ViolationSpec 一致",
+        "description": "0=no_helmet（违规）1=helmet（合规）；部署为 violation 专模",
         "classes": ["no_helmet", "helmet"],
-        "deploy_target": "safety_helmet",
+        "deploy_mode": "specialist",
+        "deploy_target": None,
+        "specialist_defaults": {
+            "kind": "violation",
+            "key_suggestion": "no_helmet",
+            "name_zh": "未戴安全帽",
+            "subject_class_ids": [0],
+            "comply_class_ids": [1],
+            "needs_persons": True,
+        },
         "default_epochs": 100,
         "default_batch": 8,
         "default_imgsz": 640,
-        "default_pretrained": "yolov8s.pt",
+        "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 150,
     },
     "no_glasses": {
         "id": "no_glasses",
         "title": "未戴眼镜",
-        "description": "0=no_glasses（违规）1=glasses（合规）；部署 models/glasses_detection.pt",
+        "description": "0=no_glasses（违规）1=glasses（合规）；部署为 violation 专模",
         "classes": ["no_glasses", "glasses"],
-        "deploy_target": "no_glasses",
+        "deploy_mode": "specialist",
+        "deploy_target": None,
+        "specialist_defaults": {
+            "kind": "violation",
+            "key_suggestion": "no_glasses",
+            "name_zh": "未戴眼镜",
+            "subject_class_ids": [0],
+            "comply_class_ids": [1],
+            "needs_persons": True,
+        },
         "default_epochs": 80,
         "default_batch": 8,
         "default_imgsz": 640,
-        "default_pretrained": "yolov8s.pt",
+        "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 120,
     },
     "make_call": {
@@ -63,23 +88,32 @@ TRAINING_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "title": "打电话",
         "description": "单类 make_call；部署时自动导出 ONNX → models/make_call.onnx",
         "classes": ["make_call"],
+        "deploy_mode": "builtin",
         "deploy_target": "make_call",
         "default_epochs": 80,
         "default_batch": 8,
         "default_imgsz": 640,
-        "default_pretrained": "yolov8s.pt",
+        "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 120,
     },
     "custom": {
         "id": "custom",
         "title": "自定义",
-        "description": "自行填写类别，不绑定部署目标（不可一键上线）",
+        "description": "自行填写类别；训练完成后可部署为训练专模",
         "classes": [],
+        "deploy_mode": "specialist",
         "deploy_target": None,
+        "specialist_defaults": {
+            "kind": "person_event",
+            "key_suggestion": "custom_model",
+            "name_zh": "自定义专模",
+            "positive_class_ids": [0],
+            "needs_persons": True,
+        },
         "default_epochs": 60,
         "default_batch": 8,
         "default_imgsz": 640,
-        "default_pretrained": "yolov8s.pt",
+        "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 100,
     },
 }
@@ -108,36 +142,8 @@ DEPLOY_GATE = {
     "require_test_metrics": True,
 }
 
-# ---------- 部署目标 ----------
+# ---------- 部署目标（内置） ----------
 DEPLOY_TARGETS: Dict[str, Dict[str, Any]] = {
-    "smoking": {
-        "model_filename": "smoking_detection.pt",
-        "config_updates": {
-            "smoking_cigarette_detector_path": "models/smoking_detection.pt",
-            "smoking_cigarette_class_ids": "0",
-            "smoking_yolo_direct": "true",
-        },
-        "required_classes": ["smoking"],
-        "single_class_index": 0,
-        "export_onnx": False,
-    },
-    "safety_helmet": {
-        "model_filename": "safety_helmet.pt",
-        "config_updates": {
-            "safety_helmet_model_path": "models/safety_helmet.pt",
-        },
-        # 顺序强制：0=违规未戴，1=合规已戴
-        "required_classes": ["no_helmet", "helmet"],
-        "export_onnx": False,
-    },
-    "no_glasses": {
-        "model_filename": "glasses_detection.pt",
-        "config_updates": {
-            "glasses_model_path": "models/glasses_detection.pt",
-        },
-        "required_classes": ["no_glasses", "glasses"],
-        "export_onnx": False,
-    },
     "make_call": {
         "model_filename": "make_call.pt",
         "onnx_filename": "make_call.onnx",
@@ -500,19 +506,11 @@ def check_dataset_health(
                 f"类别「{name}」仅 {cnt} 个框，需要至少 {TRAIN_GATE_HARD['min_boxes_per_class']} 个"
             )
 
-    # 安全帽 / 眼镜类别契约提示
-    if template_id == "safety_helmet" and classes:
-        expected = TRAINING_TEMPLATES["safety_helmet"]["classes"]
-        if [c.lower() for c in classes] != [c.lower() for c in expected]:
-            errors.append(
-                f"安全帽类别顺序须为 {expected}（0=未戴违规，1=已戴合规），当前为 {classes}"
-            )
-    if template_id == "no_glasses" and classes:
-        expected = TRAINING_TEMPLATES["no_glasses"]["classes"]
-        if [c.lower() for c in classes] != [c.lower() for c in expected]:
-            errors.append(
-                f"眼镜类别顺序须为 {expected}（0=未戴违规，1=已戴合规），当前为 {classes}"
-            )
+    # 模板类别契约（专模 preset / make_call）
+    expected = tpl.get("classes") or []
+    if expected and classes and [c.lower() for c in classes] != [c.lower() for c in expected]:
+        label = tpl.get("title") or template_id
+        errors.append(f"「{label}」类别顺序须为 {expected}，当前为 {classes}")
 
     return DatasetHealth(
         labeled_images=labeled,
@@ -798,6 +796,103 @@ def deploy_weights_to_production(
         "test_metrics": test_metrics,
         "gate": dict(DEPLOY_GATE),
     }
+
+
+def _validate_specialist_classes(
+    weights_path: Path,
+    expected_classes: Optional[List[str]],
+) -> Tuple[Optional[str], Optional[str]]:
+    """专模部署：校验权重类别顺序与模板一致。"""
+    if not expected_classes:
+        return None, None
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        return "未安装 ultralytics，无法校验类别契约", None
+    try:
+        names = YOLO(str(weights_path)).names
+        model_classes = [str(names[i]) for i in sorted(names.keys())]
+    except Exception as e:  # noqa: BLE001
+        return f"无法读取模型类别: {e}", None
+    req = [str(c).lower() for c in expected_classes]
+    got = [str(c).lower() for c in model_classes]
+    if got != req:
+        return (
+            f"模型类别顺序 {model_classes} 与模板契约 {expected_classes} 不一致（须完全一致）",
+            None,
+        )
+    return None, None
+
+
+def deploy_as_specialist(
+    repo_root: Path,
+    *,
+    weights_path: Path,
+    key: str,
+    kind: str,
+    name_zh: str,
+    name_en: str = "",
+    positive_class_ids: Optional[List[int]] = None,
+    subject_class_ids: Optional[List[int]] = None,
+    comply_class_ids: Optional[List[int]] = None,
+    class_ids: Optional[List[int]] = None,
+    needs_persons: bool = True,
+    expected_classes: Optional[List[str]] = None,
+    test_metrics: Optional[Dict[str, Any]] = None,
+    force: bool = False,
+    source_project_id: Optional[str] = None,
+    backup: bool = True,
+) -> Dict[str, Any]:
+    """部署训练权重为 models/specialists/<key>/ 专模；默认过质量门禁。"""
+    if not weights_path.is_file():
+        return {"success": False, "message": "权重文件不存在"}
+
+    gate_ok, gate_errors = check_deploy_quality_gate(test_metrics, force=force)
+    if not gate_ok and not force:
+        return {
+            "success": False,
+            "message": "未通过上线质量门禁：" + "；".join(gate_errors),
+            "gate_errors": gate_errors,
+            "test_metrics": test_metrics,
+        }
+
+    err, warn = _validate_specialist_classes(weights_path, expected_classes)
+    if err:
+        return {"success": False, "message": err}
+
+    from visionai.config.specialists import deploy_specialist
+
+    result = deploy_specialist(
+        repo_root,
+        weights_path=weights_path,
+        key=key,
+        kind=kind,
+        name_zh=name_zh,
+        name_en=name_en,
+        classes=expected_classes,
+        positive_class_ids=positive_class_ids,
+        subject_class_ids=subject_class_ids,
+        comply_class_ids=comply_class_ids,
+        class_ids=class_ids,
+        needs_persons=needs_persons,
+        source_project_id=source_project_id,
+        test_metrics=test_metrics,
+        backup=backup,
+    )
+    if not result.get("success"):
+        return result
+
+    msg = result.get("message") or f"已部署专模 {key}"
+    if force and gate_errors:
+        msg = "已强制部署（未达门禁：" + "；".join(gate_errors) + "）；" + msg
+    if warn:
+        msg = warn + "；" + msg
+    result["message"] = msg
+    result["forced"] = bool(force)
+    result["gate_errors"] = gate_errors if force else []
+    result["test_metrics"] = test_metrics
+    result["gate"] = dict(DEPLOY_GATE)
+    return result
 
 
 def list_production_snapshots(

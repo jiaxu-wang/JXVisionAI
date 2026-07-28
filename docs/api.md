@@ -48,4 +48,14 @@
 | `POST` | `/api/preview-webrtc/*` | WebRTC 信令（可选） |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
-训练实验室 API 见 `/training` 页面与 `visionai/web/training_routes.py`。
+---
+
+## 训练实验室 / 专模
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/training/specialists` | 已部署专模列表（key、名称、kind、路径等） |
+| `DELETE` | `/api/training/specialists/<key>` | 删除专模目录并从流配置中移除该检测键 |
+| `POST` | `/api/training/projects/<pid>/deploy` | 训练项目 **一键部署**（专模 → `models/specialists/<key>/`；`make_call` 走内置路径） |
+
+完整训练实验室接口（项目、采图、标注、训练任务、验证、快照回流等）见 `/training` 页面与 `visionai/web/training_routes.py`。
