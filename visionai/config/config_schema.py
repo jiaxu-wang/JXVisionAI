@@ -95,11 +95,8 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
     ConfigUnit(
         id="security",
         title="基础与安全",
-        description="[basic] Flask 登录会话密钥与通用项",
+        description="[basic] 检测、推理设备与日志等通用项（登录密钥请改 config.ini / VISIONAI_SECRET）",
         fields=(
-            _f("visionai_secret", "登录密钥", "password",
-               comment="与 docker-compose 中 VISIONAI_SECRET 一致；生产请修改",
-               section="basic"),
             _f("detection_interval", "检测间隔（秒）", "int",
                comment="数值越小越常跑 YOLO+行为层",
                section="basic"),

@@ -16,8 +16,10 @@
 | `[redis]` | Redis 连接 | `host`、`port`、`password`、`db`、`key_prefix` |
 | `[minio]` | MinIO / S3 兼容对象存储 | `enabled`、`endpoint_url`、`access_key_id`、… |
 | `[email]` | 全局 SMTP 告警邮件 | `alert_enabled`、`host`、`port`、`user`、… |
-| `[models]` | YOLO 主模型、姿态、打电话（make_call）、人脸识别等；**训练专模不在 ini 中** | `yolo_model`、`pose_model`、`make_call_model_path`、`face_recog_det_model_path`、… |
-| `[preview]` | 流预览（可选） | `preview_hls_enabled`、… |
+| `[models]` | YOLO 主模型、姿态、打电话、人脸等；**训练专模不在 ini** | `yolo_model`、`pose_model`、… |
+| `[infer]` | 主检后端：`python`（默认）或 `cpp`（visionai-inferd） | `backend`、`endpoint`、`on_daemon_error` |
+| `[preview]` | 检测框标签字号（流预览仅 ZLM WebRTC） | `label_font_px`、… |
+| `[zlm]` | ZLMediaKit 媒体面（可选） | `enabled`、`api_base`、`secret`、`fallback_direct_rtsp`、… |
 
 **兼容**：旧版单节 `[visionai]`（键为规范全名，如 `redis_host`、`smtp_host`）仍可读取。
 
@@ -33,7 +35,7 @@
 | `detection_interval` | `[basic]` | 检测间隔（秒）；代码默认 **15**，`config.example.ini` 示例可能为 `1` | 15 |
 | `conf_threshold` | `[basic]` | YOLO 主检测置信度 | 0.5 |
 | `save_dir` / `SAVE_DIR` | `[basic]` | 截图目录 | `./snapshots` |
-| `yolo_model` | `[models]` | YOLO 主模型路径（YOLO26） | `models/yolo26s.pt` |
+| `yolo_model` | `[models]` | YOLO26 主检：`yolo26n/s/m/l/x.pt`，改完重启 | `models/yolo26s.pt` |
 | `inference_device` | `[basic]` | **总开关** `cpu` / `gpu`（YOLO+ONNX，改完重启） | `gpu` |
 | `yolo_device` | `[basic]` | 总开关留空时：空=自动，`cpu`，`0` | 自动 |
 | `pose_model` | `[models]` | 姿态模型（YOLO26-pose） | `models/yolo26s-pose.pt` |
@@ -44,8 +46,16 @@
 | `face_recog_det_model_path` | `[models]` | buffalo_l 检测 | `models/buffalo_l/det_10g.onnx` |
 | `face_recognition_threshold` | `[models]` | 人脸相似度阈值 | 0.45 |
 | `smtp_*` | `[email]` 短键 | 全局邮件告警 SMTP | 默认关 |
+| `label_font_px` | `[preview]` | 检测框标签字号（像素）；`>0` 固定，`0` 按短边×ratio | 0（自动） |
+| `label_font_min_px` / `max_px` / `ratio` | `[preview]` | 自动字号下限/上限/短边比例 | 36 / 72 / 0.05 |
+| `zlm_enabled` | `[zlm]` → `enabled` | 经 ZLMediaKit 代理后再本地取流；管理端预览为 ZLM WebRTC | false |
+| `zlm_api_base` / `secret` | `[zlm]` | ZLM HTTP API；**secret 须与 `config/zlm/config.ini` 一致** | 见下节 |
+| `zlm_fallback_direct_rtsp` | `[zlm]` → `fallback_direct_rtsp` | 代理失败时直连摄像机 RTSP | true |
+| `STREAM_LEASE_ENABLED` | 环境变量 | 多 worker 流租约 HA | false |
 
 完整字段与 Web「系统设置」页同步。
+
+生产请修改默认 `visionai_secret`；HTTPS 反代见 [`deploy/nginx.example.conf`](../deploy/nginx.example.conf)。多节点见 [ha.md](ha.md)。
 
 ---
 
@@ -60,7 +70,53 @@
 
 **依赖**：GPU 推理 ONNX 须安装 **`onnxruntime-gpu`**（见 `requirements.txt`）；纯 CPU 环境可改为 `onnxruntime`。人脸识别与专模 ONNX 共用同一 provider 策略。
 
-**训练专模**：部署到 `models/specialists/<key>/` 的权重与阈值在 **`specialist.json`** 中维护，**不在** `[models]` 分节为每项单独写路径（`make_call` 除外）。
+**训练专模**：部署到 `models/specialists/<key>/` 的权重与阈值在 **`specialist.json`** 中维护，**不在** `[models]` 为每项单独写路径（`make_call` 除外）。
+
+---
+
+## 切换 YOLO26 档位（n/s/m/l/x）
+
+```ini
+[models]
+yolo_model = models/yolo26s.pt   # 改为 yolo26n / m / l / x.pt
+```
+
+文件须已在 `models/`（可用 `./scripts/download_yolo26.sh`）。改完 **`./stop.sh && ./start.sh`**。对比精度时固定 `conf_threshold` 与同一路视频。详见 [getting-started.md §4](getting-started.md)。
+
+---
+
+## 主检后端 `[infer]`（可选）
+
+| 键 | 含义 | 默认 |
+|----|------|------|
+| `backend` | `python` = Ultralytics；`cpp` = `visionai-inferd` | `python` |
+| `endpoint` | 同机 UDS | `unix:///tmp/visionai-inferd.sock` |
+| `on_daemon_error` | `fail` 或 `fallback_python` | `fail` |
+
+`backend=cpp` 时 `start.sh` 会拉起 `native/inferd` 中的可执行文件；需已构建且 `models/repo/primary/` 有 ONNX。日常对比精度用 `python` 后端改 `yolo_model` 即可。构建说明见 [`native/inferd/README.md`](../native/inferd/README.md)。
+
+---
+
+## ZLMediaKit `[zlm]`（可选）
+
+经 ZLM 拉流代理后，worker 从本机 RTSP 取流；管理端预览走 ZLM WebRTC。需先 `docker compose up -d zlmediakit`。
+
+| 键 | 含义 | 默认 / 说明 |
+|----|------|-------------|
+| `enabled` | 是否启用媒体面 | `false` |
+| `api_base` | ZLM HTTP API | `http://127.0.0.1:8080`（compose 映射 `8080→80`） |
+| `secret` | API 密钥 | **须与** `config/zlm/config.ini` → `[api] secret` **一致** |
+| `rtsp_port` / `http_port` | 本机回源 RTSP / 播放 HTTP | `8554` / `8080` |
+| `rtc_port` | WebRTC ICE 端口（compose 映射 `8000/udp`） | `8000` |
+| `prefer_local_pull` | 优先经代理取流 | `true` |
+| `fallback_direct_rtsp` | 代理失败回退直连摄像机 | `true` |
+| `public_host` | 浏览器播放 URL / WebRTC `cand_udp` 主机名 | `127.0.0.1` 或局域网 IP |
+
+WebRTC 预览：管理端「预览」→ **ZLM WebRTC**；信令走 `POST /api/zlm/webrtc/play`，媒体走 ZLM `:8000`。改端口或 secret 后需 `docker compose up -d zlmediakit`（含 8000 映射）并重启应用。
+
+**重要**：勿使用 ZLM 出厂默认 secret（`035c73f7-…`）。新版会拒绝或自动改写；且 Docker 端口映射后源 IP 不是 `127.0.0.1`，**必须**带正确 secret。项目模板使用非默认值（如 `jxvisionai-zlm-…`）；改 secret 后须 **`docker compose restart zlmediakit`** 并重启应用。
+
+自检：`curl -s http://127.0.0.1:5000/readyz`；登录后 `GET /api/zlm/status`（`alive` / `auth_ok` / 各流播放地址）。
 
 ---
 

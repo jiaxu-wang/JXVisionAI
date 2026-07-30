@@ -25,6 +25,18 @@ minio-data/
 *.swp
 .DS_Store
 
+# ---------- C++ inferd 构建产物 ----------
+native/inferd/build/
+native/inferd/build-docker/
+native/inferd/cmake-build-*/
+native/inferd/vcpkg/
+native/inferd/vcpkg_installed/
+native/inferd/third_party/onnxruntime/lib/
+native/inferd/testdata/*.jpg
+native/inferd/testdata/*.bgr
+native/inferd/testdata/*.meta
+.pip_target/
+
 # ---------- 模型权重（体积大，部署时自备；见 README models/）----------
 *.pt
 *.onnx

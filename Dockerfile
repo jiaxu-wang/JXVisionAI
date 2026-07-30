@@ -6,13 +6,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# OpenCV headless / ultralytics 常用系统库；ffmpeg 用于管理端 RTSP→MJPEG 预览
+# OpenCV headless / ultralytics 常用系统库
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     libjpeg62-turbo \
     libpng16-16 \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libinfer_proto.a CMakeFiles/infer_proto.dir/generated/visionai/infer/v1/infer.pb.cc.o CMakeFiles/infer_proto.dir/generated/visionai/infer/v1/infer.grpc.pb.cc.o
+/usr/bin/ranlib libinfer_proto.a

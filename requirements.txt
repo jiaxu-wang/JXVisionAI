@@ -4,14 +4,15 @@ ultralytics>=8.0.0
 numpy>=1.24.0,<3.0
 Pillow>=10.0.0
 flask>=3.0.0
-flask-sock>=0.7.0
 redis>=5.0.0
 boto3>=1.34.0,<2.0
 # ONNX：默认装 GPU 轮子（同时含 CPU EP，便于 inference_device=cpu/gpu 切换）。
 # 无 NVIDIA / 装不上 GPU 轮子时，可改为：onnxruntime>=1.16.0,<2.0
 onnxruntime-gpu>=1.16.0,<2.0
-# 管理端 WebRTC 预览（RTSP→浏览器）；未安装时 /api/config 会标记 webrtc_enabled=false
-aiortc>=1.9.0
 # ONVIF 发现与探测（事件监控「ONVIF 发现」）；WS-Discovery 需主机网络/组播可达
 onvif-zeep>=0.2.12
 WSDiscovery>=2.1.0
+
+# C++ inferd Python client
+grpcio>=1.60.0
+grpcio-tools>=1.60.0

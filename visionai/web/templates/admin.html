@@ -1263,7 +1263,7 @@
                             <div class="status-card">
                                 <h3>检测能力</h3>
                                 <div class="value" id="detectionCapabilityCount">—</div>
-                                <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 人脸识别 + 训练专模</span>
+                                <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 人脸识别 + 专模（自训/导入）</span>
                             </div>
                             <div class="status-card">
                                 <h3>在线流 / 视频</h3>
@@ -1274,6 +1274,11 @@
                                 <h3>今日告警</h3>
                                 <div class="value" id="alertCount">0</div>
                                 <span class="status status-online" id="todayAlertsHint">今日触发</span>
+                            </div>
+                            <div class="status-card">
+                                <h3>运行指标</h3>
+                                <div class="value" id="runtimeMetricSummary" style="font-size:1.1rem;">—</div>
+                                <span class="status" id="zlmRuntimeHint">ZLM / 队列</span>
                             </div>
                         </div>
                     </div>
@@ -1374,7 +1379,7 @@
                         <h2>系统设置</h2>
                         <p class="settings-hint">
                             按配置单元修改字段，保存后写入 <code>config/config.ini</code>（保留文件内注释与其余内容）。
-                            每项含<strong>可编辑值</strong>与<strong>当前进程生效值</strong>（只读）；<strong>保存后需重启</strong>方全配置生效。
+                            <strong>保存后需重启服务</strong>方全配置生效。
                         </p>
                         <p id="settingsMeta" class="settings-meta"></p>
                         <div id="configUnitsWrap" class="config-units-wrap">加载中…</div>
@@ -1448,29 +1453,8 @@
                 <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
-                <p id="streamPreviewHint" style="font-size: 13px; color: #495057; margin: 0 0 10px 0;">
-                    <strong>MJPEG / WebSocket</strong>：服务端按 RTSP URL 直拉画面（仅视频，无声音），适合快速查看。
-                    <strong>HLS</strong>：ffmpeg 转码，摄像头有音轨时可听声（延迟约 1～几秒）。检测识别仍只用视频帧，与预览听声无关。
-                    关窗即停止拉流/转码。
-                </p>
-                <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 12px;">
-                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
-                        <span>预览方式</span>
-                        <select id="streamPreviewMode" style="min-width: 280px; padding: 4px 8px;">
-                            <option value="mjpeg" selected>MJPEG（直拉画面，无声）</option>
-                            <option value="ws">WebSocket（直拉 + 可叠加检测框，无声）</option>
-                            <option value="hls">HLS（含音频，需 ffmpeg）</option>
-                        </select>
-                    </label>
-                    <label id="streamPreviewAnnLabel" style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #343a40; cursor: pointer; user-select: none;">
-                        <input type="checkbox" id="streamPreviewAnnotated" style="width: auto;">
-                        显示检测框（仅 MJPEG / WebSocket）
-                    </label>
-                </div>
-                <p id="streamPreviewAudioHint" style="display:none; font-size: 12px; color: #1565c0; margin: 0 0 8px 0;"></p>
                 <div style="background: #000; border-radius: 8px; overflow: hidden; min-height: 200px; display: flex; align-items: center; justify-content: center;">
-                    <img id="streamPreviewImg" alt="视频预览" style="max-width: 100%; max-height: 72vh; display: block;">
-                    <video id="streamPreviewVideo" playsinline controls style="display: none; max-width: 100%; max-height: 72vh; width: 100%;"></video>
+                    <video id="streamPreviewVideo" playsinline controls style="max-width: 100%; max-height: 72vh; width: 100%;"></video>
                 </div>
             </div>
         </div>
@@ -1538,7 +1522,6 @@
         </div>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <script>
         function escapeHtml(text) {
             if (text == null || text === undefined) return '';
@@ -1547,13 +1530,8 @@
             return d.innerHTML;
         }
         
-        let streamPreviewHls = null;
-        let streamPreviewHlsSession = null;
-        let streamPreviewWs = null;
-        let streamPreviewObjectUrl = null;
-        let streamPreviewWebrtcSession = null;
         let streamPreviewPc = null;
-        let streamPreviewCapabilities = { ffmpeg: false, hls_enabled: false, webrtc_enabled: false };
+        let streamPreviewStreamId = null;
         let detectionConfigTargetItem = null;
         let detectionModalDraft = null;
         let detectionFaceRecogDraft = null;
@@ -1621,253 +1599,120 @@
             detectionFaceRecogDraft.rotate = rot ? parseInt(rot, 10) : null;
         }
 
-        async function refreshPreviewCapabilities() {
-            try {
-                const r = await fetch('/api/config');
-                const j = await r.json();
-                const p = j.preview || {};
-                streamPreviewCapabilities = {
-                    ffmpeg: !!p.ffmpeg,
-                    hls_enabled: !!p.hls_enabled,
-                    webrtc_enabled: !!p.webrtc_enabled,
-                };
-                const sel = document.getElementById('streamPreviewMode');
-                const optHls = sel ? sel.querySelector('option[value="hls"]') : null;
-                if (optHls) {
-                    const ok = !!(streamPreviewCapabilities.hls_enabled && streamPreviewCapabilities.ffmpeg);
-                    optHls.disabled = !ok;
-                    optHls.title = ok
-                        ? '摄像头有音轨时可听声；延迟约 1～几秒'
-                        : '需要服务器安装 ffmpeg，且配置 preview_hls_enabled=true';
-                    if (!ok && sel.value === 'hls') {
-                        sel.value = 'mjpeg';
-                    }
-                }
-            } catch (e) {
-                console.warn(e);
-            }
-        }
-
-        function stopStreamPreviewPipeline() {
-            if (streamPreviewPc) {
-                try {
-                    streamPreviewPc.close();
-                } catch (e) {
-                    /* ignore */
-                }
-                streamPreviewPc = null;
-            }
-            if (streamPreviewWebrtcSession) {
-                fetch('/api/preview-webrtc/stop', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: streamPreviewWebrtcSession }),
-                    credentials: 'same-origin',
-                }).catch(function () {});
-                streamPreviewWebrtcSession = null;
-            }
-            if (streamPreviewHls) {
-                try {
-                    streamPreviewHls.destroy();
-                } catch (e) {
-                    /* ignore */
-                }
-                streamPreviewHls = null;
-            }
-            if (streamPreviewHlsSession) {
-                fetch('/api/preview-hls/stop', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: streamPreviewHlsSession }),
-                    credentials: 'same-origin',
-                }).catch(function () {});
-                streamPreviewHlsSession = null;
-            }
-            const vid = document.getElementById('streamPreviewVideo');
-            if (vid) {
-                vid.pause();
-                vid.removeAttribute('src');
-                if (vid.srcObject) {
-                    vid.srcObject = null;
-                }
-                vid.load();
-                vid.style.display = 'none';
-            }
-            if (streamPreviewWs) {
-                try {
-                    streamPreviewWs.close();
-                } catch (e) {
-                    /* ignore */
-                }
-                streamPreviewWs = null;
-            }
-            if (streamPreviewObjectUrl) {
-                URL.revokeObjectURL(streamPreviewObjectUrl);
-                streamPreviewObjectUrl = null;
-            }
-            const img = document.getElementById('streamPreviewImg');
-            if (img) {
-                img.src = '';
-                img.style.display = 'block';
-            }
-        }
-
         function waitIceGatheringComplete(pc) {
             return new Promise(function (resolve) {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
                     return;
                 }
-                var t = setTimeout(function () {
-                    resolve();
-                }, 2500);
-                pc.addEventListener(
-                    'icegatheringstatechange',
-                    function onIce() {
-                        if (pc.iceGatheringState === 'complete') {
-                            clearTimeout(t);
-                            pc.removeEventListener('icegatheringstatechange', onIce);
-                            resolve();
-                        }
+                var t = setTimeout(function () { resolve(); }, 2500);
+                pc.addEventListener('icegatheringstatechange', function onIce() {
+                    if (pc.iceGatheringState === 'complete') {
+                        clearTimeout(t);
+                        pc.removeEventListener('icegatheringstatechange', onIce);
+                        resolve();
                     }
-                );
+                });
             });
         }
 
-        function rebuildStreamPreview() {
-            const img = document.getElementById('streamPreviewImg');
-            if (!img) {
-                return;
+        function stopStreamPreviewPipeline() {
+            if (streamPreviewPc) {
+                try {
+                    if (streamPreviewPc._visionaiIceTimer) {
+                        clearTimeout(streamPreviewPc._visionaiIceTimer);
+                    }
+                    streamPreviewPc.close();
+                } catch (e) { /* ignore */ }
+                streamPreviewPc = null;
             }
-            const sid = img.dataset.streamId;
-            if (!sid) return;
-            const modeEl = document.getElementById('streamPreviewMode');
-            let mode = modeEl ? modeEl.value : 'mjpeg';
-            if (mode !== 'mjpeg' && mode !== 'ws' && mode !== 'hls') {
-                mode = 'mjpeg';
-                if (modeEl) modeEl.value = 'mjpeg';
-            }
-            const ann = document.getElementById('streamPreviewAnnotated');
-            const annLabel = document.getElementById('streamPreviewAnnLabel');
-            const audioHint = document.getElementById('streamPreviewAudioHint');
-            if (audioHint) {
-                audioHint.style.display = 'none';
-                audioHint.textContent = '';
-            }
-            if (mode === 'hls') {
-                if (ann) ann.checked = false;
-                if (annLabel) annLabel.style.opacity = '0.45';
-            } else if (annLabel) {
-                annLabel.style.opacity = '1';
-            }
-            const annotated = !!(ann && ann.checked);
-            stopStreamPreviewPipeline();
             const vid = document.getElementById('streamPreviewVideo');
-            if (mode === 'hls') {
-                if (!vid) return;
-                img.style.display = 'none';
-                img.src = '';
-                vid.style.display = 'block';
-                vid.removeAttribute('muted');
-                vid.muted = false;
-                fetch('/api/preview-hls/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ stream_id: sid }),
-                })
-                    .then(function (r) {
-                        return r.json();
-                    })
-                    .then(function (data) {
-                        if (!data.success || !data.playlist) {
-                            showMessage(data.message || 'HLS 启动失败', 'error');
-                            vid.style.display = 'none';
-                            img.style.display = 'block';
-                            return;
-                        }
-                        streamPreviewHlsSession = data.session_id;
-                        if (audioHint) {
-                            if (data.audio) {
-                                audioHint.textContent = '已检测到音轨：请点击播放/取消静音后可听声（浏览器可能拦截自动出声）。';
-                            } else {
-                                audioHint.textContent = '该路未检测到音轨或音频转码失败，当前为纯画面 HLS。';
-                            }
-                            audioHint.style.display = 'block';
-                        }
-                        const src = data.playlist;
-                        if (window.Hls && window.Hls.isSupported()) {
-                            streamPreviewHls = new Hls({
-                                enableWorker: true,
-                                lowLatencyMode: true,
-                                liveSyncDurationCount: 2,
-                                liveMaxLatencyDurationCount: 5,
-                                xhrSetup: function (xhr) {
-                                    xhr.withCredentials = true;
-                                },
-                            });
-                            streamPreviewHls.loadSource(src);
-                            streamPreviewHls.attachMedia(vid);
-                            streamPreviewHls.on(Hls.Events.MANIFEST_PARSED, function () {
-                                vid.play().catch(function () {});
-                            });
-                            streamPreviewHls.on(Hls.Events.ERROR, function () {});
-                        } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-                            vid.src = src;
-                            vid.play().catch(function () {});
-                        } else {
-                            showMessage('当前浏览器不支持 HLS 播放', 'error');
-                        }
-                    })
-                    .catch(function () {
-                        showMessage('HLS 请求失败', 'error');
-                        vid.style.display = 'none';
-                        img.style.display = 'block';
-                    });
-                return;
-            }
             if (vid) {
-                vid.style.display = 'none';
+                vid.pause();
                 vid.removeAttribute('src');
-                vid.srcObject = null;
-            }
-            img.style.display = 'block';
-            if (mode === 'mjpeg') {
-                let url = '/api/preview?stream_id=' + encodeURIComponent(sid);
-                if (annotated) url += '&annotated=1';
-                img.src = url;
-                return;
-            }
-            if (mode === 'ws') {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const ws = new WebSocket(proto + '//' + location.host + '/ws/preview');
-                streamPreviewWs = ws;
-                ws.binaryType = 'arraybuffer';
-                ws.onopen = function () {
-                    ws.send(JSON.stringify({ stream_id: sid, annotated: annotated }));
-                };
-                ws.onmessage = function (ev) {
-                    const buf = ev.data;
-                    if (streamPreviewObjectUrl) URL.revokeObjectURL(streamPreviewObjectUrl);
-                    streamPreviewObjectUrl = URL.createObjectURL(
-                        new Blob([buf], { type: 'image/jpeg' })
-                    );
-                    img.src = streamPreviewObjectUrl;
-                };
-                ws.onerror = function () {
-                    showMessage('WebSocket 预览失败，可改用 MJPEG', 'error');
-                };
+                if (vid.srcObject) vid.srcObject = null;
+                vid.load();
             }
         }
-        
+
+        function rebuildStreamPreview() {
+            const sid = streamPreviewStreamId;
+            if (!sid) return;
+            const vid = document.getElementById('streamPreviewVideo');
+            if (!vid) return;
+            stopStreamPreviewPipeline();
+            vid.muted = true;
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+            });
+            streamPreviewPc = pc;
+            let gotTrack = false;
+            pc.addTransceiver('video', { direction: 'recvonly' });
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+            pc.ontrack = function (ev) {
+                gotTrack = true;
+                if (ev.streams && ev.streams[0]) {
+                    vid.srcObject = ev.streams[0];
+                } else {
+                    const ms = vid.srcObject instanceof MediaStream ? vid.srcObject : new MediaStream();
+                    ms.addTrack(ev.track);
+                    vid.srcObject = ms;
+                }
+                vid.play().then(function () {
+                    vid.muted = false;
+                    return vid.play().catch(function () { vid.muted = true; });
+                }).catch(function () {});
+            };
+            pc.onconnectionstatechange = function () {
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    showMessage('ZLM WebRTC 连接失败（ICE）。请检查 8000 端口与 [zlm] public_host', 'error');
+                }
+            };
+            pc.createOffer()
+                .then(function (offer) { return pc.setLocalDescription(offer); })
+                .then(function () { return waitIceGatheringComplete(pc); })
+                .then(function () {
+                    return fetch('/api/zlm/webrtc/play', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({
+                            stream_id: sid,
+                            sdp: pc.localDescription.sdp,
+                            type: 'offer',
+                        }),
+                    });
+                })
+                .then(function (r) {
+                    return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+                })
+                .then(function (res) {
+                    if (!res.data || !res.data.success || !res.data.sdp) {
+                        showMessage((res.data && res.data.message) || 'ZLM WebRTC 协商失败（请确认 ZLM 已启用）', 'error');
+                        return;
+                    }
+                    return pc.setRemoteDescription({ type: 'answer', sdp: res.data.sdp }).then(function () {
+                        pc._visionaiIceTimer = setTimeout(function () {
+                            if (!gotTrack && streamPreviewPc === pc) {
+                                showMessage('ZLM WebRTC 未收到媒体。请确认 zlmediakit 运行且 directProxy=0', 'error');
+                            }
+                        }, 8000);
+                    });
+                })
+                .catch(function (err) {
+                    console.warn(err);
+                    const msg = (err && err.message) ? String(err.message) : '';
+                    showMessage(msg ? ('ZLM WebRTC 失败: ' + msg) : 'ZLM WebRTC 预览失败', 'error');
+                });
+        }
+
         function openStreamPreview(streamId, streamName) {
             if (!streamId) {
                 showMessage('该流缺少 ID，请保存配置后重试', 'error');
                 return;
             }
             const modal = document.getElementById('streamPreviewModal');
-            const img = document.getElementById('streamPreviewImg');
-            if (!modal || !img) {
+            if (!modal) {
                 showMessage('预览组件未加载', 'error');
                 return;
             }
@@ -1875,47 +1720,29 @@
             if (titleEl) {
                 titleEl.textContent = streamName ? ('预览 · ' + streamName) : '流预览';
             }
-            img.dataset.streamId = streamId;
-            const ann = document.getElementById('streamPreviewAnnotated');
-            if (ann) ann.checked = false;
-            const modeEl = document.getElementById('streamPreviewMode');
-            refreshPreviewCapabilities().then(function () {
-                if (modeEl) {
-                    modeEl.value = 'mjpeg';
-                }
-                rebuildStreamPreview();
-            });
+            streamPreviewStreamId = streamId;
+            rebuildStreamPreview();
             modal.classList.add('show');
             modal.setAttribute('aria-hidden', 'false');
         }
-        
+
         function closeStreamPreview() {
             stopStreamPreviewPipeline();
-            const img = document.getElementById('streamPreviewImg');
-            if (img) {
-                img.src = '';
-                delete img.dataset.streamId;
-            }
+            streamPreviewStreamId = null;
             const modal = document.getElementById('streamPreviewModal');
             if (modal) {
                 modal.classList.remove('show');
                 modal.setAttribute('aria-hidden', 'true');
             }
         }
-        
+
         function safeCloseModalsForNav() {
             try {
                 stopStreamPreviewPipeline();
             } catch (err) {
                 console.warn('stopStreamPreviewPipeline', err);
             }
-            const img = document.getElementById('streamPreviewImg');
-            if (img) {
-                img.src = '';
-                try {
-                    delete img.dataset.streamId;
-                } catch (e) { /* ignore */ }
-            }
+            streamPreviewStreamId = null;
             const spm = document.getElementById('streamPreviewModal');
             if (spm) {
                 spm.classList.remove('show');
@@ -1994,12 +1821,18 @@
         // 加载状态数据
         async function loadStatusData() {
             try {
-                const [response, statsRes] = await Promise.all([
+                const [response, statsRes, metricsRes, zlmRes] = await Promise.all([
                     fetch('/api/streams'),
-                    fetch('/api/stats/alerts-today')
+                    fetch('/api/stats/alerts-today'),
+                    fetch('/api/metrics').catch(() => null),
+                    fetch('/api/zlm/status').catch(() => null),
                 ]);
                 const streams = await response.json();
                 const stats = await statsRes.json();
+                let metrics = null;
+                let zlm = null;
+                try { metrics = metricsRes && metricsRes.ok ? await metricsRes.json() : null; } catch (e) { metrics = null; }
+                try { zlm = zlmRes && zlmRes.ok ? await zlmRes.json() : null; } catch (e) { zlm = null; }
                 
                 // 统计在线流数量
                 const onlineStreams = streams.filter(stream => stream.status === '在线').length;
@@ -2009,6 +1842,32 @@
                     `（${onlineStreams}/${streams.length}）`;
                 const todayAlerts = stats.success ? (Number(stats.count) || 0) : 0;
                 document.getElementById('alertCount').textContent = String(todayAlerts);
+
+                const metricEl = document.getElementById('runtimeMetricSummary');
+                const zlmHint = document.getElementById('zlmRuntimeHint');
+                if (metricEl) {
+                    const q = metrics && metrics.alert_queue_depth != null ? metrics.alert_queue_depth : '—';
+                    const up = metrics && metrics.uptime_sec != null ? Math.round(metrics.uptime_sec) + 's' : '—';
+                    metricEl.textContent = `队列 ${q} · 运行 ${up}`;
+                }
+                if (zlmHint) {
+                    if (!zlm || !zlm.enabled) {
+                        zlmHint.textContent = 'ZLM 未启用';
+                        zlmHint.className = 'status status-offline';
+                    } else if (zlm.alive) {
+                        const on = (zlm.streams || []).filter(s => s.online).length;
+                        zlmHint.textContent = `ZLM 在线 · 代理 ${on}/${(zlm.streams || []).length}`;
+                        zlmHint.className = 'status status-online';
+                    } else if (zlm.reachable && zlm.auth_ok === false) {
+                        zlmHint.textContent = 'ZLM 鉴权失败';
+                        zlmHint.className = 'status status-offline';
+                        zlmHint.title = zlm.message || '请将 [zlm] secret 改为非默认值，并与 config/zlm/config.ini 一致后重启 zlmediakit';
+                    } else {
+                        zlmHint.textContent = 'ZLM 不可达';
+                        zlmHint.className = 'status status-offline';
+                    }
+                }
+                window._zlmStatusCache = zlm;
                 
                 if (streams.length === 0) {
                     document.getElementById('streamStatus').className = 'status status-offline';
@@ -2031,6 +1890,10 @@
                 if (streams.length === 0) {
                     streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">暂无视频配置</p>';
                 } else {
+                    const zlmById = {};
+                    if (zlm && zlm.streams) {
+                        zlm.streams.forEach(s => { if (s.id) zlmById[s.id] = s; });
+                    }
                     streams.forEach(stream => {
                         const streamItem = document.createElement('div');
                         streamItem.className = 'stream-item';
@@ -2039,6 +1902,14 @@
                         const enabledClass = enabled ? 'status-online' : 'status-offline';
                         const enabledText = enabled ? '检测开启' : '检测禁用';
                         const sid = stream.id || '';
+                        const zs = zlmById[sid];
+                        const playHls = zs && zs.play && zs.play.hls ? zs.play.hls : '';
+                        const zlmBadge = zs
+                            ? `<span class="status ${zs.online ? 'status-online' : 'status-offline'}">ZLM ${zs.online ? '代理中' : '未上线'}</span>`
+                            : '';
+                        const copyBtn = playHls
+                            ? `<button type="button" class="btn-preview btn-copy-zlm" data-url="${escapeHtml(playHls)}">复制 HLS</button>`
+                            : '';
                         streamItem.innerHTML = `
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                                 <div style="flex: 1; min-width: 200px;">
@@ -2048,15 +1919,29 @@
                                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                     <span class="status ${statusClass}">${escapeHtml(stream.status)}</span>
                                     <span class="status ${enabledClass}">${enabledText}</span>
+                                    ${zlmBadge}
+                                    ${copyBtn}
                                     <button type="button" class="btn-preview" ${sid ? '' : 'disabled'}>预览</button>
                                 </div>
                             </div>
                         `;
                         streamStatusList.appendChild(streamItem);
-                        const prevBtn = streamItem.querySelector('.btn-preview');
+                        const prevBtn = streamItem.querySelector('.btn-preview:not(.btn-copy-zlm)');
                         if (prevBtn && sid) {
                             prevBtn.addEventListener('click', function() {
                                 openStreamPreview(sid, stream.name);
+                            });
+                        }
+                        const cBtn = streamItem.querySelector('.btn-copy-zlm');
+                        if (cBtn) {
+                            cBtn.addEventListener('click', async function() {
+                                const u = this.getAttribute('data-url') || '';
+                                try {
+                                    await navigator.clipboard.writeText(u);
+                                    showMessage('已复制 HLS 地址', 'success');
+                                } catch (e) {
+                                    prompt('复制 HLS 地址', u);
+                                }
                             });
                         }
                     });
@@ -2209,7 +2094,12 @@
             if (!list || !detectionModalDraft) return;
             const q = (filterText || '').trim().toLowerCase();
             list.innerHTML = '';
-            detectionCatalog.forEach(item => {
+            const groups = [
+                { id: 'coco', title: 'COCO 80 类', match: (it) => it.source === 'coco' },
+                { id: 'builtin', title: '内置扩展', match: (it) => it.source === 'builtin' },
+                { id: 'specialist', title: '专模（自训 / 导入）', match: (it) => it.source === 'specialist' },
+            ];
+            const appendItem = (item) => {
                 const hay = (item.name_zh + ' ' + item.name_en + ' ' + item.key).toLowerCase();
                 if (q && !hay.includes(q)) return;
                 const row = document.createElement('div');
@@ -2222,7 +2112,7 @@
                 row.innerHTML = `
                     <div style="flex:1;min-width:0;">
                         <div class="switch-name">${item.name_zh}${isSpec ? ' <span style="background:#e7f5ff;color:#1971c2;padding:1px 6px;border-radius:4px;font-size:11px;">专模</span>' : ''} <span style="color:#868e96;font-weight:400;">/ ${item.name_en}</span></div>
-                        <div class="detection-key-hint">${isSpec ? '训练实验室专模' : '系统支持检测'} · 键 ${item.key}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
+                        <div class="detection-key-hint">${isSpec ? ((item.origin === 'imported') ? '导入专模' : '训练专模') : '系统支持检测'} · 键 ${item.key}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
                     </div>
                     ${delBtn}
                     <label class="switch" style="flex-shrink:0;">
@@ -2231,6 +2121,20 @@
                     </label>
                 `;
                 list.appendChild(row);
+            };
+            groups.forEach((g) => {
+                const items = detectionCatalog.filter(g.match);
+                if (!items.length) return;
+                const anyVisible = items.some((item) => {
+                    const hay = (item.name_zh + ' ' + item.name_en + ' ' + item.key).toLowerCase();
+                    return !q || hay.includes(q);
+                });
+                if (!anyVisible) return;
+                const head = document.createElement('div');
+                head.style.cssText = 'padding:10px 4px 4px;font-size:12px;font-weight:600;color:#495057;border-bottom:1px solid #e9ecef;margin-top:8px;';
+                head.textContent = g.title;
+                list.appendChild(head);
+                items.forEach(appendItem);
             });
             list.querySelectorAll('.btn-specialist-delete').forEach(btn => {
                 btn.addEventListener('click', async function(ev) {
@@ -2368,8 +2272,11 @@
                 const time = new Date(detection.timestamp);
                 const formattedTime = time.toLocaleString('zh-CN');
                 
-                // 格式化检测类型
-                const detectionType = detection.detection_types.join(', ');
+                // 格式化检测类型（相同文案只显示一次）
+                const types = Array.isArray(detection.detection_types)
+                    ? detection.detection_types
+                    : [];
+                const detectionType = [...new Set(types.map(String))].join(', ');
                 
                 // 统一走后端回源（对象存储或本地绝对路径均可）；避免前端误拼绝对路径
                 let imageUrl = '';
@@ -2631,7 +2538,7 @@
                 </div>
                 <div class="stream-detection-row">
                     <div style="flex:1;min-width:220px;">
-                        <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 训练专模 + 人脸识别</span>
+                        <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 专模（自训/导入） + 人脸识别</span>
                         <div class="stream-detection-summary"></div>
                     </div>
                 </div>
@@ -2842,14 +2749,16 @@
                 return;
             }
             wrap.innerHTML = units.map(function (unit) {
-                const fieldsHtml = (unit.fields || []).map(function (field) {
+                const editableFields = (unit.fields || []).filter(function (field) {
+                    return field.editable !== false && !field.readonly;
+                });
+                if (!editableFields.length) {
+                    return '';
+                }
+                const fieldsHtml = editableFields.map(function (field) {
                     let badge = '';
                     if (field.commented_only) {
                         badge = '<span class="config-field-badge">ini 中已注释</span>';
-                    }
-                    let effectiveHtml = '';
-                    if (field.effective_value != null && field.effective_value !== '' && !field.readonly) {
-                        effectiveHtml = '<div class="config-field-effective">当前进程生效（只读）: ' + escapeHtml(String(field.effective_value)) + '</div>';
                     }
                     const commentHtml = field.comment
                         ? '<div class="config-field-comment">' + escapeHtml(field.comment) + '</div>'
@@ -2857,7 +2766,7 @@
                     return (
                         '<div class="config-field-row">' +
                         '<div class="config-field-label">' + escapeHtml(field.label || field.key) + badge + '</div>' +
-                        '<div class="config-field-body">' + commentHtml + renderConfigFieldInput(field) + effectiveHtml + '</div>' +
+                        '<div class="config-field-body">' + commentHtml + renderConfigFieldInput(field) + '</div>' +
                         '</div>'
                     );
                 }).join('');
@@ -2869,7 +2778,7 @@
                     '<h3>' + escapeHtml(unit.title || '') + '</h3>' + desc + fieldsHtml +
                     '</section>'
                 );
-            }).join('');
+            }).filter(Boolean).join('');
             wrap.querySelectorAll('.cfg-input').forEach(function (el) {
                 el.addEventListener('change', function () { settingsFormDirty = true; });
                 el.addEventListener('input', function () { settingsFormDirty = true; });
@@ -3310,16 +3219,7 @@
         });
         
         document.getElementById('streamPreviewCloseBtn')?.addEventListener('click', closeStreamPreview);
-        const streamPreviewAnn = document.getElementById('streamPreviewAnnotated');
-        if (streamPreviewAnn) {
-            streamPreviewAnn.addEventListener('change', rebuildStreamPreview);
-        }
-        const streamPreviewMode = document.getElementById('streamPreviewMode');
-        if (streamPreviewMode) {
-            streamPreviewMode.addEventListener('change', rebuildStreamPreview);
-        }
-        
-        document.getElementById('detectionConfigModalCloseBtn')?.addEventListener('click', closeDetectionConfigModal);
+document.getElementById('detectionConfigModalCloseBtn')?.addEventListener('click', closeDetectionConfigModal);
         document.getElementById('detectionConfigCancelBtn')?.addEventListener('click', closeDetectionConfigModal);
         document.getElementById('detectionConfigSearch')?.addEventListener('input', function() {
             renderDetectionModalList(this.value);
@@ -3343,20 +3243,6 @@
             await loadDetectionCatalog();
             loadStreams();
             loadStatusData();
-            syncAlertsPageSizeSelect();
-            
-            // 定时刷新状态数据（每10秒）
-            setInterval(() => {
-                loadStatusData();
-            }, 10000);
-            
-            // 启动检测记录自动刷新
-            startAutoRefresh();
-        });
-    </script>
-</body>
-</html>
-          loadStatusData();
             syncAlertsPageSizeSelect();
             
             // 定时刷新状态数据（每10秒）

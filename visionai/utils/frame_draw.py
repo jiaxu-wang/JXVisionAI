@@ -38,12 +38,58 @@ _FONT_CANDIDATES = (
 
 _CJK_PROBE = "中"
 
-# 全帧统一：短边 5% 作字高（与检测框宽高无关）
-_LABEL_HEIGHT_RATIO = 0.05
-_MIN_FONT_PX = 36
-_MAX_FONT_PX = 72
+# 全帧统一字号默认值（可被 config [preview] 覆盖，见 settings.LABEL_FONT_*）
+_DEFAULT_LABEL_RATIO = 0.05
+_DEFAULT_MIN_FONT_PX = 36
+_DEFAULT_MAX_FONT_PX = 72
+_ABS_MIN_FONT_PX = 8
+_ABS_MAX_FONT_PX = 128
 
 _warned_no_cjk = False
+
+
+def _font_limits() -> tuple[int, int, float, int]:
+    """返回 (min_px, max_px, ratio, fixed_px)。fixed_px>0 表示固定字号。"""
+    try:
+        from visionai.config.settings import (
+            LABEL_FONT_MAX_PX,
+            LABEL_FONT_MIN_PX,
+            LABEL_FONT_PX,
+            LABEL_FONT_RATIO,
+        )
+
+        fixed = int(LABEL_FONT_PX or 0)
+        lo = max(_ABS_MIN_FONT_PX, int(LABEL_FONT_MIN_PX))
+        hi = max(lo, int(LABEL_FONT_MAX_PX))
+        ratio = float(LABEL_FONT_RATIO)
+        return lo, hi, ratio, fixed
+    except Exception:  # noqa: BLE001
+        return (
+            _DEFAULT_MIN_FONT_PX,
+            _DEFAULT_MAX_FONT_PX,
+            _DEFAULT_LABEL_RATIO,
+            0,
+        )
+
+
+def _clamp_font_px(px: int) -> int:
+    return int(max(_ABS_MIN_FONT_PX, min(_ABS_MAX_FONT_PX, px)))
+
+
+def label_font_px(frame: Optional[np.ndarray]) -> int:
+    """本帧所有标注共用的像素字高（只看整帧分辨率 / 配置，不看框大小）。
+
+    - ``label_font_px > 0``：固定字号
+    - 否则：短边 × ratio，再夹在 min~max
+    """
+    lo, hi, ratio, fixed = _font_limits()
+    if fixed > 0:
+        return _clamp_font_px(fixed)
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return lo
+    h, w = frame.shape[:2]
+    short = float(min(h, w) or 720.0)
+    return int(max(lo, min(hi, round(short * ratio))))
 
 
 def _font_supports_cjk(font) -> bool:
@@ -95,15 +141,6 @@ def _load_font(size: int):
         return None
 
 
-def label_font_px(frame: Optional[np.ndarray]) -> int:
-    """本帧所有标注共用的像素字高（只看整帧分辨率，不看框大小）。"""
-    if frame is None or getattr(frame, "size", 0) == 0:
-        return _MIN_FONT_PX
-    h, w = frame.shape[:2]
-    short = float(min(h, w) or 720.0)
-    return int(max(_MIN_FONT_PX, min(_MAX_FONT_PX, round(short * _LABEL_HEIGHT_RATIO))))
-
-
 def label_font_scale(frame: Optional[np.ndarray], *, base: float = 0.0) -> float:
     """兼容旧调用；实际绘制以 label_font_px 为准，不再用 OpenCV fontScale。"""
     del base
@@ -127,8 +164,7 @@ def put_text(
     if frame is None or frame.size == 0 or not text:
         return
 
-    px = int(font_px) if font_px is not None else label_font_px(frame)
-    px = max(_MIN_FONT_PX, min(_MAX_FONT_PX, px))
+    px = _clamp_font_px(int(font_px) if font_px is not None else label_font_px(frame))
     font = _load_font(px)
     x, y_anchor = int(org[0]), int(org[1])
 
@@ -198,7 +234,7 @@ def draw_labeled_box(
     if not box or len(box) < 4:
         return
     px = int(font_px) if font_px is not None else label_font_px(frame)
-    px = max(_MIN_FONT_PX, min(_MAX_FONT_PX, px))
+    px = _clamp_font_px(px)
     x1, y1, x2, y2 = map(int, box[:4])
     # 线宽也固定按字号，不按框大小
     box_thick = 3 if px >= 48 else 2

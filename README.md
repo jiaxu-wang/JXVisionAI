@@ -20,15 +20,14 @@
 
 | 文档 | 内容 |
 |------|------|
-| [快速开始](docs/getting-started.md) | 环境、安装、**YOLO26 模型下载**、启动 |
-| [系统架构](docs/architecture.md) | 进程模型、流水线、存储、目录结构 |
+| [快速开始](docs/getting-started.md) | 安装、**YOLO26 n/s/m/l/x 下载与切换**、启动 |
+| [系统架构](docs/architecture.md) | 进程模型、流水线、模型档位、存储 |
 | [配置说明](docs/configuration.md) | `config.ini` 与环境变量 |
 | [使用指南](docs/user-guide.md) | Web 管理端、人脸识别操作 |
-| [检测与模型](docs/detection.md) | 检测类型、专模、训练管线 |
-| [训练示例：戴眼镜](docs/training-glasses-guide.md) | 采图→标注→训练→测试→一键部署全流程 |
-| [HTTP API](docs/api.md) | 管理端 API 一览 |
-| [运维与排障](docs/operations.md) | 日志、常见问题、路线图 |
-| [人脸识别设计](docs/face_recognition_design.md) | 人脸识别详细设计与实现 |
+| [检测与模型](docs/detection.md) | 检测类型、专模、训练概要 |
+| [训练示例](docs/training-glasses-guide.md) | 采图→标注→训练→部署 |
+| [HTTP API](docs/api.md) | 管理端 API |
+| [运维与排障](docs/operations.md) | 日志、常见问题 |
 
 ---
 
@@ -40,10 +39,14 @@ cd JXVisionAI
 python3 -m venv env && source env/bin/activate
 pip install -r requirements.txt
 cp config/config.example.ini config/config.ini
-docker compose up -d redis
-# 自备 models/yolo26s.pt（及姿态 models/yolo26s-pose.pt），见 docs/getting-started.md
+docker compose up -d redis minio          # 可选再加 zlmediakit
+# 下载 YOLO26 权重（n/s/m/l/x），见 docs/getting-started.md
+./scripts/download_yolo26.sh
+# 配置 [models] yolo_model = models/yolo26s.pt 后启动
 ./start.sh
 ```
+
+`./start.sh` 拉起多进程：`visionai.api`（Web :5000）+ `visionai.worker`（拉流检测）+ `alert_worker`（异步告警）；可选 `visionai-inferd`（`[infer] backend=cpp`）与 compose 中的 ZLMediaKit。流在线状态写入 Redis，供管理端跨进程展示。
 
 管理端：<http://服务器IP:5000>，登录密钥见 `config.ini` 的 `[basic]` → `visionai_secret`。
 
@@ -51,4 +54,4 @@ docker compose up -d redis
 
 ## 技术栈
 
-Python 3.10+ · OpenCV · Ultralytics YOLO26 · Flask · Redis · onnxruntime-gpu · MinIO/S3
+Python 3.10+ · OpenCV · Ultralytics YOLO26 · Flask · Redis · onnxruntime-gpu · MinIO/S3 · ZLMediaKit（可选）· visionai-inferd（可选）

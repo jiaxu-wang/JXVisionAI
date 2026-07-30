@@ -1,0 +1,2 @@
+# Hashes of file build rules.
+3019828032090e36430c0bbe23863ba3 generated/visionai/infer/v1/infer.pb.cc

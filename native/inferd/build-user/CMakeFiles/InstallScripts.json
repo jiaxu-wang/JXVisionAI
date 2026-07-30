@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/wjx/code/python/JXVisionAI/native/inferd/build-user/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

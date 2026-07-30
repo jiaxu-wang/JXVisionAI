@@ -1,4 +1,4 @@
-"""训练实验室部署的专模检测类型注册表。
+"""训练实验室部署 / 外置导入的专模检测类型注册表。
 
 目录布局::
 
@@ -7,6 +7,11 @@
         specialist.json   # 元数据（目录与 UI / 运行时契约）
 
 专模会出现在检测类型配置中，可按流勾选；删除时同步移除权重与各流 detections 键。
+
+来源（``origin``）::
+
+    - ``trained``：训练实验室一键部署
+    - ``imported``：社区/平台现成权重，经「导入现成专模」登记
 """
 
 from __future__ import annotations
@@ -173,7 +178,45 @@ def normalize_specialist_meta(raw: Dict[str, Any], *, key: str) -> Dict[str, Any
         "source_project_id": raw.get("source_project_id"),
         "test_metrics": raw.get("test_metrics"),
         "source": "specialist",
+        "origin": _normalize_origin(raw.get("origin")),
     }
+
+
+def _normalize_origin(raw: Any) -> str:
+    o = str(raw or "trained").strip().lower()
+    if o in ("imported", "import", "external", "byo"):
+        return "imported"
+    return "trained"
+
+
+def inspect_yolo_weights(weights_path: Path) -> Dict[str, Any]:
+    """读取 Ultralytics YOLO 权重的类别名（导入向导预检用）。"""
+    path = Path(weights_path)
+    if not path.is_file():
+        return {"success": False, "message": "权重文件不存在"}
+    suffix = path.suffix.lower()
+    if suffix not in (".pt", ".onnx"):
+        return {"success": False, "message": "仅支持 .pt / .onnx"}
+    try:
+        from ultralytics import YOLO
+
+        model = YOLO(str(path))
+        names = model.names
+        if isinstance(names, dict):
+            classes = [str(names[i]) for i in sorted(int(k) for k in names.keys())]
+        elif isinstance(names, (list, tuple)):
+            classes = [str(x) for x in names]
+        else:
+            classes = []
+        return {
+            "success": True,
+            "classes": classes,
+            "num_classes": len(classes),
+            "filename": path.name,
+            "size_bytes": path.stat().st_size,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": f"无法读取权重类别: {e}"}
 
 
 def load_specialist(key: str, repo_root: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -240,6 +283,7 @@ def catalog_items_for_specialists(repo_root: Optional[Path] = None) -> List[Dict
                 "name_zh": meta["name_zh"],
                 "supported": True,
                 "source": "specialist",
+                "origin": meta.get("origin") or "trained",
                 "kind": meta["kind"],
                 "deletable": True,
             }
@@ -280,6 +324,7 @@ def deploy_specialist(
     source_project_id: Optional[str] = None,
     test_metrics: Optional[Dict[str, Any]] = None,
     backup: bool = True,
+    origin: str = "trained",
 ) -> Dict[str, Any]:
     """复制权重到 models/specialists/<key>/ 并写入 specialist.json。"""
     key = (key or "").strip()
@@ -311,13 +356,9 @@ def deploy_specialist(
 
     # 尝试从权重读类别名
     if not cls_list:
-        try:
-            from ultralytics import YOLO
-
-            names = YOLO(str(dest)).names
-            cls_list = [str(names[i]) for i in sorted(names.keys())]
-        except Exception:  # noqa: BLE001
-            pass
+        insp = inspect_yolo_weights(dest)
+        if insp.get("success") and insp.get("classes"):
+            cls_list = list(insp["classes"])
 
     raw = {
         "key": key,
@@ -342,6 +383,7 @@ def deploy_specialist(
         "source_project_id": source_project_id,
         "test_metrics": test_metrics,
         "source": "specialist",
+        "origin": _normalize_origin(origin),
     }
     meta = normalize_specialist_meta(raw, key=key)
     save_specialist_meta(meta, repo_root)
@@ -355,9 +397,13 @@ def deploy_specialist(
     except Exception:  # noqa: BLE001
         pass
 
+    origin_zh = "导入" if meta.get("origin") == "imported" else "部署"
     return {
         "success": True,
-        "message": f"已部署专模「{meta['name_zh']}」（键 {key}），可在检测类型配置中勾选；重启后推理插件也会热加载",
+        "message": (
+            f"已{origin_zh}专模「{meta['name_zh']}」（键 {key}），"
+            "可在检测类型配置中勾选；一般无需重启"
+        ),
         "key": key,
         "meta": meta,
         "dest": str(dest.resolve()),

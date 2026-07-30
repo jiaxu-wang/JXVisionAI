@@ -37,6 +37,9 @@ from visionai.config.settings import (
     CONF_THRESHOLD,
     GATHER_MIN_DURATION_SEC,
     GATHER_MIN_PERSONS,
+    INFER_BACKEND,
+    INFER_ON_DAEMON_ERROR,
+    INFER_PRIMARY_VERSION,
     MAKE_CALL_MODEL_PATH,
     MAKE_CALL_REQUIRE_PERSON_OVERLAP,
     MAKE_CALL_USE_DEDICATED,
@@ -117,36 +120,93 @@ class Detector:
         self.alert_webhook_urls: List[str] = []
         self.alert_webhook_enabled: bool = False
         self.face_recognition_config = default_face_recognition_config()
+        self._cpp_session_ready = False
         self._load_model()
 
     def _load_model(self):
+        if (INFER_BACKEND or "").strip().lower() == "cpp":
+            logger.info(
+                "infer.backend=cpp：主检走 visionai-inferd（stream_id=%s）",
+                self.stream_id or "(pending)",
+            )
+            if INFER_ON_DAEMON_ERROR == "fallback_python":
+                # 预加载 Ultralytics 以便 daemon 故障时回退
+                self._load_yolo_python()
+            return
+        self._load_yolo_python()
+
+    def _load_yolo_python(self):
+        """加载 [models] yolo_model（YOLO26 n/s/m/l/x .pt）。多路并行加载时加锁。"""
         try:
-            logger.info("正在加载YOLO模型…")
+            logger.info("正在加载YOLO模型: %s", YOLO_MODEL)
             with _yolo_model_load_lock:
                 self.model = YOLO(YOLO_MODEL)
             dev = yolo_inference_device()
             logger.info(
-                "YOLO模型加载完成；推理设备: %s",
-                dev if dev is not None else "auto（Ultralytics 默认，通常有 GPU 则用 GPU）",
+                "YOLO模型加载完成 path=%s device=%s",
+                YOLO_MODEL,
+                dev if dev is not None else "auto",
             )
         except Exception as e:
             logger.error(f"加载模型失败: {e}")
             raise
 
+    def _ensure_cpp_session(self):
+        sid = (self.stream_id or "").strip()
+        if not sid:
+            raise RuntimeError("cpp backend requires stream id (session_id)")
+        if self._cpp_session_ready:
+            return
+        from visionai.core.infer_client import get_infer_client
+
+        client = get_infer_client()
+        if not client.ready():
+            client.load_primary(version=INFER_PRIMARY_VERSION)
+        client.open_session(sid, conf=float(CONF_THRESHOLD), imgsz=640)
+        self._cpp_session_ready = True
+
+    def _detect_python(self, frame):
+        from visionai.core.infer_types import boxes_from_ultralytics
+
+        if self.model is None:
+            self._load_yolo_python()
+        dev = yolo_inference_device()
+        kw = {"conf": CONF_THRESHOLD}
+        if dev is not None:
+            kw["device"] = dev
+        return boxes_from_ultralytics(self.model(frame, **kw))
+
     def detect(self, frame):
+        """返回 DetectionBox 列表（python / cpp 统一）。"""
         try:
-            dev = yolo_inference_device()
-            kw = {"conf": CONF_THRESHOLD}
-            if dev is not None:
-                kw["device"] = dev
-            results = self.model(frame, **kw)
-            return results
+            if (INFER_BACKEND or "").strip().lower() != "cpp":
+                return self._detect_python(frame)
+
+            from visionai.core.infer_client import get_infer_client
+
+            try:
+                self._ensure_cpp_session()
+                client = get_infer_client()
+                result = client.infer((self.stream_id or "").strip(), frame)
+                if not result.ok:
+                    raise RuntimeError(f"{result.error_code}: {result.message}")
+                return result.boxes
+            except Exception as e:
+                if INFER_ON_DAEMON_ERROR == "fallback_python":
+                    logger.warning("inferd 失败，fallback_python: %s", e)
+                    return self._detect_python(frame)
+                logger.error("cpp 检测失败: %s", e)
+                return []
         except Exception as e:
             logger.error(f"检测失败: {e}")
             return []
 
+    def process_results_from_boxes(self, frame, boxes):
+        """处理已归一化的 DetectionBox 列表（主路径）。"""
+        return self.process_results(frame, boxes)
+
     def process_results(self, frame, results):
-        """处理检测结果。
+        """处理检测结果（接受 Ultralytics Results 或 DetectionBox 列表）。
 
         「打电话」：人物框与手机框存在重叠（交集面积 > 0）即记为一次打电话配对。
 
@@ -200,27 +260,31 @@ class Detector:
         behavior_needed = person_behavior_on or scene_behavior_on or face_recog_on
         behavior_src = frame.copy() if behavior_needed else None
 
-        for result in results:
-            if result.boxes is None:
+        from visionai.core.infer_types import DetectionBox, boxes_from_ultralytics
+
+        if isinstance(results, list) and (not results or isinstance(results[0], DetectionBox)):
+            det_boxes = results
+        else:
+            det_boxes = boxes_from_ultralytics(results)
+
+        for box in det_boxes:
+            x1, y1, x2, y2 = map(int, (box.x1, box.y1, box.x2, box.y2))
+            conf = float(box.conf)
+            cls = int(box.class_id)
+
+            if cls < 0 or cls >= NUM_COCO_CLASSES:
                 continue
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf)
-                cls = int(box.cls)
 
-                if cls < 0 or cls >= NUM_COCO_CLASSES:
-                    continue
-
-                if cls == 0 and collect_person:
-                    persons.append({"box": (x1, y1, x2, y2), "confidence": conf})
-                elif cls == 67 and collect_phone:
-                    cell_phones.append({"box": (x1, y1, x2, y2), "confidence": conf})
-                elif self.detections.get(str(cls), False):
-                    det = {"box": (x1, y1, x2, y2), "confidence": conf}
-                    by_class[cls].append(det)
-                    color = _bgr_for_class(cls)
-                    label = f"{COCO_NAMES.get(cls, str(cls))}: {conf:.2f}"
-                    draw_labeled_box(frame, (x1, y1, x2, y2), label, color)
+            if cls == 0 and collect_person:
+                persons.append({"box": (x1, y1, x2, y2), "confidence": conf})
+            elif cls == 67 and collect_phone:
+                cell_phones.append({"box": (x1, y1, x2, y2), "confidence": conf})
+            elif self.detections.get(str(cls), False):
+                det = {"box": (x1, y1, x2, y2), "confidence": conf}
+                by_class[cls].append(det)
+                color = _bgr_for_class(cls)
+                label = f"{COCO_NAMES.get(cls, str(cls))}: {conf:.2f}"
+                draw_labeled_box(frame, (x1, y1, x2, y2), label, color)
 
         if alarm_person:
             for p in persons:
@@ -620,7 +684,8 @@ class Detector:
                         label = "人脸识别: 陌生人"
                     if attr:
                         label = f"{label}({attr})"
-                    detection_types.append(label)
+                    if label not in detection_types:
+                        detection_types.append(label)
                     info.append(f"{label} ({sim:.2f})")
                     item = {
                         "person_id": m.get("person_id"),
@@ -686,6 +751,33 @@ class Detector:
         try:
             cv2.imwrite(save_path, frame)
             self.last_save_time = current_time
+
+            # 异步告警队列：检测线程只落盘并投递，由 alert_worker 上传/写库/发信
+            from visionai.config.settings import ALERT_QUEUE_ENABLED
+            from visionai.core.alert_queue import enqueue_alert_job
+
+            if ALERT_QUEUE_ENABLED:
+                job = {
+                    "stream_name": self.stream_name,
+                    "stream_id": (self.stream_id or "").strip(),
+                    "detection_types": detection_types,
+                    "image_path": save_path,
+                    "timestamp": now.isoformat(timespec="seconds"),
+                    "extra": detection_extra,
+                    "alert_emails": list(self.alert_emails or []),
+                    "alert_email_enabled": bool(self.alert_email_enabled),
+                    "alert_webhook_urls": list(self.alert_webhook_urls or []),
+                    "alert_webhook_enabled": bool(self.alert_webhook_enabled),
+                }
+                if enqueue_alert_job(job):
+                    if info:
+                        logger.info(
+                            f"[{self.stream_name}] 检测到: {', '.join(info)}，已入告警队列"
+                        )
+                    return True
+                logger.warning(
+                    f"[{self.stream_name}] 告警入队失败，回退同步写库"
+                )
 
             object_key = None
             storage_kind = None

@@ -8,9 +8,9 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`） |
+| `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`、`status`；状态来自 Redis） |
 | `POST` | `/api/streams` | 保存流配置到 Redis |
-| `GET` | `/api/stream-status` | 各流在线状态 |
+| `GET` | `/api/stream-status` | 各流在线状态（Redis `{prefix}stream_runtime_status`，worker 心跳） |
 | `POST` | `/api/onvif/discover` | 局域网 WS-Discovery（body: `timeout_sec?`） |
 | `POST` | `/api/onvif/probe` | 探测设备（`host/port/username/password`） |
 | `POST` | `/api/onvif/profiles` | 列举 Profile 与 RTSP URI |
@@ -37,15 +37,15 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| `GET` | `/healthz` | 存活探针（无需登录） |
+| `GET` | `/readyz` | 就绪探针：Redis + 可选 ZLM/inferd（无需登录） |
+| `GET` | `/api/metrics` | 运行指标：`uptime_sec`、`alert_queue_depth`、`stream_status`（Redis）；每路 `frames`/`detects` 等为 **API 进程本地**计数（拆分进程时可能为空，以 worker 日志为准） |
+| `GET` | `/api/zlm/status` | ZLM：`alive` / `reachable` / `auth_ok`、`message`、各流代理与播放地址 |
+| `POST` | `/api/zlm/ensure-proxy` | 建立/复用拉流代理，返回 `play`（hls/webrtc/…） |
+| `POST` | `/api/zlm/webrtc/play` | **流预览**：ZLM WebRTC play；body `{stream_id,sdp}`，返回 answer `sdp` |
 | `GET/PUT` | `/api/system/config` | 读取/保存 `config.ini` |
-| `GET` | `/api/config` | 运行时配置摘要（含预览能力） |
+| `GET` | `/api/config` | 运行时配置摘要（含 `preview.zlm_webrtc_enabled`） |
 | `POST` | `/api/restart` | 重启服务（依赖 `start.sh` 布局） |
-| `GET` | `/api/preview` | MJPEG 预览（仅画面） |
-| `WS` | `/ws/preview` | WebSocket JPEG 预览（仅画面） |
-| `POST` | `/api/preview-hls/start` | 启动 HLS（可含音频）；返回 `playlist`、`audio` |
-| `POST` | `/api/preview-hls/stop` | 停止 HLS 会话 |
-| `GET` | `/api/preview-hls/data/<session>/<file>` | HLS 分片 / m3u8 |
-| `POST` | `/api/preview-webrtc/*` | WebRTC 信令（可选） |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
 ---
@@ -54,8 +54,29 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/training/specialists` | 已部署专模列表（key、名称、kind、路径等） |
+| `GET` | `/api/training/specialists` | 已部署专模列表（key、名称、kind、origin、路径等） |
+| `POST` | `/api/training/specialists/inspect` | **multipart** 上传权重预检类别（字段 `file`；不落盘为专模） |
+| `POST` | `/api/training/specialists/import` | **multipart** 导入现成专模（见下表） |
 | `DELETE` | `/api/training/specialists/<key>` | 删除专模目录并从流配置中移除该检测键 |
 | `POST` | `/api/training/projects/<pid>/deploy` | 训练项目 **一键部署**（专模 → `models/specialists/<key>/`；`make_call` 走内置路径） |
+
+### 导入现成专模 `POST /api/training/specialists/import`
+
+`multipart/form-data`：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `file` | 是 | `.pt` / `.onnx`（Ultralytics YOLO detect） |
+| `key` | 是 | 专模键名 |
+| `kind` | 否 | `person_event`（默认）/ `violation` / `scene` |
+| `name_zh` / `name_en` | 否 | 显示名 |
+| `classes` | 否 | 逗号分隔类别名；空则从权重读取 |
+| `conf` / `score_threshold` / `min_duration_sec` | 否 | 阈值 |
+| `positive_class_ids` | 否 | person_event 告警类，默认 `0` |
+| `subject_class_ids` / `comply_class_ids` | 否 | violation 违规/合规类，默认 `0` / `1` |
+| `class_ids` | 否 | scene 过滤类 |
+| `needs_persons` | 否 | `true`/`false`，默认 true |
+
+成功后热加载插件，一般无需重启。操作说明见 [detection.md](detection.md#导入现成专模社区--平台权重)。
 
 完整训练实验室接口（项目、采图、标注、训练任务、验证、快照回流等）见 `/training` 页面与 `visionai/web/training_routes.py`。

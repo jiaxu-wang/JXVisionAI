@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package visionai.infer.v1;
+
+// JXVisionAI inference daemon API (Phase1 / S1+).
+// Breaking changes must bump to v2; additive fields only within v1.
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  OK = 1;
+  INVALID_ARGUMENT = 2;
+  NOT_FOUND = 3;
+  NOT_READY = 4;
+  BACKEND_FAILURE = 5;
+  UNSUPPORTED = 6;
+  RESOURCE_EXHAUSTED = 7;
+}
+
+message Status {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+service InferService {
+  rpc Live(LiveRequest) returns (LiveResponse);
+  rpc Ready(ReadyRequest) returns (ReadyResponse);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc LoadModel(LoadModelRequest) returns (LoadModelResponse);
+  rpc UnloadModel(UnloadModelRequest) returns (UnloadModelResponse);
+  rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
+  rpc UpdateSession(UpdateSessionRequest) returns (UpdateSessionResponse);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+  rpc Infer(InferRequest) returns (InferResponse);
+}
+
+message LiveRequest {}
+
+message LiveResponse {
+  bool alive = 1;
+  string server_version = 2;
+  string api_version = 3;
+}
+
+message ReadyRequest {}
+
+message ReadyResponse {
+  bool ready = 1;
+  Status status = 2;
+  repeated string loaded_models = 3;
+}
+
+message ModelSpec {
+  string name = 1;
+  string version = 2;
+  string format = 3;
+  string device = 4;
+  string path = 5;
+  map<string, string> meta = 6;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  Status status = 1;
+  repeated ModelSpec models = 2;
+}
+
+message LoadModelRequest {
+  ModelSpec model = 1;
+}
+
+message LoadModelResponse {
+  Status status = 1;
+}
+
+message UnloadModelRequest {
+  string name = 1;
+  string version = 2;
+}
+
+message UnloadModelResponse {
+  Status status = 1;
+}
+
+message SessionConfig {
+  string session_id = 1;
+  string model_name = 2;
+  float conf = 3;
+  int32 imgsz = 4;
+  repeated int32 class_filter = 5;
+  map<string, string> params = 6;
+}
+
+message OpenSessionRequest {
+  SessionConfig config = 1;
+}
+
+message OpenSessionResponse {
+  Status status = 1;
+}
+
+message UpdateSessionRequest {
+  SessionConfig config = 1;
+}
+
+message UpdateSessionResponse {
+  Status status = 1;
+}
+
+message CloseSessionRequest {
+  string session_id = 1;
+}
+
+message CloseSessionResponse {
+  Status status = 1;
+}
+
+message ImageTensor {
+  int32 height = 1;
+  int32 width = 2;
+  int32 channels = 3;
+  string layout = 4;
+  string color = 5;
+  string dtype = 6;
+  bytes data = 7;
+  string shm_name = 8;
+  uint64 shm_size = 9;
+}
+
+message InferRequest {
+  string session_id = 1;
+  ImageTensor image = 2;
+  int64 frame_id = 3;
+  int64 frame_ts_ms = 4;
+}
+
+message Detection {
+  float x1 = 1;
+  float y1 = 2;
+  float x2 = 3;
+  float y2 = 4;
+  int32 class_id = 5;
+  float conf = 6;
+  string label = 7;
+  string model_name = 8;
+}
+
+message InferResponse {
+  Status status = 1;
+  repeated Detection detections = 2;
+  int64 infer_ms = 3;
+  int64 frame_id = 4;
+}

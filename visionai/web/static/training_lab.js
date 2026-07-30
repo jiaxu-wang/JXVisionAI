@@ -354,13 +354,14 @@
       li.className = 'tl-specialist-item';
       var inner = document.createElement('div');
       inner.className = 'tl-project-inner';
-      inner.innerHTML =
+        inner.innerHTML =
         '<strong>' +
         esc(sp.name_zh || sp.key) +
         '</strong> <span class="tl-muted">(' +
         esc(sp.key) +
         ' · ' +
         esc(sp.kind || '') +
+        (sp.origin === 'imported' ? ' · 导入' : ' · 自训') +
         ')</span>';
       var del = document.createElement('button');
       del.type = 'button';
@@ -1646,6 +1647,130 @@
   if ($('btn-refresh-specialists')) {
     $('btn-refresh-specialists').addEventListener('click', function () {
       loadSpecialists().catch(function () {});
+    });
+  }
+
+  function syncImportKindFields() {
+    var kind = ($('import-kind') && $('import-kind').value) || 'person_event';
+    var root = $('import-kind-fields');
+    if (!root) return;
+    root.querySelectorAll('[data-for-kind]').forEach(function (el) {
+      var forKind = el.getAttribute('data-for-kind');
+      if (forKind === kind) {
+        el.classList.remove('tl-hidden');
+      } else {
+        el.classList.add('tl-hidden');
+      }
+    });
+  }
+
+  if ($('import-kind')) {
+    $('import-kind').addEventListener('change', syncImportKindFields);
+    syncImportKindFields();
+  }
+
+  if ($('btn-import-inspect')) {
+    $('btn-import-inspect').addEventListener('click', async function () {
+      var fileInput = $('import-file');
+      var status = $('import-inspect-status');
+      if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+        alert('请先选择权重文件');
+        return;
+      }
+      if (status) status.textContent = '读取中…';
+      var fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      var r = await fetch('/api/training/specialists/inspect', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      var j = await r.json().catch(function () {
+        return {};
+      });
+      if (!r.ok || !j.success) {
+        if (status) status.textContent = j.message || '读取失败';
+        return;
+      }
+      var cls = j.classes || [];
+      if ($('import-classes') && cls.length && !$('import-classes').value.trim()) {
+        $('import-classes').value = cls.join(',');
+      }
+      if (status) {
+        status.textContent =
+          (j.filename || '') +
+          ' · ' +
+          cls.length +
+          ' 类：' +
+          cls.map(function (c, i) {
+            return i + '=' + c;
+          }).join(', ');
+      }
+    });
+  }
+
+  if ($('btn-import-specialist')) {
+    $('btn-import-specialist').addEventListener('click', async function () {
+      var fileInput = $('import-file');
+      var status = $('import-status');
+      if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+        var url = ($('import-weights-url') && $('import-weights-url').value.trim()) || '';
+        if (!url) {
+          alert('请先选择权重文件或填写权重 URL');
+          return;
+        }
+      }
+      var key = ($('import-key') && $('import-key').value.trim()) || '';
+      if (!key) {
+        alert('请填写专模键名 key');
+        return;
+      }
+      var nameZh = ($('import-name-zh') && $('import-name-zh').value.trim()) || key;
+      if (
+        !window.confirm(
+          '确认导入专模「' + nameZh + '」（键 ' + key + '）？\n同名键将备份旧权重后覆盖。'
+        )
+      ) {
+        return;
+      }
+      if (status) status.textContent = '导入中…';
+      var fd = new FormData();
+      if (fileInput && fileInput.files && fileInput.files[0]) {
+        fd.append('file', fileInput.files[0]);
+      }
+      var wurl = ($('import-weights-url') && $('import-weights-url').value.trim()) || '';
+      if (wurl) fd.append('weights_url', wurl);
+      fd.append('key', key);
+      fd.append('kind', ($('import-kind') && $('import-kind').value) || 'person_event');
+      fd.append('name_zh', nameZh);
+      fd.append('name_en', ($('import-name-en') && $('import-name-en').value.trim()) || '');
+      fd.append('classes', ($('import-classes') && $('import-classes').value) || '');
+      fd.append('conf', ($('import-conf') && $('import-conf').value) || '');
+      fd.append('score_threshold', ($('import-score') && $('import-score').value) || '');
+      fd.append('min_duration_sec', ($('import-duration') && $('import-duration').value) || '');
+      fd.append(
+        'needs_persons',
+        $('import-needs-persons') && $('import-needs-persons').checked ? 'true' : 'false'
+      );
+      fd.append('positive_class_ids', ($('import-positive-ids') && $('import-positive-ids').value) || '');
+      fd.append('subject_class_ids', ($('import-subject-ids') && $('import-subject-ids').value) || '');
+      fd.append('comply_class_ids', ($('import-comply-ids') && $('import-comply-ids').value) || '');
+      fd.append('class_ids', ($('import-class-ids') && $('import-class-ids').value) || '');
+      var r = await fetch('/api/training/specialists/import', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      var j = await r.json().catch(function () {
+        return {};
+      });
+      if (!r.ok || !j.success) {
+        if (status) status.textContent = j.message || '导入失败';
+        alert(j.message || '导入失败');
+        return;
+      }
+      if (status) status.textContent = j.message || '已导入';
+      await loadSpecialists();
     });
   }
 })();

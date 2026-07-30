@@ -4,18 +4,18 @@
   <img src="assets/logo.png" alt="JXVisionAI" width="360">
 </p>
 
-本目录收录项目的架构说明、配置参考、使用指南与详细设计。
+本目录为**架构与使用**说明（不含开发过程设计稿）。
 
 | 文档 | 说明 |
 |------|------|
-| [getting-started.md](getting-started.md) | 环境要求、安装依赖、模型准备、启动与 Docker |
-| [architecture.md](architecture.md) | 系统架构、处理流水线、行为插件、数据存储、仓库结构 |
-| [configuration.md](configuration.md) | `config.ini` 分节（basic/redis/minio/email/models/preview）与环境变量 |
-| [user-guide.md](user-guide.md) | Web 管理端各页面、添加视频流、人脸识别使用 |
-| [detection.md](detection.md) | 内置检测 + 训练专模、打电话/聚集逻辑、训练管线 |
-| [training-glasses-guide.md](training-glasses-guide.md) | **训练操作示例**：未戴眼镜全流程（采图→标注→训练→测试→部署） |
-| [api.md](api.md) | HTTP API 一览 |
-| [operations.md](operations.md) | 日志、排障、性能与安全、路线图 |
-| [face_recognition_design.md](face_recognition_design.md) | 人脸识别功能详细设计（SCRFD + ArcFace、Redis/MinIO 人脸库） |
+| [getting-started.md](getting-started.md) | 安装、**YOLO26 各档下载与切换**、启动 |
+| [architecture.md](architecture.md) | 多进程模型、流水线、Redis 状态、ZLM、存储 |
+| [configuration.md](configuration.md) | `config.ini` 分节、infer / zlm、环境变量 |
+| [user-guide.md](user-guide.md) | Web 管理端、状态/ZLM、加人脸、加流 |
+| [detection.md](detection.md) | 检测类型、专模、训练管线概要 |
+| [training-glasses-guide.md](training-glasses-guide.md) | 训练实验室操作示例（未戴眼镜） |
+| [ha.md](ha.md) | 多 worker 流租约 HA 演练 |
+| [api.md](api.md) | HTTP API |
+| [operations.md](operations.md) | 日志、排障、性能注意 |
 
-返回项目首页：[../README.md](../README.md)
+返回：[../README.md](../README.md)

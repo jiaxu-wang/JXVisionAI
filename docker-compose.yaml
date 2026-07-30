@@ -71,3 +71,17 @@ services:
   #    minio:
   #      condition: service_started
   #  restart: unless-stopped
+
+  zlmediakit:
+    image: zlmediakit/zlmediakit:master
+    container_name: visionai-zlm
+    ports:
+      - "8080:80"      # HTTP API / HLS / FLV / WebRTC 信令
+      - "8554:554"     # RTSP（检测本地回源）
+      - "1935:1935"    # RTMP
+      - "8000:8000/udp"  # WebRTC media (STUN/DTLS/SRTP)
+      - "8000:8000/tcp"  # WebRTC TCP 候选（可选）
+    volumes:
+      - ./config/zlm/config.ini:/opt/media/conf/config.ini:ro
+      - ./logs/zlm:/opt/media/bin/log
+    restart: unless-stopped

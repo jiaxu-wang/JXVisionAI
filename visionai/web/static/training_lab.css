@@ -171,6 +171,24 @@ body {
 .tl-gate-ok { color: #86efac; font-weight: 600; }
 .tl-gate-bad { color: #fca5a5; font-weight: 600; }
 .tl-hint { font-size: 0.78rem; color: #94a3b8; margin: 4px 0; }
+.tl-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  margin: 8px 0 4px;
+}
+.tl-label .tl-input { margin-top: 4px; }
+.tl-import-form {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.45);
+}
+.tl-import-advanced { margin-top: 4px; }
+.tl-row-tight { gap: 8px; }
+.tl-row-tight .tl-input { flex: 1 1 0; min-width: 0; }
+
 .tl-canvas {
   display: block;
   max-width: 100%;
@@ -288,3 +306,9 @@ body {
   color: #a5b4fc;
 }
 .tl-check { font-size: 0.82rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 6px; }
+.tl-import-form .tl-check {
+  display: flex;
+  color: #cbd5e1;
+  margin: 10px 0;
+}
+.tl-import-form .tl-check input { width: auto; }

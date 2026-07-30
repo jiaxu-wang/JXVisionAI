@@ -1,0 +1,8 @@
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/infer_proto.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/visionai-inferd.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/edit_cache.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/rebuild_cache.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/list_install_components.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/install.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/install/local.dir
+/home/wjx/code/python/JXVisionAI/native/inferd/build-user/CMakeFiles/install/strip.dir

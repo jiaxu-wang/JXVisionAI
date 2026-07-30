@@ -1,0 +1,11 @@
+{
+  "name": "primary",
+  "version": "1",
+  "format": "onnx",
+  "task": "detect",
+  "imgsz": 640,
+  "num_classes": 80,
+  "labels": "coco80",
+  "backend": "onnxruntime",
+  "meta": {}
+}

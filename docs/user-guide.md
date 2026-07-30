@@ -6,12 +6,17 @@
 
 | 页面 | 功能 |
 |------|------|
-| **状态概览** | 各流在线/离线、今日告警数 |
+| **状态概览** | 各流在线/离线、今日告警数、运行指标、ZLM 状态 |
 | **事件监控** | 添加/编辑 RTSP 流、**ONVIF 发现**、检测类型、邮件/Webhook 告警 |
 | **历史告警** | 分页查看检测记录与截图 |
-| **系统设置** | 在线编辑 `config.ini` 各分节（basic / redis / minio / email / models / preview） |
+| **系统设置** | 在线编辑 `config.ini` 各分节（basic / redis / minio / email / models / infer / zlm / preview） |
 | **人脸库管理** | 录入人员、查看照片 |
-| **训练实验室** | 可上线专模：审核标注 → train/val/test → 测试集门禁 → 一键部署（含未戴眼镜）；部署后专模出现在检测类型目录 |
+| **训练实验室** | **自训专模**（标注→训→门禁→部署）与 **导入现成专模**（上传社区 YOLO 权重）；上线后均可在检测类型目录勾选 |
+
+### 流在线状态与 ZLM
+
+- **在线/离线**：由 `visionai.worker` 写入 Redis（`{key_prefix}stream_runtime_status`），管理端 API 读取；约 3 分钟无心跳则显示离线。分析在跑但页面全离线时，确认 worker 已重启且 Redis 可达。
+- **ZLM**：`[zlm] enabled=true` 且容器正常、secret 正确时，状态概览显示「ZLM 在线 · 代理 …」。若显示「ZLM 鉴权失败」，检查 `config.ini` 与 `config/zlm/config.ini` 的 secret 是否一致并重启 zlmediakit。`fallback_direct_rtsp=true` 时代理失败仍可直连摄像机继续检测。
 
 ---
 
@@ -19,10 +24,10 @@
 
 1. 点击 **+ 添加视频**，填写名称与 RTSP URL  
    - 密码含 `@` 时需编码为 `%40`（如 `inrico@123` → `inrico%40123`）
-2. 点击 **检测类型配置**，勾选需要的检测项（内置项 + 已部署 **专模**；如「人脸识别」、训练实验室部署的「未戴眼镜」等）
+2. 点击 **检测类型配置**，勾选需要的检测项（内置项 + 已部署/导入的 **专模**；如「人脸识别」、「未戴眼镜」等）
 3. 配置 **邮件告警** / **Webhook**（可选）
 4. 点击 **保存配置**
-5. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径，点击 **重启服务** 或执行 `./stop.sh && ./start.sh`；**训练专模** 部署后一般热加载，无需重启
+5. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径，点击 **重启服务** 或执行 `./stop.sh && ./start.sh`；**专模**（自训部署或导入）一般热加载，无需重启
 
 ### ONVIF 发现（推荐局域网摄像头）
 
@@ -48,22 +53,36 @@
 
 ## 流预览
 
-事件监控 / 状态概览中可打开预览。**检测识别**仍只用 OpenCV 视频帧，不处理音频。
+事件监控 / 状态概览中点击 **预览**，仅使用 **ZLM WebRTC**（低延迟，源有兼容音轨时可听声）。
 
-| 方式 | 说明 |
-|------|------|
-| **MJPEG**（默认） | 服务端按 RTSP URL 直拉画面 → JPEG，**无声音**，最快最稳 |
-| **WebSocket** | 同样直拉，可勾选「显示检测框」，**无声音** |
-| **HLS** | 需服务器 `ffmpeg`；有音轨时 AAC 编码，浏览器可**听声**（延迟约 1～几秒）。无音轨则自动纯画面 |
-| **WebRTC**（可选） | 低延迟预览；需 `[preview]` 与信令配置，见 [HTTP API - 预览](api.md#系统与预览) |
+前置：`[zlm] enabled=true`、secret 正确、compose 映射 **UDP/TCP 8000**；跨机将 `public_host` / `rtc.externIP` 设为浏览器可达 IP。浏览器需点播放并可能取消静音。
 
-听声时请选 **HLS**，必要时在播放器里取消静音 / 点播放（浏览器可能拦截自动出声）。
+检测分析与预览无关，始终由 worker 拉流。
+
+---
+
+## 专模：自训与导入现成权重
+
+检测能力三层：**COCO 80 主检** + **内置扩展** + **专模**。专模有两条上线路径（详见 [detection.md](detection.md)）：
+
+### A. 导入现成专模（社区 / 平台）
+
+1. 从 Hugging Face、Ultralytics Platform 等下载 **Ultralytics YOLO detect** 的 `.pt`（或 `.onnx`），或准备直链 URL  
+2. 打开 **训练实验室** → 左侧 **导入现成专模**  
+3. 选文件或填 **权重 URL** →（可选）**读取类别** → 填 `key` / 中文名 / `kind` / 阈值 → **导入并上线**  
+4. **事件监控** → **检测类型配置** → 勾选该专模 → **保存配置**
+
+注意：类别顺序须与 `kind` 约定一致（如 violation：`0=违规, 1=合规`）；不要替换主检 `yolo_model`。
+
+### B. 平台自训专模
+
+训练实验室完成标注与训练，测试集过门禁后 **一键部署**（示例：[未戴眼镜指南](training-glasses-guide.md)）。
 
 ---
 
 ## 人脸识别
 
-基于 InsightFace **buffalo_l**（`onnxruntime-gpu` / `onnxruntime` 推理，由 `[basic]` `inference_device` 控制 CPU/GPU；无需安装 `insightface` pip 包）。详细设计见 [face_recognition_design.md](face_recognition_design.md)。
+基于 InsightFace **buffalo_l**（`onnxruntime-gpu` / `onnxruntime`，由 `[basic]` `inference_device` 控制 CPU/GPU；无需 `insightface` pip 包）。模型放 `models/buffalo_l/`，人脸库元数据在 Redis、照片在 MinIO；在流的检测类型中勾选「人脸识别」后使用。
 
 ### 存储结构
 

@@ -14,7 +14,7 @@
             <img class="tl-logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
             <div>
                 <h1>训练实验室</h1>
-                <p class="tl-sub">场景模板 → 采图/快照回流 → 标注/预标注审核 → 训练评估（val+test）→ 质量门禁部署 → 阈值向导</p>
+                <p class="tl-sub">场景模板 → 采图/标注/训练部署 · 或导入社区现成 YOLO 专模 → 检测类型按流勾选</p>
             </div>
         </div>
         <div class="tl-header-actions">
@@ -29,9 +29,75 @@
             <button type="button" id="btn-new-project" class="tl-btn tl-btn-primary">新建项目</button>
             <ul id="project-list" class="tl-list"></ul>
             <h3 class="tl-subsection">已部署专模</h3>
-            <p class="tl-hint">训练实验室部署的专模；可在管理平台「检测类型配置」中按流勾选。</p>
+            <p class="tl-hint">含训练实验室部署与「导入现成专模」；可在管理平台「检测类型配置」中按流勾选。</p>
             <ul id="specialist-list" class="tl-list"></ul>
             <button type="button" id="btn-refresh-specialists" class="tl-btn tl-btn-secondary">刷新专模列表</button>
+
+            <h3 class="tl-subsection">导入现成专模</h3>
+            <p class="tl-hint">
+                接入 Hugging Face / Ultralytics Platform 等社区 YOLO 检测权重（<code>.pt</code> / <code>.onnx</code>）。
+                勿用其替换主检 <code>yolo_model</code>（主检固定 COCO 80）；专模与主检并行。
+            </p>
+            <div class="tl-import-form">
+                <label class="tl-label">权重文件
+                    <input type="file" id="import-file" class="tl-input" accept=".pt,.onnx,application/octet-stream">
+                </label>
+                <label class="tl-label">或权重 URL（http/https，可空）
+                    <input type="url" id="import-weights-url" class="tl-input" placeholder="https://.../model.pt">
+                </label>
+                <div class="tl-row">
+                    <button type="button" id="btn-import-inspect" class="tl-btn tl-btn-secondary">读取类别</button>
+                    <span id="import-inspect-status" class="tl-muted"></span>
+                </div>
+                <label class="tl-label">键名 key（小写字母开头，a-z0-9_）
+                    <input type="text" id="import-key" class="tl-input" placeholder="如 hardhat / smoking">
+                </label>
+                <label class="tl-label">中文名
+                    <input type="text" id="import-name-zh" class="tl-input" placeholder="如 未戴安全帽">
+                </label>
+                <label class="tl-label">英文名（可选）
+                    <input type="text" id="import-name-en" class="tl-input" placeholder="no_hardhat">
+                </label>
+                <label class="tl-label">类型 kind
+                    <select id="import-kind" class="tl-input">
+                        <option value="person_event">person_event（人物关联事件，如吸烟）</option>
+                        <option value="violation">violation（合规/违规双类，如安全帽）</option>
+                        <option value="scene">scene（全画面场景）</option>
+                    </select>
+                </label>
+                <label class="tl-label">类别名（逗号分隔，可空=自动从权重读）
+                    <input type="text" id="import-classes" class="tl-input" placeholder="no_helmet,helmet">
+                </label>
+                <div class="tl-import-advanced" id="import-kind-fields">
+                    <label class="tl-label" data-for-kind="person_event">positive_class_ids（告警类索引，默认 0）
+                        <input type="text" id="import-positive-ids" class="tl-input" value="0">
+                    </label>
+                    <label class="tl-label" data-for-kind="violation">subject_class_ids（违规类，默认 0）
+                        <input type="text" id="import-subject-ids" class="tl-input" value="0">
+                    </label>
+                    <label class="tl-label" data-for-kind="violation">comply_class_ids（合规类，默认 1）
+                        <input type="text" id="import-comply-ids" class="tl-input" value="1">
+                    </label>
+                    <label class="tl-label" data-for-kind="scene">class_ids（场景类，空=全部）
+                        <input type="text" id="import-class-ids" class="tl-input" placeholder="0 或 0,1">
+                    </label>
+                </div>
+                <label class="tl-label">conf / score_threshold / min_duration_sec
+                    <div class="tl-row tl-row-tight">
+                        <input type="number" id="import-conf" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="conf" value="0.40">
+                        <input type="number" id="import-score" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="score" value="0.45">
+                        <input type="number" id="import-duration" class="tl-input" step="0.1" min="0" placeholder="秒" value="1">
+                    </div>
+                </label>
+                <label class="tl-check">
+                    <input type="checkbox" id="import-needs-persons" checked>
+                    需与人物框重叠（person_event / violation 常用）
+                </label>
+                <div class="tl-row">
+                    <button type="button" id="btn-import-specialist" class="tl-btn tl-btn-primary">导入并上线</button>
+                    <span id="import-status" class="tl-muted"></span>
+                </div>
+            </div>
         </section>
 
         <section class="tl-panel tl-workspace">

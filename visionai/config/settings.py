@@ -207,8 +207,47 @@ SAVE_DIR = _cfg_path("SAVE_DIR", "./snapshots")
 SAVE_FORMAT = "%Y%m%d_%H%M%S_%f.jpg"
 SAVE_INTERVAL = _cfg_int("SAVE_INTERVAL", 10)
 
-# YOLO
+# YOLO26 主检权重（[models] yolo_model）。
+# 可选 models/yolo26{n,s,m,l,x}.pt — 越大通常越准越慢；改配置后须重启进程。
+# 下载：scripts/download_yolo26.sh 或 docs/getting-started.md
 YOLO_MODEL = _cfg_path("YOLO_MODEL", _models_default("yolo26s.pt"))
+
+# ---------- 主检后端 [infer]（见 docs/architecture.md）----------
+# python：Ultralytics 直接加载 YOLO_MODEL（.pt），换档位最方便
+# cpp：走 visionai-inferd（ONNX 仓库 models/repo/…），多路共享引擎
+INFER_BACKEND = _cfg_str("INFER_BACKEND", "python").strip().lower()
+INFER_ENDPOINT = _cfg_str("INFER_ENDPOINT", "unix:///tmp/visionai-inferd.sock")
+INFER_MODEL_REPOSITORY = _cfg_path("INFER_MODEL_REPOSITORY", "models/repo")
+INFER_PRIMARY_NAME = _cfg_str("INFER_PRIMARY_NAME", "primary")
+INFER_PRIMARY_VERSION = _cfg_str("INFER_PRIMARY_VERSION", "1")
+# daemon 不可用：fail=本周期失败；fallback_python=回退 Ultralytics（开发用）
+INFER_ON_DAEMON_ERROR = _cfg_str("INFER_ON_DAEMON_ERROR", "fail").strip().lower()
+INFER_DEVICE = _cfg_str("INFER_DEVICE", "")  # 空则继承 [basic] inference_device
+
+# ---------- ZLMediaKit 媒体面 [zlm] ----------
+ZLM_ENABLED = _cfg_bool("ZLM_ENABLED", False)
+ZLM_API_BASE = _cfg_str("ZLM_API_BASE", "http://127.0.0.1:8080").strip()
+ZLM_SECRET = _cfg_str("ZLM_SECRET", "jxvisionai-zlm-a7f3c91e4b2d6e80").strip()
+ZLM_VHOST = _cfg_str("ZLM_VHOST", "__defaultVhost__").strip() or "__defaultVhost__"
+ZLM_APP = _cfg_str("ZLM_APP", "live").strip() or "live"
+ZLM_RTSP_PORT = max(1, min(65535, _cfg_int("ZLM_RTSP_PORT", 8554)))
+ZLM_HTTP_PORT = max(1, min(65535, _cfg_int("ZLM_HTTP_PORT", 8080)))
+ZLM_PREFER_LOCAL_PULL = _cfg_bool("ZLM_PREFER_LOCAL_PULL", True)
+ZLM_FALLBACK_DIRECT_RTSP = _cfg_bool("ZLM_FALLBACK_DIRECT_RTSP", True)
+ZLM_PUBLIC_HOST = _cfg_str("ZLM_PUBLIC_HOST", "127.0.0.1").strip() or "127.0.0.1"
+# WebRTC ICE 端口（须与 config/zlm/config.ini [rtc] port 及 docker 映射一致）
+ZLM_RTC_PORT = max(1, min(65535, _cfg_int("ZLM_RTC_PORT", 8000)))
+
+# 告警异步队列
+ALERT_QUEUE_ENABLED = _cfg_bool("ALERT_QUEUE_ENABLED", True)
+ALERT_QUEUE_MAX_LEN = max(100, _cfg_int("ALERT_QUEUE_MAX_LEN", 2000))
+ALERT_QUEUE_BLOCK_SEC = max(1, _cfg_int("ALERT_QUEUE_BLOCK_SEC", 5))
+
+# 多 worker 流租约（P3 HA）
+STREAM_LEASE_ENABLED = _cfg_bool("STREAM_LEASE_ENABLED", False)
+STREAM_LEASE_TTL_SEC = max(5, _cfg_int("STREAM_LEASE_TTL_SEC", 30))
+STREAM_LEASE_RENEW_SEC = max(2, min(STREAM_LEASE_TTL_SEC - 1, _cfg_int("STREAM_LEASE_RENEW_SEC", 10)))
+WORKER_ID = _cfg_str("WORKER_ID", "").strip()
 
 # 打电话 / 玩手机：YOLO+COCO overlap 后用人体姿态（YOLO26-pose）把手机中心与耳根/口鼻/手腕比距分类
 POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolo26s-pose.pt"))
@@ -239,22 +278,11 @@ DETECTION_RETENTION_DAYS = max(1, _cfg_int("DETECTION_RETENTION_DAYS", 1))
 # 管理端
 AUTO_REFRESH_INTERVAL = _cfg_int("AUTO_REFRESH_INTERVAL", 20)
 
-# 流预览：MJPEG/WS 带标注轮询（秒，愈小愈跟手略增 CPU）
-PREVIEW_ANNOTATED_POLL_SEC = max(0.02, _cfg_float("PREVIEW_ANNOTATED_POLL_SEC", 0.05))
-# HLS：FFmpeg 中转码输出目录（相对运行目录）、分片时长、列表窗口、空闲停止秒数
-PREVIEW_HLS_ENABLED = _cfg_bool("PREVIEW_HLS_ENABLED", True)
-PREVIEW_HLS_ROOT = _cfg_path("PREVIEW_HLS_ROOT", "./hls-preview")
-PREVIEW_HLS_SEGMENT_SEC = max(0.3, min(4.0, _cfg_float("PREVIEW_HLS_SEGMENT_SEC", 0.5)))
-PREVIEW_HLS_LIST_SIZE = max(3, min(20, _cfg_int("PREVIEW_HLS_LIST_SIZE", 6)))
-PREVIEW_HLS_IDLE_SEC = max(30, _cfg_int("PREVIEW_HLS_IDLE_SEC", 120))
-# WebSocket 实时原画上限 FPS（愈高延迟愈低、带宽/CPU 愈高）
-PREVIEW_WS_MAX_FPS = max(5, min(60, _cfg_int("PREVIEW_WS_MAX_FPS", 30)))
-# WebRTC：服务端 aiortc + MediaPlayer（依赖 PyAV/FFmpeg）；逗号分隔多个 stun:url
-PREVIEW_WEBRTC_ENABLED = _cfg_bool("PREVIEW_WEBRTC_ENABLED", True)
-PREVIEW_WEBRTC_STUN_URLS = _cfg_str(
-    "PREVIEW_WEBRTC_STUN_URLS",
-    "stun:stun.l.google.com:19302",
-).strip()
+# 检测框标签字号（[preview]）：>0 固定像素；0=按帧短边×ratio 再夹在 min~max
+LABEL_FONT_PX = max(0, _cfg_int("LABEL_FONT_PX", 0))
+LABEL_FONT_MIN_PX = max(8, _cfg_int("LABEL_FONT_MIN_PX", 36))
+LABEL_FONT_MAX_PX = max(LABEL_FONT_MIN_PX, _cfg_int("LABEL_FONT_MAX_PX", 72))
+LABEL_FONT_RATIO = max(0.01, min(0.2, _cfg_float("LABEL_FONT_RATIO", 0.05)))
 
 # 告警外发邮件（全局 SMTP；每路收件人与是否发信在 Redis：alert_emails、alert_email_enabled）
 # Webhook：每路 alert_webhook_urls、alert_webhook_enabled（仅 Redis，见 visionai/utils/alert_webhook.py）

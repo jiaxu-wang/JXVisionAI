@@ -13,10 +13,7 @@ import logging
 import threading
 import time
 
-import cv2
-
 from visionai.core.detector import Detector
-from visionai.core.preview_cache import set_preview_jpeg
 from visionai.core.stream_handler import StreamHandler
 from visionai.utils.logger import setup_logger
 from visionai.utils.alert_email import (
@@ -34,7 +31,7 @@ from visionai.web.app import app
 from visionai.core import stream_sync
 import os
 
-from visionai.core.state_manager import stream_status, stream_status_lock
+from visionai.core.state_manager import set_stream_status, stream_status, stream_status_lock
 from visionai.core.redis_manager import redis_manager
 
 # 按流名跟踪处理线程，避免同一路被重复拉起
@@ -71,15 +68,55 @@ def run_video_processing(stream_info):
         os.makedirs(stream_save_dir, exist_ok=True)
 
         # 先连 RTSP 再加载 YOLO，否则大模型会阻塞数十秒，界面长期显示「离线」
-        stream_handler = StreamHandler(stream_info)
-        if not stream_handler.connect():
-            logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
-            with stream_status_lock:
-                stream_status[stream_name] = "离线"
-            return
+        pull_url = None
+        zlm_fallback = True
+        try:
+            from visionai.config.settings import (
+                ZLM_ENABLED,
+                ZLM_FALLBACK_DIRECT_RTSP,
+                ZLM_PREFER_LOCAL_PULL,
+            )
+            from visionai.core.zlm_client import get_zlm_client
 
-        with stream_status_lock:
-            stream_status[stream_name] = "在线"
+            zlm_fallback = bool(ZLM_FALLBACK_DIRECT_RTSP)
+            if ZLM_ENABLED and ZLM_PREFER_LOCAL_PULL:
+                zlm = get_zlm_client()
+                sid = (stream_info.get("id") or stream_name).strip()
+                src = stream_info.get("url") or ""
+                if zlm and zlm.alive():
+                    proxied = zlm.ensure_proxy(sid, src)
+                    if proxied.get("success") and proxied.get("local_rtsp"):
+                        pull_url = proxied["local_rtsp"]
+                        logger.info(
+                            f"[{stream_name}] ZLM 代理就绪: {pull_url} online={proxied.get('online')}"
+                        )
+                    elif not zlm_fallback:
+                        logger.error(f"[{stream_name}] ZLM 代理失败且禁止直连: {proxied}")
+                        set_stream_status(stream_name, "离线")
+                        return
+                elif not zlm_fallback:
+                    logger.error(f"[{stream_name}] ZLM 不可用且禁止直连")
+                    set_stream_status(stream_name, "离线")
+                    return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{stream_name}] ZLM 接入异常，将直连: {e}")
+
+        stream_handler = StreamHandler(stream_info, pull_url=pull_url)
+        if not stream_handler.connect():
+            if pull_url and zlm_fallback:
+                logger.warning(f"[{stream_name}] ZLM 本地拉流失败，回退直连源站")
+                stream_handler = StreamHandler(stream_info, pull_url=None)
+                if not stream_handler.connect():
+                    logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
+                    set_stream_status(stream_name, "离线")
+                    return
+            else:
+                logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
+                set_stream_status(stream_name, "离线")
+                return
+
+        set_stream_status(stream_name, "在线")
+        last_status_hb = time.time()
 
         logger.info(f"[{stream_name}] 视频流已连接，正在加载检测模型…")
         detector = Detector(
@@ -88,6 +125,8 @@ def run_video_processing(stream_info):
             stream_info.get("detections"),
             stream_id=stream_info.get("id"),
         )
+        set_stream_status(stream_name, "在线")
+        last_status_hb = time.time()
         logger.info(f"[{stream_name}] 开始处理视频流（检测）…")
         
         # 帧读取失败计数器
@@ -108,19 +147,24 @@ def run_video_processing(stream_info):
                     # 尝试重新连接
                     if not stream_handler.reconnect():
                         logger.error(f"[{stream_name}] 重新连接失败，线程退出")
-                        with stream_status_lock:
-                            stream_status[stream_name] = "离线"
+                        set_stream_status(stream_name, "离线")
                         break
                     # 重新连接成功，重置计数器并更新状态
                     read_failure_count = 0
-                    with stream_status_lock:
-                        stream_status[stream_name] = "在线"
+                    set_stream_status(stream_name, "在线")
+                    last_status_hb = time.time()
                     logger.info(f"[{stream_name}] 重新连接成功")
                 continue
             
             # 读取成功，重置失败计数器
             if read_failure_count > 0:
                 read_failure_count = 0
+
+            # 定期刷新 Redis 在线心跳，供独立 API 进程展示状态
+            now_hb = time.time()
+            if now_hb - last_status_hb >= 20.0:
+                set_stream_status(stream_name, "在线")
+                last_status_hb = now_hb
             
             # 判断是否需要检测
             if stream_handler.should_detect():
@@ -147,18 +191,19 @@ def run_video_processing(stream_info):
                     latest.get("face_recognition_config")
                 )
                 # 执行检测
+                t0 = time.time()
                 results = detector.detect(frame)
                 # 处理结果
                 processed_frame, detections = detector.process_results(frame, results)
                 sid = (latest.get("id") or "").strip()
-                if sid:
-                    enc_ok, buf = cv2.imencode(
-                        ".jpg",
-                        processed_frame,
-                        [int(cv2.IMWRITE_JPEG_QUALITY), 72],
-                    )
-                    if enc_ok:
-                        set_preview_jpeg(sid, buf.tobytes())
+                try:
+                    from visionai.core.runtime_metrics import note_detect, note_frame
+
+                    if sid:
+                        note_frame(sid)
+                        note_detect(sid, (time.time() - t0) * 1000.0)
+                except Exception:  # noqa: BLE001
+                    pass
                 # 保存截图
                 detector.save_snapshot(processed_frame, detections)
                 
@@ -166,15 +211,11 @@ def run_video_processing(stream_info):
         logger.info(f"[{stream_name}] 视频处理已停止")
     except Exception as e:
         logger.error(f"[{stream_name}] 视频处理异常: {e}", exc_info=True)
-        # 异常时更新状态为离线
-        with stream_status_lock:
-            stream_status[stream_name] = "离线"
+        set_stream_status(stream_name, "离线")
     finally:
         if stream_handler is not None:
             stream_handler.disconnect()
-        # 退出时更新状态为离线
-        with stream_status_lock:
-            stream_status[stream_name] = "离线"
+        set_stream_status(stream_name, "离线")
         # 注销线程
         with threads_lock:
             if stream_name in active_threads:
@@ -203,18 +244,12 @@ def check_disabled_stream_status():
                     # 尝试连接流来检查在线状态
                     stream_handler = StreamHandler(stream_info)
                     if stream_handler.connect():
-                        # 连接成功，更新为在线
-                        with stream_status_lock:
-                            stream_status[stream_name] = "在线"
+                        set_stream_status(stream_name, "在线")
                         stream_handler.disconnect()
                     else:
-                        # 连接失败，更新为离线
-                        with stream_status_lock:
-                            stream_status[stream_name] = "离线"
+                        set_stream_status(stream_name, "离线")
                 except Exception as e:
-                    # 连接异常，更新为离线
-                    with stream_status_lock:
-                        stream_status[stream_name] = "离线"
+                    set_stream_status(stream_name, "离线")
             
             # 每60秒检查一次
             time.sleep(60)
@@ -260,10 +295,8 @@ def check_offline_streams():
                             logger.info(f"[离线检测] 流 {stream_name} 已有线程在运行，取消启动新线程")
                             continue
                     
-                    # 立即更新流状态为在线
-                    with stream_status_lock:
-                        stream_status[stream_name] = "在线"
-                    
+                    set_stream_status(stream_name, "在线")
+
                     # 启动处理线程
                     video_thread = threading.Thread(
                         target=run_video_processing, 
@@ -297,11 +330,12 @@ def main():
     if not streams:
         logger.warning("未从Redis获取到流配置，请检查Redis连接")
     
-    # 初始化所有流的状态（包括禁用的流）
-    with stream_status_lock:
-        for stream_info in streams:
-            if stream_info["name"] not in stream_status:
-                stream_status[stream_info["name"]] = "离线"
+    # 初始化所有流的本地状态（包括禁用的流）；不覆盖 Redis 已有心跳
+    for stream_info in streams:
+        name = stream_info["name"]
+        with stream_status_lock:
+            if name not in stream_status:
+                stream_status[name] = "离线"
     
     # 为每个启用的视频流启动一个处理线程
     for stream_info in streams:

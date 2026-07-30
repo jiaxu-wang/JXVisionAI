@@ -1423,6 +1423,139 @@ def _register_api_routes(app):
 
         return jsonify(list_specialists(_repo_root()))
 
+    @app.route("/api/training/specialists/inspect", methods=["POST"])
+    @login_required
+    def training_inspect_specialist_weights():
+        """上传权重预检：返回类别名，不落盘为专模。"""
+        import tempfile
+
+        from visionai.config.specialists import inspect_yolo_weights
+
+        if "file" not in request.files:
+            return jsonify({"success": False, "message": "缺少 file 字段"}), 400
+        f = request.files["file"]
+        if not f or not f.filename:
+            return jsonify({"success": False, "message": "未选择文件"}), 400
+        base = secure_filename(f.filename) or "model.pt"
+        ext = Path(base).suffix.lower()
+        if ext not in (".pt", ".onnx"):
+            return jsonify({"success": False, "message": "仅支持 Ultralytics YOLO 的 .pt / .onnx"}), 400
+        tmp_dir = Path(tempfile.mkdtemp(prefix="visionai_spec_insp_"))
+        tmp_path = tmp_dir / f"probe{ext}"
+        try:
+            f.save(str(tmp_path))
+            result = inspect_yolo_weights(tmp_path)
+            result["filename"] = base
+            status = 200 if result.get("success") else 400
+            return jsonify(result), status
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    @app.route("/api/training/specialists/import", methods=["POST"])
+    @login_required
+    def training_import_specialist():
+        """导入社区/平台现成 YOLO 权重为专模（multipart 文件或 weights_url）。"""
+        import tempfile
+        import urllib.request
+
+        from visionai.config.specialists import deploy_specialist
+        from visionai.core.behaviors.registry import reload_plugins
+
+        form = request.form
+        weights_url = (form.get("weights_url") or "").strip()
+        tmp_dir = Path(tempfile.mkdtemp(prefix="visionai_spec_imp_"))
+        tmp_path: Optional[Path] = None
+        try:
+            if "file" in request.files and request.files["file"] and request.files["file"].filename:
+                f = request.files["file"]
+                base = secure_filename(f.filename) or "model.pt"
+                ext = Path(base).suffix.lower()
+                if ext not in (".pt", ".onnx"):
+                    return jsonify({"success": False, "message": "仅支持 Ultralytics YOLO 的 .pt / .onnx"}), 400
+                tmp_path = tmp_dir / f"upload{ext}"
+                f.save(str(tmp_path))
+            elif weights_url:
+                if not (weights_url.startswith("http://") or weights_url.startswith("https://")):
+                    return jsonify({"success": False, "message": "weights_url 须为 http(s)"}), 400
+                ext = ".onnx" if weights_url.lower().endswith(".onnx") else ".pt"
+                tmp_path = tmp_dir / f"download{ext}"
+                try:
+                    urllib.request.urlretrieve(weights_url, str(tmp_path))  # noqa: S310
+                except Exception as e:  # noqa: BLE001
+                    return jsonify({"success": False, "message": f"下载权重失败: {e}"}), 400
+            else:
+                return jsonify({"success": False, "message": "请上传 file 或提供 weights_url"}), 400
+
+            key = (form.get("key") or "").strip()
+            kind = (form.get("kind") or "person_event").strip().lower()
+            name_zh = (form.get("name_zh") or key).strip()
+            name_en = (form.get("name_en") or name_zh).strip()
+
+            def _parse_float(name: str, default: Optional[float] = None) -> Optional[float]:
+                raw = form.get(name)
+                if raw is None or str(raw).strip() == "":
+                    return default
+                try:
+                    return float(raw)
+                except (TypeError, ValueError):
+                    return default
+
+            def _parse_int_list(name: str) -> Optional[List[int]]:
+                raw = form.get(name)
+                if raw is None or str(raw).strip() == "":
+                    return None
+                out: List[int] = []
+                for part in re.split(r"[,;\s]+", str(raw).strip()):
+                    if not part:
+                        continue
+                    try:
+                        out.append(int(part))
+                    except ValueError:
+                        continue
+                return out if out else None
+
+            def _parse_classes() -> Optional[List[str]]:
+                raw = form.get("classes")
+                if raw is None or str(raw).strip() == "":
+                    return None
+                parts = re.split(r"[,;\n]+", str(raw).strip())
+                return [p.strip() for p in parts if p.strip()] or None
+
+            needs_raw = (form.get("needs_persons") or "true").strip().lower()
+            needs_persons = needs_raw in ("1", "true", "yes", "on")
+
+            result = deploy_specialist(
+                _repo_root(),
+                weights_path=tmp_path,
+                key=key,
+                kind=kind,
+                name_zh=name_zh,
+                name_en=name_en,
+                classes=_parse_classes(),
+                conf=_parse_float("conf"),
+                score_threshold=_parse_float("score_threshold"),
+                min_duration_sec=_parse_float("min_duration_sec"),
+                positive_class_ids=_parse_int_list("positive_class_ids"),
+                subject_class_ids=_parse_int_list("subject_class_ids"),
+                comply_class_ids=_parse_int_list("comply_class_ids"),
+                class_ids=_parse_int_list("class_ids"),
+                needs_persons=needs_persons,
+                backup=True,
+                origin="imported",
+            )
+            if result.get("success"):
+                reload_plugins()
+            status = 200 if result.get("success") else 400
+            return jsonify(result), status
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:  # noqa: BLE001
+                pass
+
     @app.route("/api/training/specialists/<key>", methods=["DELETE"])
     @login_required
     def training_delete_specialist(key):

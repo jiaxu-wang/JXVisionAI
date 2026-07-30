@@ -11,7 +11,6 @@ import subprocess
 import functools
 import time
 from datetime import datetime
-from urllib.parse import urlparse
 
 import cv2
 from flask import (
@@ -25,21 +24,14 @@ from flask import (
     send_from_directory,
     session,
     redirect,
-    stream_with_context,
     url_for,
 )
-from flask_sock import Sock
 
 # 保证以 ``python -m visionai`` 启动时也能解析项目根下的相对导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from visionai.config.settings import (
     AUTO_REFRESH_INTERVAL,
-    PREVIEW_ANNOTATED_POLL_SEC,
-    PREVIEW_HLS_ENABLED,
-    PREVIEW_WEBRTC_ENABLED,
-    PREVIEW_WEBRTC_STUN_URLS,
-    PREVIEW_WS_MAX_FPS,
     SECRET,
     SMTP_ALERT_ENABLED,
     SMTP_FROM,
@@ -67,23 +59,28 @@ from visionai.config.ini_manager import (
     read_structured_units,
 )
 from visionai.core import stream_sync
-from visionai.core.preview_cache import get_preview_jpeg, get_preview_jpeg_meta
-from visionai.core.preview_hls import (
-    ffmpeg_available,
-    safe_hls_basename,
-    session_dir,
-    start_session as hls_start_session,
-    stop_session as hls_stop_session,
-    touch_session as hls_touch_session,
-)
 
 # 导入流状态管理
 try:
-    from visionai.core.state_manager import stream_status, stream_status_lock
-except:
-    # 如果导入失败，初始化默认状态
+    from visionai.core.state_manager import (
+        get_all_stream_statuses,
+        get_stream_status,
+        set_stream_status,
+        stream_status,
+        stream_status_lock,
+    )
+except Exception:  # noqa: BLE001
     stream_status = {}
     stream_status_lock = None
+
+    def get_stream_status(name, default="离线"):
+        return default
+
+    def get_all_stream_statuses():
+        return {}
+
+    def set_stream_status(name, status):
+        pass
 
 # 导入Redis管理器
 try:
@@ -97,23 +94,9 @@ except ImportError:
     def get_object_storage():  # type: ignore
         return None
 
-try:
-    from visionai.core import preview_webrtc
-except ImportError:
-    preview_webrtc = None  # type: ignore
-
-
-def _webrtc_preview_available() -> bool:
-    return bool(
-        PREVIEW_WEBRTC_ENABLED
-        and preview_webrtc is not None
-        and preview_webrtc.is_available()
-    )
-
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = SECRET
-sock = Sock(app)
 
 # 登录验证装饰器
 def login_required(f):
@@ -123,6 +106,196 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/readyz")
+def readyz():
+    checks = {}
+    ok = True
+    redis_ok = bool(redis_manager and redis_manager.is_connected())
+    checks["redis"] = redis_ok
+    if not redis_ok:
+        ok = False
+    try:
+        from visionai.config.settings import ZLM_ENABLED
+        from visionai.core.zlm_client import get_zlm_client
+
+        if ZLM_ENABLED:
+            zlm = get_zlm_client()
+            zlm_ok = bool(zlm and zlm.alive())
+            checks["zlm"] = zlm_ok
+            if not zlm_ok:
+                ok = False
+        else:
+            checks["zlm"] = "disabled"
+    except Exception as e:  # noqa: BLE001
+        checks["zlm"] = f"error:{e}"
+    try:
+        from visionai.config.settings import INFER_BACKEND
+
+        if INFER_BACKEND == "cpp":
+            try:
+                from visionai.core.infer_client import InferClient
+
+                cli = InferClient()
+                live = bool(cli.live())
+            except Exception:  # noqa: BLE001
+                live = False
+            checks["inferd"] = live
+            if not live:
+                ok = False
+        else:
+            checks["inferd"] = "python"
+    except Exception as e:  # noqa: BLE001
+        checks["inferd"] = f"error:{e}"
+    return jsonify({"ready": ok, "checks": checks}), (200 if ok else 503)
+
+
+@app.route("/api/metrics")
+@login_required
+def api_metrics():
+    from visionai.core.runtime_metrics import snapshot_metrics
+
+    return jsonify(snapshot_metrics())
+
+
+@app.route("/api/zlm/status")
+@login_required
+def api_zlm_status():
+    from visionai.config.settings import ZLM_ENABLED, ZLM_PUBLIC_HOST
+    from visionai.core.zlm_client import get_zlm_client, stream_key_for_id
+
+    if not ZLM_ENABLED:
+        return jsonify({"enabled": False})
+    zlm = get_zlm_client()
+    probe = zlm.probe() if zlm else {"alive": False, "auth_ok": False, "message": "client unavailable"}
+    alive = bool(probe.get("alive") and probe.get("auth_ok"))
+    streams = []
+    if redis_manager and alive and zlm:
+        for s in redis_manager.get_streams() or []:
+            sid = (s.get("id") or "").strip()
+            if not sid:
+                continue
+            sk = stream_key_for_id(sid)
+            streams.append(
+                {
+                    "id": sid,
+                    "name": s.get("name"),
+                    "zlm_stream": sk,
+                    "online": zlm.is_online(sk),
+                    "play": zlm.play_urls(sk, host=ZLM_PUBLIC_HOST),
+                }
+            )
+    return jsonify(
+        {
+            "enabled": True,
+            "alive": alive,
+            "reachable": bool(probe.get("alive")),
+            "auth_ok": bool(probe.get("auth_ok")),
+            "message": probe.get("message") or "",
+            "streams": streams,
+        }
+    )
+
+
+@app.route("/api/zlm/ensure-proxy", methods=["POST"])
+@login_required
+def api_zlm_ensure_proxy():
+    """为指定流建立/复用 ZLM 拉流代理，返回播放地址。"""
+    from visionai.config.settings import ZLM_ENABLED, ZLM_PUBLIC_HOST
+    from visionai.core.zlm_client import get_zlm_client
+
+    if not ZLM_ENABLED:
+        return jsonify({"success": False, "message": "ZLM 未启用"}), 400
+    body = request.get_json(silent=True) or {}
+    stream_id = str(body.get("stream_id") or "").strip()
+    if not stream_id:
+        return jsonify({"success": False, "message": "缺少 stream_id"}), 400
+    zlm = get_zlm_client()
+    if not zlm or not zlm.alive():
+        return jsonify({"success": False, "message": "ZLM 不可用或鉴权失败"}), 503
+    source_url = _stream_url_by_id(stream_id)
+    if not source_url:
+        return jsonify({"success": False, "message": "未找到流或 RTSP URL"}), 404
+    proxied = zlm.ensure_proxy(stream_id, source_url)
+    if not proxied.get("success"):
+        return jsonify(
+            {"success": False, "message": proxied.get("message") or "代理失败"}
+        ), 502
+    play = proxied.get("play") or zlm.play_urls(
+        proxied.get("stream") or stream_id, host=ZLM_PUBLIC_HOST
+    )
+    return jsonify(
+        {
+            "success": True,
+            "online": bool(proxied.get("online")),
+            "stream": proxied.get("stream"),
+            "local_rtsp": proxied.get("local_rtsp"),
+            "play": play,
+        }
+    )
+
+
+@app.route("/api/zlm/webrtc/play", methods=["POST"])
+@login_required
+def api_zlm_webrtc_play():
+    """ZLM WebRTC play：确保拉流代理后，转发浏览器 offer SDP，返回 answer。"""
+    from visionai.config.settings import (
+        ZLM_ENABLED,
+        ZLM_PUBLIC_HOST,
+        ZLM_RTC_PORT,
+    )
+    from visionai.core.zlm_client import get_zlm_client, stream_key_for_id
+
+    if not ZLM_ENABLED:
+        return jsonify({"success": False, "message": "ZLM 未启用"}), 400
+    body = request.get_json(silent=True) or {}
+    stream_id = str(body.get("stream_id") or "").strip()
+    offer_sdp = str(body.get("sdp") or "").strip()
+    if not stream_id or not offer_sdp:
+        return jsonify({"success": False, "message": "缺少 stream_id 或 sdp"}), 400
+
+    zlm = get_zlm_client()
+    if not zlm or not zlm.alive():
+        return jsonify({"success": False, "message": "ZLM 不可用或鉴权失败"}), 503
+
+    source_url = _stream_url_by_id(stream_id)
+    if not source_url:
+        return jsonify({"success": False, "message": "未找到流或 RTSP URL"}), 404
+
+    proxied = zlm.ensure_proxy(stream_id, source_url)
+    sk = stream_key_for_id(stream_id)
+    online = bool(proxied.get("online")) or zlm.is_online(sk)
+    if not proxied.get("success") and not online:
+        return jsonify(
+            {
+                "success": False,
+                "message": proxied.get("message") or "ZLM 拉流代理失败",
+            }
+        ), 502
+    if not online:
+        return jsonify(
+            {
+                "success": False,
+                "message": "ZLM 代理未上线，请稍后重试或检查摄像机 RTSP",
+            }
+        ), 503
+
+    result = zlm.webrtc_play(
+        stream_id,
+        offer_sdp,
+        public_host=ZLM_PUBLIC_HOST,
+        rtc_port=ZLM_RTC_PORT,
+    )
+    if not result.get("success"):
+        return jsonify(result), 502
+    return jsonify(result)
+
 
 @app.route('/')
 @login_required
@@ -217,26 +390,17 @@ def get_streams():
         stream_copy['face_recognition_config'] = normalize_face_recognition_config(
             stream_copy.get('face_recognition_config')
         )
-        # 添加状态信息
-        if stream_status_lock:
-            with stream_status_lock:
-                nm = (stream.get("name") or "").strip()
-                stream_copy['status'] = stream_status.get(nm, "离线")
-        else:
-            stream_copy['status'] = '未知'
+        # 添加状态信息（Redis 跨进程；worker 写入，API 读取）
+        nm = (stream.get("name") or "").strip()
+        stream_copy['status'] = get_stream_status(nm, "离线")
         streams_with_status.append(stream_copy)
     return jsonify(streams_with_status)
 
 @app.route('/api/stream-status', methods=['GET'])
 @login_required
-def get_stream_status():
+def get_stream_status_api():
     """获取视频流状态"""
-    if stream_status_lock:
-        with stream_status_lock:
-            return jsonify(stream_status)
-    else:
-        # 如果没有状态信息，返回空
-        return jsonify({})
+    return jsonify(get_all_stream_statuses())
 
 @app.route('/api/streams', methods=['POST'])
 @login_required
@@ -282,12 +446,11 @@ def save_streams():
         success = redis_manager.save_streams(streams)
 
         if success:
-            if stream_status_lock:
-                with stream_status_lock:
-                    for stream in streams:
-                        n = stream.get("name")
-                        if n and n not in stream_status:
-                            stream_status[n] = "离线"
+            known = get_all_stream_statuses()
+            for stream in streams:
+                n = (stream.get("name") or "").strip()
+                if n and n not in known:
+                    set_stream_status(n, "离线")
             stream_sync.notify_streams_changed()
             return jsonify({'success': True, 'message': '视频配置保存成功'})
         else:
@@ -414,10 +577,8 @@ def onvif_add_stream():
     if not redis_manager.save_stream(stream):
         return jsonify({"success": False, "message": "写入 Redis 失败"}), 500
 
-    if stream_status_lock:
-        with stream_status_lock:
-            if name not in stream_status:
-                stream_status[name] = "离线"
+    if name not in get_all_stream_statuses():
+        set_stream_status(name, "离线")
     stream_sync.notify_streams_changed()
 
     streams = redis_manager.get_streams() or []
@@ -437,18 +598,23 @@ def onvif_add_stream():
 @login_required
 def get_config():
     """获取系统配置"""
+    from visionai.config.settings import ZLM_ENABLED, ZLM_PUBLIC_HOST, ZLM_RTC_PORT
+
     return jsonify({
         'auto_refresh_interval': AUTO_REFRESH_INTERVAL,
         'preview': {
-            'ffmpeg': ffmpeg_available(),
-            'hls_enabled': bool(PREVIEW_HLS_ENABLED and ffmpeg_available()),
-            'webrtc_enabled': _webrtc_preview_available(),
+            'zlm_webrtc_enabled': bool(ZLM_ENABLED),
         },
         'smtp': {
             'alert_enabled': bool(SMTP_ALERT_ENABLED),
             'host_configured': bool(SMTP_HOST.strip()),
             'from_configured': bool(SMTP_FROM.strip()),
             'ready': smtp_is_configured(),
+        },
+        'zlm': {
+            'enabled': bool(ZLM_ENABLED),
+            'public_host': ZLM_PUBLIC_HOST,
+            'rtc_port': ZLM_RTC_PORT,
         },
     })
 
@@ -460,316 +626,6 @@ def _stream_url_by_id(stream_id: str):
         if s.get("id") == stream_id:
             return s.get("url")
     return None
-
-
-def _mjpeg_frames(rtsp_url: str):
-    """从 RTSP/HTTP 拉取视频帧，输出 multipart MJPEG（供浏览器 <img> 显示）。"""
-    rtsp_url = normalize_rtsp_url(rtsp_url)
-    parsed = urlparse(rtsp_url)
-    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
-        return
-    cap = cv2.VideoCapture(rtsp_url)
-    try:
-        try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:
-            pass
-        if not cap.isOpened():
-            return
-        consecutive_fail = 0
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                consecutive_fail += 1
-                if consecutive_fail > 45:
-                    break
-                time.sleep(0.05)
-                continue
-            consecutive_fail = 0
-            enc_ok, jpg = cv2.imencode(
-                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72]
-            )
-            if not enc_ok:
-                continue
-            yield (
-                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                + jpg.tobytes()
-                + b"\r\n"
-            )
-    finally:
-        cap.release()
-
-
-def _mjpeg_frames_annotated(stream_id: str, rtsp_url: str):
-    """优先推送检测线程缓存的带框画面；无缓存时回退为原流（与 _mjpeg_frames 行为一致）。"""
-    rtsp_url = normalize_rtsp_url(rtsp_url)
-    parsed = urlparse(rtsp_url)
-    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
-        return
-    cap = None
-
-    def ensure_cap():
-        nonlocal cap
-        if cap is not None and cap.isOpened():
-            return cap
-        c = cv2.VideoCapture(rtsp_url)
-        try:
-            c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:
-            pass
-        cap = c
-        return cap
-
-    consecutive_fail = 0
-    try:
-        while True:
-            blob = get_preview_jpeg(stream_id)
-            if blob:
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                    + blob
-                    + b"\r\n"
-                )
-                time.sleep(PREVIEW_ANNOTATED_POLL_SEC)
-                continue
-            c = ensure_cap()
-            if not c.isOpened():
-                time.sleep(0.05)
-                continue
-            ok, frame = c.read()
-            if not ok or frame is None:
-                consecutive_fail += 1
-                if consecutive_fail > 45:
-                    break
-                time.sleep(0.05)
-                continue
-            consecutive_fail = 0
-            enc_ok, jpg = cv2.imencode(
-                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72]
-            )
-            if not enc_ok:
-                continue
-            yield (
-                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                + jpg.tobytes()
-                + b"\r\n"
-            )
-    finally:
-        if cap is not None:
-            cap.release()
-
-
-@app.route("/api/preview")
-@login_required
-def stream_preview_mjpeg():
-    """浏览器无法直接播放 RTSP，由本机 OpenCV 拉流并转为 MJPEG 供网页预览。
-
-    默认：实时原画（与检测无关，流畅）。
-    annotated=1：推送检测线程缓存的带框 JPEG（与告警截图一致，按检测间隔更新，观感会像「幻灯片」）。
-    """
-    stream_id = request.args.get("stream_id")
-    if not stream_id:
-        abort(400)
-    url = _stream_url_by_id(stream_id)
-    if not url:
-        abort(404)
-    use_annotated = request.args.get("annotated", "0").lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    gen = _mjpeg_frames_annotated(stream_id, url) if use_annotated else _mjpeg_frames(url)
-    return Response(
-        stream_with_context(gen),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@app.route("/api/preview-webrtc/offer", methods=["POST"])
-@login_required
-def preview_webrtc_offer():
-    """浏览器 WebRTC offer → SDP answer；服务端用 aiortc MediaPlayer 拉 RTSP 推向浏览器。"""
-    if not _webrtc_preview_available():
-        return jsonify(
-            {
-                "success": False,
-                "message": "WebRTC 预览未启用（preview_webrtc_enabled）或未安装 aiortc",
-            }
-        ), 503
-    payload = request.get_json(silent=True) or {}
-    stream_id = (payload.get("stream_id") or "").strip()
-    sdp = payload.get("sdp")
-    typ = (payload.get("type") or "").strip()
-    if not stream_id or not isinstance(sdp, str) or not sdp.strip():
-        return jsonify({"success": False, "message": "缺少 stream_id 或 sdp"}), 400
-    if typ != "offer":
-        return jsonify({"success": False, "message": "type 须为 offer"}), 400
-    url = _stream_url_by_id(stream_id)
-    if not url:
-        return jsonify({"success": False, "message": "无效或未找到的 stream_id"}), 404
-    url = normalize_rtsp_url(url)
-    parsed = urlparse(url)
-    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
-        return jsonify({"success": False, "message": "不支持的流地址协议"}), 400
-    assert preview_webrtc is not None
-    result = preview_webrtc.handle_offer(
-        url, sdp.strip(), typ, PREVIEW_WEBRTC_STUN_URLS
-    )
-    code = 200 if result.get("success") else 500
-    return jsonify(result), code
-
-
-@app.route("/api/preview-webrtc/stop", methods=["POST"])
-@login_required
-def preview_webrtc_stop_api():
-    payload = request.get_json(silent=True) or {}
-    session_id = (payload.get("session_id") or "").strip()
-    if session_id and preview_webrtc is not None:
-        preview_webrtc.stop_session(session_id)
-    return jsonify({"success": True})
-
-
-@app.route("/api/preview-hls/start", methods=["POST"])
-@login_required
-def preview_hls_start():
-    """启动一路 FFmpeg→HLS 会话，返回 m3u8 相对路径（需携带登录 Cookie 拉取）。"""
-    if not PREVIEW_HLS_ENABLED:
-        return jsonify({"success": False, "message": "HLS 预览已在配置中关闭"}), 400
-    if not ffmpeg_available():
-        return jsonify({"success": False, "message": "服务器未检测到 ffmpeg"}), 503
-    payload = request.get_json(silent=True) or {}
-    stream_id = (payload.get("stream_id") or "").strip()
-    url = _stream_url_by_id(stream_id)
-    if not url:
-        return jsonify({"success": False, "message": "无效或未找到的 stream_id"}), 404
-    url = normalize_rtsp_url(url)
-    parsed = urlparse(url)
-    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
-        return jsonify({"success": False, "message": "不支持的流地址协议"}), 400
-    sid, playlist, has_audio = hls_start_session(stream_id, url)
-    if not sid or not playlist:
-        return jsonify({"success": False, "message": "启动 HLS 转码失败，请查看服务器日志"}), 500
-    return jsonify(
-        {
-            "success": True,
-            "session_id": sid,
-            "playlist": playlist,
-            "audio": bool(has_audio),
-        }
-    )
-
-
-@app.route("/api/preview-hls/stop", methods=["POST"])
-@login_required
-def preview_hls_stop():
-    payload = request.get_json(silent=True) or {}
-    session_id = (payload.get("session_id") or "").strip()
-    if session_id:
-        hls_stop_session(session_id)
-    return jsonify({"success": True})
-
-
-@app.route("/api/preview-hls/data/<session_id>/<path:filename>")
-@login_required
-def preview_hls_data(session_id: str, filename: str):
-    if not safe_hls_basename(filename):
-        abort(404)
-    base = session_dir(session_id)
-    if base is None:
-        abort(404)
-    try:
-        root = base.resolve()
-        full = (base / filename).resolve()
-    except OSError:
-        abort(404)
-    if not full.is_relative_to(root) or not full.is_file():
-        abort(404)
-    hls_touch_session(session_id)
-    mimetype = (
-        "application/vnd.apple.mpegurl"
-        if filename.endswith(".m3u8")
-        else "video/MP2T"
-    )
-    return send_file(full, mimetype=mimetype)
-
-
-@sock.route("/ws/preview")
-def preview_ws(ws):
-    """低延迟二进制 JPEG：首条文本消息 JSON `{\"stream_id\":\"...\",\"annotated\":false}`。"""
-    if not session.get("logged_in"):
-        return
-    first = ws.receive()
-    if not first:
-        return
-    if isinstance(first, (bytes, bytearray)):
-        first = first.decode("utf-8", errors="replace")
-    try:
-        spec = json.loads(first)
-    except (json.JSONDecodeError, TypeError):
-        return
-    stream_id = (spec.get("stream_id") or "").strip()
-    annotated = bool(spec.get("annotated"))
-    url = _stream_url_by_id(stream_id)
-    if not url:
-        return
-    url = normalize_rtsp_url(url)
-    parsed = urlparse(url)
-    if parsed.scheme not in ("rtsp", "rtsps", "http", "https"):
-        return
-
-    min_frame = 1.0 / float(PREVIEW_WS_MAX_FPS)
-    next_t = time.monotonic()
-    cap = None
-    last_ts = None
-    try:
-        if annotated:
-            while True:
-                meta = get_preview_jpeg_meta(stream_id)
-                if meta:
-                    blob, ts = meta
-                    if blob and ts != last_ts:
-                        ws.send(blob)
-                        last_ts = ts
-                time.sleep(PREVIEW_ANNOTATED_POLL_SEC)
-        else:
-            cap = cv2.VideoCapture(url)
-            try:
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            except Exception:
-                pass
-            if not cap.isOpened():
-                return
-            consecutive_fail = 0
-            while True:
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    consecutive_fail += 1
-                    if consecutive_fail > 80:
-                        break
-                    time.sleep(0.04)
-                    continue
-                consecutive_fail = 0
-                enc_ok, jpg = cv2.imencode(
-                    ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72]
-                )
-                if enc_ok:
-                    ws.send(jpg.tobytes())
-                now = time.monotonic()
-                next_t = max(next_t + min_frame, now)
-                sleep_for = next_t - now
-                if sleep_for > 0:
-                    time.sleep(sleep_for)
-    except Exception:
-        pass
-    finally:
-        if cap is not None:
-            cap.release()
 
 
 @app.route('/api/stats/alerts-today', methods=['GET'])

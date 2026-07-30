@@ -4,7 +4,7 @@
 
 - **Python** 3.10+（推荐 3.10/3.12）
 - **Redis** 7+（流配置与检测记录）
-- **可选**：MinIO 或 S3 兼容对象存储；`ffmpeg`（HLS 预览）
+- **可选**：MinIO 或 S3 兼容对象存储；**ZLMediaKit**（`docker compose up -d zlmediakit`，`[zlm] enabled=true`，管理端 WebRTC 预览）
 - **GPU**：可选；YOLO / ONNX 无 GPU 时走 CPU
 
 ---
@@ -22,7 +22,12 @@ pip install -r requirements.txt
 
 推理设备在 `config.ini` 的 **`[basic]` → `inference_device = cpu | gpu`** 切换（YOLO + ONNX 总开关），改完后 **`./stop.sh && ./start.sh` 重启** 生效。
 
-除内置检测（COCO 80、打电话、玩手机、聚集、人脸识别）外，其它场景可在 **训练实验室** 训练并部署为 **专模**（`models/specialists/<key>/`），详见 [检测与模型](detection.md)。
+除内置检测（COCO 80、打电话、玩手机、聚集、人脸识别）外，其它场景可：
+
+- **导入现成专模**：训练实验室上传社区 YOLO 权重（见 [detection.md](detection.md#导入现成专模社区--平台权重)）
+- **自训专模**：训练实验室标注训练后部署到 `models/specialists/<key>/`
+
+详见 [检测与模型](detection.md)。
 
 ---
 
@@ -35,89 +40,113 @@ cp config/config.example.ini config/config.ini
 
 ---
 
-## 3. 启动 Redis（及可选 MinIO）
+## 3. 启动 Redis / MinIO /（可选）ZLM
 
 ```bash
-docker compose up -d redis          # 仅 Redis
+docker compose up -d redis minio          # 常用依赖
+# 可选媒体面（预览/本地回源）：
+docker compose up -d zlmediakit
+```
+
+```bash
+docker compose up -d redis                # 仅 Redis
 # 或
-docker compose up -d                # Redis + MinIO
+docker compose up -d                      # Redis + MinIO + zlmediakit（若已定义）
 ```
 
 默认 Redis：`127.0.0.1:16379`，密码 `VisionAI@2026`（见 `docker-compose.yaml`）。
+
+启用 ZLM 时：
+
+1. `config.ini` → `[zlm] enabled = true`
+2. `secret` 与 `config/zlm/config.ini` → `[api] secret` **一致**（勿用 ZLM 出厂默认 UUID）
+3. 端口：HTTP API/播放 `8080`，本地回源 RTSP `8554`
+4. 改 secret 后执行 `docker compose restart zlmediakit`，再 `./stop.sh && ./start.sh`
+
+详见 [configuration.md § ZLMediaKit](configuration.md#zlmediakit-zlm可选)。
 
 ---
 
 ## 4. 准备模型（YOLO26）
 
-本项目**统一使用 Ultralytics YOLO26**（不再使用 YOLOv8）。权重放在项目根下 **`models/`**（大文件不入 Git）。
+本项目**统一使用 Ultralytics YOLO26**（文件名是 `yolo26s.pt`，**没有**中间的 `v`，不要写成 `yolov26s.pt`）。权重放在 **`models/`**（大文件不入 Git）。
 
-官方文件名是 **`yolo26s.pt`**（没有中间的 `v`，不要写成 `yolov26s.pt`）。
+> 配置了路径但文件不存在时，Ultralytics 可能联网下载并卡住。请先放到 `models/` 再启动。
 
-`config.ini` 路径写法：
-
-- **相对路径**（推荐）：`models/yolo26s.pt` → `<项目根>/models/yolo26s.pt`
-- **绝对路径**：`/data/models/yolo26s.pt`
-
-> **重要**：配置了路径但文件不存在时，Ultralytics 会尝试联网下载；代理/GitHub 不通会导致**检测线程卡在加载**。请先把文件放到 `models/` 再启动。
-
-### 4.1 从哪里下载
+### 4.1 官方来源与档位
 
 | 来源 | 地址 |
 |------|------|
-| **官方 Release（首选）** | https://github.com/ultralytics/assets/releases/tag/v8.4.0 |
-| 主检测 `yolo26s.pt` | https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt |
-| 姿态 `yolo26s-pose.pt` | https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-pose.pt |
-| 轻量备选 `yolo26n.pt` | https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt |
-| 文档 | https://docs.ultralytics.com/models/yolo26/ |
+| 模型说明 | https://docs.ultralytics.com/models/yolo26/ |
+| 权重 Release | https://github.com/ultralytics/assets/releases/tag/v8.4.0 |
+| 直链模板 | `https://github.com/ultralytics/assets/releases/download/v8.4.0/<文件名>` |
+| 国内镜像示例 | `https://gh-proxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/<文件名>` |
 
-国内直连 GitHub 较慢时，可用镜像前缀（示例）：
+**检测（主检 `yolo_model`）**
 
-```text
-https://gh-proxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt
-```
+| 档位 | 文件 | 约体积 | 说明 |
+|------|------|--------|------|
+| n | [yolo26n.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) | 5 MB | 最快 / 精度最低 |
+| s | [yolo26s.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt) | 20 MB | **默认**，平衡 |
+| m | [yolo26m.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt) | 43 MB | 更高精度 |
+| l | [yolo26l.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt) | 51 MB | 精度优先 |
+| x | [yolo26x.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt) | 114 MB | 最高精度 / 最慢 |
 
-### 4.2 怎么下载到本项目
+**姿态（`pose_model`，打电话/玩手机）**：`yolo26n-pose.pt` … `yolo26x-pose.pt`（同 Release）；项目默认 `yolo26s-pose.pt`。
 
-在项目根目录执行（任选一种）：
+官方 COCO mAP（仅作参考，现场效果因场景而异）：n≈40.9 → s≈48.6 → m≈53.1 → l≈55.0 → x≈57.5（mAP50-95）。
 
-**方式 A：curl（推荐，可控、可走镜像）**
+### 4.2 下载到本项目
+
+**一键脚本（推荐）**
 
 ```bash
 cd /path/to/JXVisionAI
-mkdir -p models
-
-# 主检测（默认）
-curl -fL --retry 5 -o models/yolo26s.pt \
-  'https://gh-proxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt'
-
-# 姿态（打电话/玩手机需要）
-curl -fL --retry 5 -o models/yolo26s-pose.pt \
-  'https://gh-proxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-pose.pt'
-
-# 校验体积（s 约 20MB，s-pose 约 24MB；过小说明下载失败）
-ls -lh models/yolo26s.pt models/yolo26s-pose.pt
+# 下载 n/s/m/l/x 到 models/
+./scripts/download_yolo26.sh
+# 只要 n 和 s：MODELS="n s" ./scripts/download_yolo26.sh
+# 连带姿态：DOWNLOAD_POSE=1 ./scripts/download_yolo26.sh
 ```
 
-**方式 B：Ultralytics 自动下载后再挪入 `models/`**
+**手动 curl**
 
 ```bash
-source env/bin/activate
-python -c "from ultralytics import YOLO; YOLO('yolo26s.pt')"
-mv -f yolo26s.pt models/
-python -c "from ultralytics import YOLO; YOLO('yolo26s-pose.pt')"
-mv -f yolo26s-pose.pt models/
+mkdir -p models
+BASE='https://gh-proxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0'
+for f in yolo26n.pt yolo26s.pt yolo26m.pt yolo26l.pt yolo26x.pt yolo26s-pose.pt; do
+  curl -fL --retry 5 -o "models/$f" "$BASE/$f"
+done
+ls -lh models/yolo26*.pt
 ```
 
-浏览器下载：打开上方 Release 链接 → 保存到 `models/` 并改名为对应文件名。
+也可 `YOLO('yolo26m.pt')` 自动下载后 `mv` 进 `models/`，或浏览器打开 Release 页保存。
 
-### 4.3 本项目默认需要的权重
+### 4.3 切换档位对比精度
 
-| 文件 | 用途 | 配置项（`[models]`） |
-|------|------|----------------------|
-| `models/yolo26s.pt` | YOLO 主检测（COCO 80 类） | `yolo_model` |
-| `models/yolo26s-pose.pt` | 打电话/玩手机姿态 | `pose_model` |
+编辑 `config/config.ini`：
 
-可选更轻量：`yolo26n.pt` / `yolo26n-pose.pt`（改配置即可）。训练专模的预训练基座也请使用 **YOLO26**（如 `models/yolo26s.pt`）。
+```ini
+[models]
+# 只改这一行即可对比 n/s/m/l/x（文件须已在 models/）
+yolo_model = models/yolo26m.pt
+# 姿态可保持 s，或换成同档：models/yolo26m-pose.pt
+pose_model = models/yolo26s-pose.pt
+```
+
+```bash
+./stop.sh && ./start.sh
+```
+
+建议：固定同一路 RTSP、`conf_threshold`、检测项，只改 `yolo_model`，在预览/历史告警里对比漏检与误检。更大模型更吃 GPU/显存与每路耗时。
+
+### 4.4 默认需要的权重
+
+| 文件 | 用途 | 配置项 |
+|------|------|--------|
+| `models/yolo26s.pt`（或 n/m/l/x） | 主检测 COCO 80 | `[models] yolo_model` |
+| `models/yolo26s-pose.pt` | 打电话/玩手机姿态 | `[models] pose_model` |
+
+训练专模基座也请用 YOLO26（如 `yolo26s.pt`）。
 
 ### 4.4 人脸识别（可选）
 
@@ -149,10 +178,14 @@ models/buffalo_l/
 ./start.sh
 ```
 
+会拉起：`alert_worker`（异步告警）+ `visionai.worker`（拉流检测）+ `visionai.api`（Web :5000）；可选 inferd / compose 依赖。
+
+健康检查：`curl -s http://127.0.0.1:5000/healthz` · `curl -s http://127.0.0.1:5000/readyz`
+
 - 管理端：<http://服务器IP:5000>
 - 默认登录密钥：`config.ini` 中 `visionai_secret`（生产务必修改）
 - 停止：`./stop.sh`
-- 日志：`tail -f logs/visionai.log`
+- 日志：`logs/visionai.log`、`logs/worker.log`、`logs/alert_worker.log`
 
 `start.sh` 会自动设置本机友好环境变量：
 

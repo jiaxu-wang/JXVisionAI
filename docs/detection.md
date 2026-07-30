@@ -1,5 +1,18 @@
 # 检测与模型
 
+## 能力分层
+
+| 层 | 说明 | 如何启用 |
+|----|------|----------|
+| **主检 COCO 80** | YOLO26 预训练，索引 0–79 | 各流「检测类型配置」勾选对应类 |
+| **内置扩展** | 打电话 / 玩手机 / 聚集 / 人脸识别 | 同上勾选独立键名 |
+| **外置专模（导入）** | 社区/平台现成 YOLO 权重，自行提供 | 训练实验室 → **导入现成专模** |
+| **自训专模** | 本平台标注训练后部署 | 训练实验室 → 一键部署 |
+
+主检与专模**并行**：不要用行业多类模型替换 `[models] yolo_model`。
+
+---
+
 ## 检测类型总览
 
 - **COCO 80 类**：索引 0–79，如 `0`=人物、`67`=手机，在「检测类型配置」中按类勾选
@@ -12,9 +25,12 @@
 | `gather` | 人员聚集 | 仅 COCO person 框 |
 | `face_recognition` | 人脸识别 | `buffalo_l` + 人脸库 |
 
-- **训练专模**（动态）：由训练实验室部署到 `models/specialists/<key>/`，出现在检测类型列表中，可按流勾选；可在训练实验室或管理平台删除。
+- **专模**（动态，`models/specialists/<key>/`）：
+  - **自训**：训练实验室达标后「一键部署」
+  - **导入**：训练实验室「导入现成专模」上传 `.pt` / `.onnx` 并填写元数据  
+  部署/导入后出现在检测类型列表，可按流勾选；可在训练实验室或管理平台删除。
 
-原 B 列表硬编码专模（吸烟、安全帽、眼镜、跌倒、火焰等）已从内置配置移除，改由 **训练实验室 → 部署专模** 路径上线。
+原 B 列表硬编码专模（吸烟、安全帽、眼镜、跌倒、火焰等）已从内置配置移除，改由 **导入现成权重** 或 **训练实验室部署** 上线。
 
 ---
 
@@ -23,6 +39,32 @@
 1. COCO 检出 person + cell phone，框重叠配对
 2. 若启用 `pose_for_phone_enabled` 且 `pose_model` 可用：YOLO26-pose 区分贴耳（CALLING）与把玩（PLAY_PHONE）
 3. 否则按手机竖直位置启发式区分
+
+---
+
+## 导入现成专模（社区 / 平台权重）
+
+适用于 Hugging Face、[Ultralytics Platform](https://platform.ultralytics.com/) 等处下载的 **Ultralytics YOLO 检测** 权重。
+
+1. 打开 Web **训练实验室**（`/training`）左侧 **导入现成专模**
+2. 选择 `.pt` 或 `.onnx`，可选点 **读取类别** 预检类别名
+3. 填写：
+   - **key**：小写字母开头，仅 `a-z0-9_`（如 `hardhat`），不可与 COCO 数字键或内置扩展键冲突
+   - **中文名 / kind**：
+     - `person_event`：人物关联事件（如吸烟），默认告警类 `positive_class_ids=0`
+     - `violation`：合规/违规双类（如安全帽），默认 `subject=0`（违规）、`comply=1`（合规）
+     - `scene`：全画面场景类
+   - 阈值 `conf` / `score_threshold` / `min_duration_sec`（可按现场再调）
+4. 点 **导入并上线** → 写入 `models/specialists/<key>/`（`model.pt` + `specialist.json`），**热加载，一般无需重启**
+5. 管理平台 **事件监控** → **检测类型配置** → 勾选该专模 → **保存配置**
+
+约束：
+
+- 须为 YOLO **detect** 权重；类别索引必须与所选 `kind` 约定一致
+- 同名 `key` 会备份旧权重后覆盖
+- API：`POST /api/training/specialists/inspect`、`POST /api/training/specialists/import`（见 [api.md](api.md)）
+
+也可手工放置目录后写 `specialist.json`，或调用 `visionai.config.specialists.deploy_specialist(..., origin="imported")`。
 
 ---
 
@@ -45,7 +87,7 @@
 ## 模型目录
 
 - `models/`：YOLO 主模型、`make_call.onnx`、姿态模型、人脸识别 buffalo_l 等内置权重
-- `models/specialists/<key>/`：训练实验室部署的专模（`model.pt` + `specialist.json`）
+- `models/specialists/<key>/`：专模（自训或导入；`model.pt` + `specialist.json`；`origin` 为 `trained` / `imported`）
 
 详见 [快速开始 - 准备模型（YOLO26）](getting-started.md#4-准备模型yolo26)。权重不入 Git，部署时自行下载或从训练管线导出。
 
@@ -57,4 +99,4 @@
 - 部署门禁：测试集 mAP@0.5≥0.40 且 P/R≥0.35；`make_call` 自动导出 ONNX
 - 安全帽 / 眼镜等 violation 模板：类别顺序须与模板一致（如 `0=no_helmet, 1=helmet`）
 
-人脸识别实现细节见 [face_recognition_design.md](face_recognition_design.md).
+人脸识别：SCRFD 检测 + ArcFace 特征，库在 Redis，照片在 MinIO；操作见 [user-guide.md](user-guide.md)。

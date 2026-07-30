@@ -23,7 +23,22 @@ LEGACY_SECTION = "visionai"
 
 # 至少存在其一即视为合法配置文件
 VALID_ROOT_SECTIONS = frozenset(
-    {"basic", "app", "redis", "minio", "storage", "s3", "email", "smtp", "mail", "models", "preview", "visionai"}
+    {
+        "basic",
+        "app",
+        "redis",
+        "minio",
+        "storage",
+        "s3",
+        "email",
+        "smtp",
+        "mail",
+        "models",
+        "preview",
+        "infer",
+        "zlm",
+        "visionai",
+    }
 )
 
 # 规范节 → { 文件内键 → 规范键 }
@@ -86,6 +101,46 @@ _SECTION_LOCAL_TO_CANONICAL: Dict[str, Dict[str, str]] = {
         "smtp_timeout": "smtp_timeout",
         "smtp_alert_attach_max_bytes": "smtp_alert_attach_max_bytes",
     },
+    "infer": {
+        "backend": "infer_backend",
+        "endpoint": "infer_endpoint",
+        "model_repository": "infer_model_repository",
+        "primary_name": "infer_primary_name",
+        "primary_version": "infer_primary_version",
+        "on_daemon_error": "infer_on_daemon_error",
+        "device": "infer_device",
+        "infer_backend": "infer_backend",
+        "infer_endpoint": "infer_endpoint",
+        "infer_model_repository": "infer_model_repository",
+        "infer_primary_name": "infer_primary_name",
+        "infer_primary_version": "infer_primary_version",
+        "infer_on_daemon_error": "infer_on_daemon_error",
+        "infer_device": "infer_device",
+    },
+    "zlm": {
+        "enabled": "zlm_enabled",
+        "api_base": "zlm_api_base",
+        "secret": "zlm_secret",
+        "vhost": "zlm_vhost",
+        "app": "zlm_app",
+        "rtsp_port": "zlm_rtsp_port",
+        "http_port": "zlm_http_port",
+        "prefer_local_pull": "zlm_prefer_local_pull",
+        "fallback_direct_rtsp": "zlm_fallback_direct_rtsp",
+        "public_host": "zlm_public_host",
+        "rtc_port": "zlm_rtc_port",
+        "zlm_enabled": "zlm_enabled",
+        "zlm_api_base": "zlm_api_base",
+        "zlm_secret": "zlm_secret",
+        "zlm_vhost": "zlm_vhost",
+        "zlm_app": "zlm_app",
+        "zlm_rtsp_port": "zlm_rtsp_port",
+        "zlm_http_port": "zlm_http_port",
+        "zlm_prefer_local_pull": "zlm_prefer_local_pull",
+        "zlm_fallback_direct_rtsp": "zlm_fallback_direct_rtsp",
+        "zlm_public_host": "zlm_public_host",
+        "zlm_rtc_port": "zlm_rtc_port",
+    },
 }
 
 # 规范键 → 写入时的 (节, 文件内键)；basic/models/preview 默认同名
@@ -134,16 +189,11 @@ CANONICAL_WRITE: Dict[str, Tuple[str, str]] = {
     "smtp_from": ("email", "from"),
     "smtp_timeout": ("email", "timeout"),
     "smtp_alert_attach_max_bytes": ("email", "attach_max_bytes"),
-    # preview
-    "preview_annotated_poll_sec": ("preview", "preview_annotated_poll_sec"),
-    "preview_hls_enabled": ("preview", "preview_hls_enabled"),
-    "preview_hls_root": ("preview", "preview_hls_root"),
-    "preview_hls_segment_sec": ("preview", "preview_hls_segment_sec"),
-    "preview_hls_list_size": ("preview", "preview_hls_list_size"),
-    "preview_hls_idle_sec": ("preview", "preview_hls_idle_sec"),
-    "preview_ws_max_fps": ("preview", "preview_ws_max_fps"),
-    "preview_webrtc_enabled": ("preview", "preview_webrtc_enabled"),
-    "preview_webrtc_stun_urls": ("preview", "preview_webrtc_stun_urls"),
+    # preview（流预览仅 ZLM WebRTC；本节保留检测框标签字号）
+    "label_font_px": ("preview", "label_font_px"),
+    "label_font_min_px": ("preview", "label_font_min_px"),
+    "label_font_max_px": ("preview", "label_font_max_px"),
+    "label_font_ratio": ("preview", "label_font_ratio"),
 }
 
 # models 节：下列规范键写入 [models]，文件内键与规范键同名
@@ -183,6 +233,32 @@ _MODELS_KEYS = (
 
 for _k in _MODELS_KEYS:
     CANONICAL_WRITE[_k] = ("models", _k)
+
+for _k, _file_key in (
+    ("infer_backend", "backend"),
+    ("infer_endpoint", "endpoint"),
+    ("infer_model_repository", "model_repository"),
+    ("infer_primary_name", "primary_name"),
+    ("infer_primary_version", "primary_version"),
+    ("infer_on_daemon_error", "on_daemon_error"),
+    ("infer_device", "device"),
+):
+    CANONICAL_WRITE[_k] = ("infer", _file_key)
+
+for _k, _file_key in (
+    ("zlm_enabled", "enabled"),
+    ("zlm_api_base", "api_base"),
+    ("zlm_secret", "secret"),
+    ("zlm_vhost", "vhost"),
+    ("zlm_app", "app"),
+    ("zlm_rtsp_port", "rtsp_port"),
+    ("zlm_http_port", "http_port"),
+    ("zlm_prefer_local_pull", "prefer_local_pull"),
+    ("zlm_fallback_direct_rtsp", "fallback_direct_rtsp"),
+    ("zlm_public_host", "public_host"),
+    ("zlm_rtc_port", "rtc_port"),
+):
+    CANONICAL_WRITE[_k] = ("zlm", _file_key)
 
 
 def normalize_section(section: str) -> str:
