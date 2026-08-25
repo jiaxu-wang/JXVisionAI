@@ -46,7 +46,7 @@ docker compose up -d --build
 # 或：bash scripts/compose_up.sh
 ```
 
-管理端：<http://服务器IP:15000>（避开 EasyAIoT `:5000`）。  
+管理端：<http://服务器IP:15000>。  
 健康检查：`curl -s http://127.0.0.1:15000/readyz`。  
 宿主机映射见 `docker-compose.yaml` 注释（Redis `16379`、MinIO `19000/19001`、ZLM `18080/18554/18000`、国标 SIP `15060`、PS/RTP `10000-10200`）。
 

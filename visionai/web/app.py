@@ -1241,6 +1241,50 @@ def gb28181_preview_bye(device_id: str, channel_id: str):
     return jsonify({"success": bool(result.get("ok")), "message": result.get("message") or "已结束点播"})
 
 
+@app.route("/api/gb28181/devices/<device_id>/channels/<channel_id>/ptz", methods=["POST"])
+@login_required
+def gb28181_ptz(device_id: str, channel_id: str):
+    """国标云台：SIP MESSAGE DeviceControl / PTZCmd。"""
+    device, channel_id, err = _gb_require_channel(device_id, channel_id)
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "").strip().lower()
+    if not action:
+        return jsonify({"success": False, "message": "缺少 action"}), 400
+    from visionai.core.sip import cmd as sip_cmd
+    from visionai.core.sip.ptz import encode_action
+
+    spec = {
+        "action": action,
+        "speed": data.get("speed"),
+        "address": data.get("address"),
+    }
+    _, enc_err = encode_action(spec)
+    if enc_err:
+        return jsonify({"success": False, "message": enc_err}), 400
+    try:
+        rid = sip_cmd.enqueue_cmd(
+            "ptz",
+            device_id=device_id,
+            channel_id=channel_id,
+            **spec,
+        )
+        result = sip_cmd.wait_result(rid, timeout_sec=3.0)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+    if not result.get("ok"):
+        return jsonify({"success": False, "message": result.get("message") or "PTZ 失败"}), 502
+    return jsonify(
+        {
+            "success": True,
+            "ptz_cmd": result.get("ptz_cmd") or "",
+            "channel_id": channel_id,
+            "sip_user": device.get("sip_user") or device_id,
+        }
+    )
+
+
 @app.route("/api/gb28181/devices/<device_id>/channels/<channel_id>/monitor", methods=["POST"])
 @login_required
 def gb28181_join_monitor(device_id: str, channel_id: str):

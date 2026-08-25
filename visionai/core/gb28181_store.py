@@ -408,12 +408,20 @@ def normalize_channel(
         idx = index
     if idx < 1:
         idx = index
+    ptz_raw = ch.get("ptz_type")
+    try:
+        ptz_type = int(ptz_raw) if ptz_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        ptz_type = 0
+    if ptz_type not in (1, 2, 3, 4):
+        ptz_type = 0
     return {
         "index": idx,
         "channel_id": cid,
         "alias": alias,
         "name": alias,  # 兼容旧字段
         "status": st,
+        "ptz_type": ptz_type,
     }
 
 
@@ -1086,6 +1094,13 @@ def merge_catalog_channels(
             continue
         name = str(it.get("name") or it.get("Name") or "").strip()
         st = str(it.get("status") or it.get("Status") or "offline").strip().lower()
+        ptz_raw = it.get("ptz_type") or it.get("PTZType") or ""
+        try:
+            ptz_type = int(ptz_raw) if str(ptz_raw).strip() else 0
+        except (TypeError, ValueError):
+            ptz_type = 0
+        if ptz_type not in (1, 2, 3, 4):
+            ptz_type = 0
         if st in ("on", "online", "ok"):
             st = "online"
         elif st in ("off", "offline"):
@@ -1096,6 +1111,8 @@ def merge_catalog_channels(
             if name and not by_id[cid].get("alias"):
                 by_id[cid]["alias"] = name
             by_id[cid]["status"] = st
+            if ptz_type:
+                by_id[cid]["ptz_type"] = ptz_type
         else:
             local.append(
                 {
@@ -1103,6 +1120,7 @@ def merge_catalog_channels(
                     "channel_id": cid,
                     "alias": name or cid,
                     "status": st,
+                    "ptz_type": ptz_type,
                 }
             )
             by_id[cid] = local[-1]

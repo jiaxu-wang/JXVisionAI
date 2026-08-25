@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 from visionai.core import gb28181_store as store
 from visionai.core.redis_manager import redis_manager
 from visionai.core.sip import catalog as cat
+from visionai.core.sip import ptz as ptzcmd
 from visionai.core.sip.cmd import blpop_cmd, reply_cmd
 from visionai.core.sip.digest import verify_digest
 from visionai.core.sip.message import (
@@ -210,6 +211,8 @@ class SipStack:
                     )
                 elif op == "catalog":
                     result = await self.query_catalog(str(cmd.get("device_id") or ""))
+                elif op == "ptz":
+                    result = await self.ptz_control(cmd)
                 else:
                     result = {"ok": False, "message": f"unknown op {op}"}
             except Exception as e:  # noqa: BLE001
@@ -691,8 +694,18 @@ class SipStack:
                 return got
         return ""
 
-    async def query_catalog(self, device_id: str) -> Dict[str, Any]:
+    def _session_for(self, device_id: str) -> Optional[DeviceSession]:
         sess = self.sessions.get(device_id)
+        if sess:
+            return sess
+        device = store.get_device(redis_manager, device_id)
+        sip_user = str((device or {}).get("sip_user") or "")
+        if sip_user and sip_user != device_id:
+            return self.sessions.get(sip_user)
+        return None
+
+    async def query_catalog(self, device_id: str) -> Dict[str, Any]:
+        sess = self._session_for(device_id)
         if not sess:
             return {"ok": False, "message": "设备未注册"}
         plat = self.platform()
@@ -711,6 +724,42 @@ class SipStack:
         await self._send_to_device(sess, req.encode())
         return {"ok": True, "message": "Catalog 已发送"}
 
+    async def ptz_control(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        device_id = str(spec.get("device_id") or "").strip()
+        channel_id = str(spec.get("channel_id") or "").strip()
+        if not device_id or not channel_id:
+            return {"ok": False, "message": "缺少设备或通道"}
+        sess = self._session_for(device_id)
+        if not sess:
+            return {
+                "ok": False,
+                "message": "设备未在 SIP 注册：列表在线来自缓存，信令进程里没有会话。请等摄像机心跳或重新 REGISTER 后再试",
+            }
+        hex_cmd, err = ptzcmd.encode_action(spec)
+        if err or not hex_cmd:
+            return {"ok": False, "message": err or "PTZ 编码失败"}
+        plat = self.platform()
+        self._sn += 1
+        body = ptzcmd.control_xml(channel_id, self._sn, hex_cmd)
+        req = self._build_request(
+            "MESSAGE",
+            plat,
+            sess,
+            f"sip:{channel_id}@{sess.contact_ip}:{sess.contact_port}",
+            to_user=channel_id,
+            body=body,
+            content_type="Application/MANSCDP+xml",
+        )
+        await self._send_to_device(sess, req.encode())
+        logger.info(
+            "PTZ %s ch=%s action=%s cmd=%s",
+            device_id,
+            channel_id,
+            spec.get("action"),
+            hex_cmd,
+        )
+        return {"ok": True, "ptz_cmd": hex_cmd, "channel_id": channel_id}
+
     async def invite_play(
         self, device_id: str, channel_id: str, *, force: bool = False
     ) -> Dict[str, Any]:
@@ -720,12 +769,7 @@ class SipStack:
         port_max = int(plat.get("media_port_end") or port_min or 0)
         if not media_ip or not port_min:
             return {"ok": False, "message": "请先填写媒体收流 IP 与端口范围（勿与 SIP 对外地址混用）"}
-        sess = self.sessions.get(device_id)
-        if not sess:
-            device = store.get_device(redis_manager, device_id)
-            sip_user = str((device or {}).get("sip_user") or "")
-            if sip_user and sip_user != device_id:
-                sess = self.sessions.get(sip_user)
+        sess = self._session_for(device_id)
         if not sess:
             return {
                 "ok": False,

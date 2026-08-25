@@ -49,6 +49,7 @@ def parse_catalog_items(body: str) -> List[Dict[str, Any]]:
                     "channel_id": cid,
                     "name": row.get("Name") or "",
                     "status": row.get("Status") or "",
+                    "ptz_type": row.get("PTZType") or "",
                 }
             )
     return items
@@ -62,11 +63,13 @@ def _parse_catalog_regex(body: str) -> List[Dict[str, Any]]:
             continue
         name = re.search(r"<Name>\s*([^<]+)\s*</Name>", block, re.I)
         st = re.search(r"<Status>\s*([^<]+)\s*</Status>", block, re.I)
+        ptz = re.search(r"<PTZType>\s*([^<]+)\s*</PTZType>", block, re.I)
         items.append(
             {
                 "channel_id": did.group(1).strip(),
                 "name": name.group(1).strip() if name else "",
                 "status": st.group(1).strip() if st else "",
+                "ptz_type": ptz.group(1).strip() if ptz else "",
             }
         )
     return items

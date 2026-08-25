@@ -100,6 +100,76 @@
         #streamPreviewModal {
             z-index: 1400;
         }
+        #streamPreviewModal.has-gb-ptz .config-modal-panel {
+            max-width: 1180px;
+            width: min(1180px, 96vw);
+        }
+        .gb-preview-layout {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+            flex-wrap: wrap;
+        }
+        .gb-preview-video-wrap {
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1 1 420px;
+        }
+        .gb-ptz-pad {
+            flex: 0 0 248px;
+            max-width: 100%;
+            font-size: 12px;
+            color: #334155;
+        }
+        .gb-ptz-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 44px);
+            grid-template-rows: repeat(3, 44px);
+            gap: 6px;
+            justify-content: center;
+            margin: 0 0 10px 0;
+        }
+        .gb-ptz-pad button {
+            height: 36px;
+            padding: 0 8px;
+            font-size: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+        }
+        .gb-ptz-grid button {
+            height: 44px;
+            width: 44px;
+            padding: 0;
+            font-size: 16px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+        }
+        .gb-ptz-grid button:active,
+        .gb-ptz-pad button:active {
+            background: #dbeafe;
+        }
+        .gb-ptz-zoom {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        .gb-ptz-speed {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 10px 0;
+        }
+        .gb-ptz-speed input {
+            flex: 1;
+        }
         #talkModal,
         #detectionConfigModal {
             z-index: 1350;
@@ -123,6 +193,11 @@
         .config-modal-header h3 {
             margin: 0;
             font-size: 18px;
+        }
+        .stream-preview-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         .config-modal-close {
             border: none;
@@ -1921,11 +1996,45 @@
         <div class="config-modal-panel" role="dialog" aria-labelledby="streamPreviewTitle" style="max-width: 960px; width: min(960px, 96vw);">
             <div class="config-modal-header">
                 <h3 id="streamPreviewTitle">流预览</h3>
-                <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" aria-label="关闭">&times;</button>
+                <div class="stream-preview-header-actions">
+                    <button type="button" class="btn-save" id="streamPreviewSnapshotBtn">截图保存</button>
+                    <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" aria-label="关闭">&times;</button>
+                </div>
             </div>
             <div class="config-modal-body">
-                <div style="background: #000; border-radius: 8px; overflow: hidden; min-height: 200px; display: flex; align-items: center; justify-content: center;">
-                    <video id="streamPreviewVideo" playsinline controls style="max-width: 100%; max-height: 72vh; width: 100%;"></video>
+                <div class="gb-preview-layout">
+                    <div class="gb-preview-video-wrap">
+                        <video id="streamPreviewVideo" playsinline controls style="max-width: 100%; max-height: 72vh; width: 100%;"></video>
+                    </div>
+                    <aside id="gbPtzPad" class="gb-ptz-pad" hidden>
+                        <div class="gb-ptz-grid">
+                            <button type="button" data-gb-ptz-hold="upleft" title="左上">↖</button>
+                            <button type="button" data-gb-ptz-hold="up" title="上">↑</button>
+                            <button type="button" data-gb-ptz-hold="upright" title="右上">↗</button>
+                            <button type="button" data-gb-ptz-hold="left" title="左">←</button>
+                            <button type="button" data-gb-ptz-hold="stop" title="停止">■</button>
+                            <button type="button" data-gb-ptz-hold="right" title="右">→</button>
+                            <button type="button" data-gb-ptz-hold="downleft" title="左下">↙</button>
+                            <button type="button" data-gb-ptz-hold="down" title="下">↓</button>
+                            <button type="button" data-gb-ptz-hold="downright" title="右下">↘</button>
+                        </div>
+                        <div class="gb-ptz-zoom">
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_out">变倍-</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_in">变倍+</button>
+                        </div>
+                        <label class="gb-ptz-speed">速度
+                            <input type="range" id="gbPtzSpeed" min="1" max="8" step="1" value="4">
+                            <span id="gbPtzSpeedVal">4</span>
+                        </label>
+                        <div class="gb-ptz-zoom">
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_near">聚焦近</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_far">聚焦远</button>
+                        </div>
+                        <div class="gb-ptz-zoom">
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_open">光圈+</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_close">光圈-</button>
+                        </div>
+                    </aside>
                 </div>
             </div>
         </div>
@@ -2059,7 +2168,12 @@
         let streamPreviewPc = null;
         let streamPreviewStreamId = null;
         let streamPreviewApp = '';
+        let streamPreviewName = '';
         let gbPreviewSession = null;
+        let gbPtzRepeatTimer = null;
+        let gbPtzActiveAction = '';
+        let gbPtzKeysDown = {};
+        let gbPtzKeyBound = false;
         let detectionConfigTargetItem = null;
         let detectionModalDraft = null;
         let detectionFaceRecogDraft = null;
@@ -2330,10 +2444,189 @@
             }
             streamPreviewStreamId = streamId;
             streamPreviewApp = opts.app || '';
-            if (opts.gbPreview) gbPreviewSession = opts.gbPreview;
+            streamPreviewName = streamName || '';
+            gbPreviewSession = opts.gbPreview || null;
+            setGbPtzPadVisible(!!gbPreviewSession);
             rebuildStreamPreview();
             modal.classList.add('show');
             modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function previewSnapshotBasename() {
+            const raw = streamPreviewName || streamPreviewStreamId || 'preview';
+            const cleaned = String(raw).replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_');
+            return (cleaned.slice(0, 80) || 'preview');
+        }
+
+        function previewSnapshotStamp() {
+            const d = new Date();
+            const p = function (n) { return String(n).padStart(2, '0'); };
+            return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
+                + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+        }
+
+        function captureStreamPreview() {
+            const vid = document.getElementById('streamPreviewVideo');
+            if (!vid || vid.readyState < 2 || !vid.videoWidth || !vid.videoHeight) {
+                showMessage('画面尚未就绪，请等预览出图后再截图', 'error');
+                return;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = vid.videoWidth;
+            canvas.height = vid.videoHeight;
+            let ctx;
+            try {
+                ctx = canvas.getContext('2d');
+                ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+            } catch (e) {
+                showMessage('截图失败（浏览器无法读取当前画面）', 'error');
+                return;
+            }
+            const filename = previewSnapshotBasename() + '_' + previewSnapshotStamp() + '.jpg';
+            const fail = function () { showMessage('截图保存失败', 'error'); };
+            try {
+                canvas.toBlob(function (blob) {
+                    if (!blob) {
+                        fail();
+                        return;
+                    }
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+                    showMessage('已保存截图 ' + filename, 'success');
+                }, 'image/jpeg', 0.92);
+            } catch (e) {
+                fail();
+            }
+        }
+
+        function gbPtzSpeed() {
+            const el = document.getElementById('gbPtzSpeed');
+            const n = el ? parseInt(el.value, 10) : 4;
+            return Number.isFinite(n) ? n : 4;
+        }
+
+        function gbPtzPayload(action) {
+            return { action: action, speed: gbPtzSpeed() };
+        }
+
+        function gbPtzSend(action, silent) {
+            const sess = gbPreviewSession;
+            if (!sess || !sess.device_id || !sess.channel_id || !action) return;
+            fetch('/api/gb28181/devices/' + encodeURIComponent(sess.device_id) +
+                '/channels/' + encodeURIComponent(sess.channel_id) + '/ptz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(gbPtzPayload(action))
+                })
+                .then(function (r) { return fetchJsonOrThrow(r); })
+                .then(function (j) {
+                    if (!j.success && !silent) showMessage(j.message || '云台失败', 'error');
+                })
+                .catch(function (e) {
+                    if (!silent) showMessage('云台失败: ' + (e.message || e), 'error');
+                });
+        }
+
+        function gbPtzHoldStop() {
+            if (gbPtzRepeatTimer) {
+                clearInterval(gbPtzRepeatTimer);
+                gbPtzRepeatTimer = null;
+            }
+            if (gbPtzActiveAction && gbPtzActiveAction !== 'stop') {
+                gbPtzSend('stop');
+            }
+            gbPtzActiveAction = '';
+        }
+
+        function gbPtzHoldStart(action) {
+            if (!action) return;
+            if (action === 'stop') {
+                gbPtzHoldStop();
+                gbPtzSend('stop');
+                return;
+            }
+            if (gbPtzActiveAction === action && gbPtzRepeatTimer) return;
+            gbPtzHoldStop();
+            gbPtzActiveAction = action;
+            gbPtzSend(action);
+            gbPtzRepeatTimer = setInterval(function () { gbPtzSend(action); }, 320);
+        }
+
+        function gbPtzActionFromKeys() {
+            const u = !!gbPtzKeysDown.ArrowUp;
+            const d = !!gbPtzKeysDown.ArrowDown;
+            const l = !!gbPtzKeysDown.ArrowLeft;
+            const r = !!gbPtzKeysDown.ArrowRight;
+            if (u && l) return 'upleft';
+            if (u && r) return 'upright';
+            if (d && l) return 'downleft';
+            if (d && r) return 'downright';
+            if (u) return 'up';
+            if (d) return 'down';
+            if (l) return 'left';
+            if (r) return 'right';
+            if (gbPtzKeysDown.zoom_in) return 'zoom_in';
+            if (gbPtzKeysDown.zoom_out) return 'zoom_out';
+            return '';
+        }
+
+        function gbPtzOnKeyDown(e) {
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+            if (!gbPreviewSession) return;
+            let key = e.key;
+            if (key === '+' || key === '=') key = 'zoom_in';
+            if (key === '-' || key === '_') key = 'zoom_out';
+            const map = {
+                ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1,
+                zoom_in: 1, zoom_out: 1
+            };
+            if (!map[key]) return;
+            e.preventDefault();
+            if (gbPtzKeysDown[key]) return;
+            gbPtzKeysDown[key] = true;
+            gbPtzHoldStart(gbPtzActionFromKeys());
+        }
+
+        function gbPtzOnKeyUp(e) {
+            let key = e.key;
+            if (key === '+' || key === '=') key = 'zoom_in';
+            if (key === '-' || key === '_') key = 'zoom_out';
+            if (!gbPtzKeysDown[key]) return;
+            delete gbPtzKeysDown[key];
+            const next = gbPtzActionFromKeys();
+            if (next) gbPtzHoldStart(next);
+            else gbPtzHoldStop();
+        }
+
+        function setGbPtzPadVisible(on) {
+            const modal = document.getElementById('streamPreviewModal');
+            const pad = document.getElementById('gbPtzPad');
+            if (modal) modal.classList.toggle('has-gb-ptz', !!on);
+            if (pad) {
+                if (on) pad.removeAttribute('hidden');
+                else pad.setAttribute('hidden', '');
+            }
+            if (on && !gbPtzKeyBound) {
+                window.addEventListener('keydown', gbPtzOnKeyDown);
+                window.addEventListener('keyup', gbPtzOnKeyUp);
+                gbPtzKeyBound = true;
+            }
+            if (!on) {
+                gbPtzHoldStop();
+                gbPtzKeysDown = {};
+                if (gbPtzKeyBound) {
+                    window.removeEventListener('keydown', gbPtzOnKeyDown);
+                    window.removeEventListener('keyup', gbPtzOnKeyUp);
+                    gbPtzKeyBound = false;
+                }
+            }
         }
 
         function releaseGbPreview() {
@@ -2346,9 +2639,13 @@
         }
 
         function closeStreamPreview() {
+            gbPtzHoldStop();
+            if (gbPreviewSession) gbPtzSend('stop', true);
+            setGbPtzPadVisible(false);
             stopStreamPreviewPipeline();
             streamPreviewStreamId = null;
             streamPreviewApp = '';
+            streamPreviewName = '';
             releaseGbPreview();
             const modal = document.getElementById('streamPreviewModal');
             if (modal) {
@@ -2359,12 +2656,18 @@
 
         function safeCloseModalsForNav() {
             try {
+                gbPtzHoldStop();
+                if (gbPreviewSession) gbPtzSend('stop', true);
+                setGbPtzPadVisible(false);
+            } catch (err) { /* ignore */ }
+            try {
                 stopStreamPreviewPipeline();
             } catch (err) {
                 console.warn('stopStreamPreviewPipeline', err);
             }
             streamPreviewStreamId = null;
             streamPreviewApp = '';
+            streamPreviewName = '';
             releaseGbPreview();
             const spm = document.getElementById('streamPreviewModal');
             if (spm) {
@@ -4556,7 +4859,6 @@
                         <th>SIP用户</th>
                         <th>SIP用户名/认证ID</th>
                         <th>SIP用户密码</th>
-                        <th>备注</th>
                         <th>状态</th>
                         <th>操作</th>
                     </tr>
@@ -4595,7 +4897,6 @@
                     <td><input type="text" class="gb-f-name" value="${String(opts.name || '').replace(/"/g, '&quot;')}" placeholder="SIP用户"></td>
                     <td><input type="text" class="gb-f-sip gb-f-auth" value="${sipId.replace(/"/g, '&quot;')}" readonly title="自动分配，用户名与认证ID相同"></td>
                     <td><input type="text" class="gb-f-password" value="${String(opts.password || '').replace(/"/g, '&quot;')}" placeholder="密码" autocomplete="off"></td>
-                    <td><input type="text" class="gb-f-remark" value="${String(opts.remark || '').replace(/"/g, '&quot;')}" placeholder=""></td>
                     <td>${stHtml}</td>
                     <td><div class="gb-sip-actions">${actions}</div></td>
                 </tr>
@@ -5039,7 +5340,6 @@
                     if (!id || !card) return;
                     const name = card.querySelector('.gb-f-name')?.value.trim() || '';
                     const password = card.querySelector('.gb-f-password')?.value || '';
-                    const remark = card.querySelector('.gb-f-remark')?.value.trim() || '';
                     if (!name) {
                         showMessage('SIP用户不能为空', 'error');
                         return;
@@ -5048,7 +5348,7 @@
                         const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(id), {
                             method: 'PATCH',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name, password, remark })
+                            body: JSON.stringify({ name, password })
                         });
                         const j = await fetchJsonOrThrow(r);
                         showMessage(j.success ? '已保存修改' : (j.message || '失败'), j.success ? 'success' : 'error');
@@ -5098,9 +5398,9 @@
             box.innerHTML = gbDevTableHeadHtml();
             const tbody = box.querySelector('tbody');
             if (!all.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
             } else if (!list.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">当前筛选下没有设备。</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">当前筛选下没有设备。</td></tr>';
             } else {
                 tbody.innerHTML = list.map(function (d, i) {
                     const did = d.sip_user || d.device_id || '';
@@ -5115,7 +5415,6 @@
                         row_id: i + 1,
                         name: d.name || '',
                         password: d.password || '',
-                        remark: d.remark || '',
                         sip_user: did,
                         auth_id: d.auth_id || did,
                         status: d.status || 'offline',
@@ -5206,7 +5505,6 @@
                 draft: true,
                 name: '',
                 password: '',
-                remark: '',
                 sip_user: '',
                 auth_id: '',
                 status: 'draft'
@@ -5215,7 +5513,7 @@
             draft.querySelector('[data-gb-cancel-create]')?.addEventListener('click', function () {
                 draft.remove();
                 if (!tbody.querySelector('tr[data-sip-row]')) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
                 }
             });
             draft.querySelector('[data-gb-save-create]')?.addEventListener('click', saveGb28181CreateDraft);
@@ -5229,7 +5527,6 @@
             if (!draft) return;
             const name = draft.querySelector('.gb-f-name')?.value.trim() || '';
             const password = draft.querySelector('.gb-f-password')?.value || '';
-            const remark = draft.querySelector('.gb-f-remark')?.value.trim() || '';
             if (!name) {
                 showMessage('请填写 SIP用户', 'error');
                 return;
@@ -5246,7 +5543,6 @@
                         auto_allocate: true,
                         password,
                         name,
-                        remark,
                         channels: [],
                         source: 'provisioned'
                     })
@@ -5646,6 +5942,36 @@
         });
         
         document.getElementById('streamPreviewCloseBtn')?.addEventListener('click', closeStreamPreview);
+        document.getElementById('streamPreviewSnapshotBtn')?.addEventListener('click', captureStreamPreview);
+        (function bindGbPtzPad() {
+            const pad = document.getElementById('gbPtzPad');
+            if (!pad) return;
+            const speed = document.getElementById('gbPtzSpeed');
+            const speedVal = document.getElementById('gbPtzSpeedVal');
+            if (speed && speedVal) {
+                speed.addEventListener('input', function () { speedVal.textContent = String(gbPtzSpeed()); });
+            }
+            const stopHold = function () { gbPtzHoldStop(); };
+            pad.addEventListener('mousedown', function (e) {
+                const hold = e.target.closest('[data-gb-ptz-hold]');
+                if (hold) {
+                    e.preventDefault();
+                    gbPtzHoldStart(hold.getAttribute('data-gb-ptz-hold'));
+                }
+            });
+            pad.addEventListener('mouseup', stopHold);
+            pad.addEventListener('mouseleave', stopHold);
+            pad.addEventListener('touchstart', function (e) {
+                const hold = e.target.closest('[data-gb-ptz-hold]');
+                if (hold) {
+                    e.preventDefault();
+                    gbPtzHoldStart(hold.getAttribute('data-gb-ptz-hold'));
+                }
+            }, { passive: false });
+            pad.addEventListener('touchend', stopHold);
+            pad.addEventListener('touchcancel', stopHold);
+            window.addEventListener('blur', stopHold);
+        })();
 document.getElementById('detectionConfigModalCloseBtn')?.addEventListener('click', closeDetectionConfigModal);
         document.getElementById('detectionConfigCancelBtn')?.addEventListener('click', closeDetectionConfigModal);
         document.getElementById('detectionConfigSearch')?.addEventListener('input', function() {

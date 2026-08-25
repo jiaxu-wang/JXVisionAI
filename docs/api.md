@@ -98,7 +98,7 @@
 
 ## 国标 GB/T 28181
 
-均需登录。Invite / BYE / Catalog 由 API 写入 Redis 命令队列，`visionai-sip` 执行。说明见 [gb28181.md](gb28181.md)。
+均需登录。Invite / BYE / Catalog / PTZ 由 API 写入 Redis 命令队列，`visionai-sip` 执行。说明见 [gb28181.md](gb28181.md)。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -111,5 +111,6 @@
 | `GET` / `POST` | `/api/gb28181/devices/<device_id>/channels` | 通道列表 / 新增通道 |
 | `PATCH` / `DELETE` | `/api/gb28181/devices/<device_id>/channels/<channel_id>` | 改别名等 / 删通道 |
 | `POST` | `…/channels/<channel_id>/preview` | 点播预览（不写入检测配置；已接入分析则复用） |
+| `POST` | `…/channels/<channel_id>/ptz` | **云台**：body `{action, speed?}`；`action` 为方向/变倍/聚焦/光圈/`stop`；`visionai-sip` 发 DeviceControl |
 | `POST` | `…/channels/<channel_id>/bye` | 结束点播（已接入分析的通道通常不 BYE） |
 | `POST` | `…/channels/<channel_id>/monitor` | **接入分析**：Invite + 写入 streamlist（`analyze: true`） |
