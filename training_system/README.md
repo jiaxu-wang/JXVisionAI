@@ -150,11 +150,11 @@ python scripts/export.py deploy \
 1. Web **训练实验室**（`/training`）标注、训练与 **一键部署**；或  
 2. 同一页左侧 **导入现成专模**：上传社区/平台 YOLO `.pt`，登记 `key`/`kind` 后上线  
 
-产物均写入 `models/specialists/<key>/`（`model.pt` + `specialist.json`），检测类型自动出现在事件监控配置列表，**热加载、一般无需重启**。说明见 `docs/detection.md`。
+产物均写入 `models/specialists/<key>/`（`model.pt` + `specialist.json`），检测类型自动出现在 **检测配置** 列表，**热加载、一般无需重启**。说明见 `docs/detection.md`。
 
 **CLI `export.py deploy`**：仅将 `.pt` 复制到指定目录，**不会** 写入 `specialist.json`，也**不会** 注册为检测类型。若要用 CLI 训练的权重上线，请用训练实验室「导入现成专模」、或手动整理专模目录，或导入训练实验室项目后再点部署。
 
-**特例 `make_call`（打电话）**：仍走内置路径——部署时复制到 `models/` 并 patch `config.ini` 的 `make_call_model_path`，**须重启** 后生效。其余场景（吸烟、安全帽、未戴眼镜、自定义等）均部署为 **专模**，不在 `config.ini` 中为每项单独配路径。
+打电话能力已下线；需要时在训练实验室自训或导入 YOLO 专模。其余场景（吸烟、安全帽、未戴眼镜、自定义等）均部署为 **专模**，不在 `config.ini` 中为每项单独配路径。
 
 ## 详细使用说明
 

@@ -60,7 +60,7 @@
      - `scene`：全画面场景类
    - 阈值 `conf` / `score_threshold` / `min_duration_sec`（可按现场再调）
 4. 点 **导入并上线** → 写入 `models/specialists/<key>/`（`model.pt` + `specialist.json`），**热加载，一般无需重启**
-5. 管理平台 **事件监控** → **检测类型配置** → 勾选该专模 → **保存配置**
+5. 管理平台 **检测配置** → **检测类型配置** → 勾选该专模 → **保存检测配置**
 
 约束：
 

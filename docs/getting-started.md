@@ -34,7 +34,7 @@ bash scripts/compose_up.sh
 | MinIO 控制台 | <http://127.0.0.1:19001> |
 | ZLM HTTP | `http://127.0.0.1:18080` |
 
-服务：`visionai-api` / `visionai-worker` / `visionai-alert` + `redis` / `minio` / `zlmediakit`。
+服务：`visionai-api` / `visionai-worker` / `visionai-alert` / `visionai-sip` + `redis` / `minio` / `zlmediakit`。
 
 改 `config.ini` 或主模型后：
 
@@ -168,13 +168,13 @@ Compose：`docker compose restart visionai-api visionai-worker visionai-alert`
 ./start.sh
 ```
 
-会拉起：`alert_worker` + `visionai.worker` + `visionai.api`（Web **:5000**）；可选 inferd。
+会拉起：`alert_worker` + `visionai.worker` + `visionai.api`（Web **:5000**）+ `visionai.sip`（国标，默认 **:15060**）；可选 inferd。
 
 健康检查：`curl -s http://127.0.0.1:5000/healthz` · `curl -s http://127.0.0.1:5000/readyz`
 
 - 管理端：<http://服务器IP:5000>
 - 停止：`./stop.sh`
-- 日志：`logs/visionai.log`、`logs/worker.log`、`logs/alert_worker.log`
+- 日志：`logs/visionai.log`、`logs/worker.log`、`logs/alert_worker.log`、`logs/sip.log`
 
 `start.sh` 本机友好环境变量示例：`REDIS_HOST=127.0.0.1`、`REDIS_PORT=16379`、`S3_ENDPOINT_URL=http://127.0.0.1:19000`（以脚本实际 export 为准）。
 
@@ -185,4 +185,5 @@ Compose：`docker compose restart visionai-api visionai-worker visionai-alert`
 - [系统架构](architecture.md)
 - [配置说明](configuration.md)
 - [使用指南](user-guide.md)
+- [国标 28181](gb28181.md)
 - [运维与排障](operations.md)

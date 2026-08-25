@@ -88,7 +88,7 @@
 yolo_model = models/yolo26s.pt   # 改为 yolo26n / m / l / x.pt
 ```
 
-文件须已在 `models/`（可用 `./scripts/download_yolo26.sh`）。改完重启应用（Compose 三服务或 `./stop.sh && ./start.sh`）。对比精度时固定 `conf_threshold` 与同一路视频。详见 [getting-started.md §4](getting-started.md)。
+文件须已在 `models/`（可用 `./scripts/download_yolo26.sh`）。改完重启应用（Compose：`visionai-api` / `visionai-worker` / `visionai-alert`，或 `./stop.sh && ./start.sh`）。对比精度时固定 `conf_threshold` 与同一路视频。详见 [getting-started.md §4](getting-started.md)。
 
 ---
 
@@ -159,4 +159,6 @@ password = your_auth_code
 from = you@example.com
 ```
 
-每路收件人与是否发信仍在 Redis 流配置（事件监控）中设置。
+每路收件人与是否发信仍在 Redis 流配置（**检测配置**页）中设置。
+
+国标 SIP / 媒体 / 账号不在 `config.ini`，由管理端写入 Redis，见 [gb28181.md](gb28181.md)。

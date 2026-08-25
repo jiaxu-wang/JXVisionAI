@@ -1,6 +1,6 @@
 # 系统架构
 
-JXVisionAI：多路 RTSP 视频智能分析。主检为 **Ultralytics YOLO26**（COCO 80），之上叠加行为扩展、**专模**（平台自训或导入社区权重）与 Web 管理端。
+JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 **Ultralytics YOLO26**（COCO 80），之上叠加行为扩展、**专模**（平台自训或导入社区权重）与 Web 管理端。
 
 ---
 
@@ -8,7 +8,7 @@ JXVisionAI：多路 RTSP 视频智能分析。主检为 **Ultralytics YOLO26**�
 
 | 能力 | 说明 |
 |------|------|
-| 多路接入 | RTSP直连、ONVIF 发现、国标 28181（独立 SIP 进程注册 + ZLM 收 PS；通道「接入分析」写入 streamlist）；每路独立线程拉流 |
+| 多路接入 | RTSP直连、ONVIF 发现、国标 28181（独立 SIP 进程注册 + ZLM 收 PS；**通道**「接入分析」写入 streamlist）；每路独立线程拉流。接入平台与接入分析分离（`analyze`） |
 | COCO 80 类 | 按流单独开关（人物、手机、车辆等） |
 | 内置扩展 | 玩手机、人员聚集、人脸识别、车牌识别 |
 | 训练专模 / 导入专模 | 部署或导入到 `models/specialists/<key>/`，出现在检测类型列表，可删 |
@@ -17,11 +17,11 @@ JXVisionAI：多路 RTSP 视频智能分析。主检为 **Ultralytics YOLO26**�
 | 车牌识别 | 专模 `plate` 检框 + RapidOCR 读号 + Redis 车牌库（known / unknown） |
 | 人员聚集 | 单帧人数 ≥ 阈值，可选持续时长防抖 |
 | 告警 | Redis 记录 + 可选 SMTP / Webhook；截图本地或 MinIO/S3 |
-| Web | 状态概览、设备接入（RTSP直连/ONVIF/国标 Tab）、检测配置、历史、设置、人脸库/车牌库、预览；ONVIF 对讲；`/training` 训练实验室 |
+| Web | 状态概览、设备接入（RTSP直连/ONVIF/国标 Tab）、检测配置、历史、设置、人脸库/车牌库；预览在设备接入（国标在通道内）；ONVIF 对讲；`/training` 训练实验室 |
 | 语音对讲 | ONVIF RTSP Audio Backchannel（探测 + 浏览器采麦 G.711 回传）；GB28181 对讲未实现 |
 | 可选 C++ 主检 | `visionai-inferd`（ORT），`[infer] backend=cpp` 时由宿主机 `start.sh` 或自定义编排拉起 |
 
-流配置在 **Redis**（`access_method` + 拉流 `url` + 检测/告警策略）。国标分三组：SIP 信令 / 媒体收流 / 设备账号（`gb28181/platform`、`gb28181/devices`），互不回退。改 `config.ini` / 主模型 / 拉流地址后需 **重启**；检测策略一般热加载。 SIP 监听变更需重启 `visionai-sip`。
+流配置在 **Redis**（`access_method` + 拉流 `url` + `analyze` + 检测/告警策略）。国标分三组：SIP 信令 / 媒体收流 / 设备账号（`gb28181/platform`、`gb28181/devices`），互不回退。改 `config.ini` / 主模型 / 拉流地址后需 **重启**；检测策略一般热加载。SIP 监听变更需重启 `visionai-sip`。国标细节见 [gb28181.md](gb28181.md)。
 
 > **打电话**：内置 `call` / `make_call` 与默认 `phone_call` 专模已移除。需要时在训练实验室用「自定义」自训或导入 YOLO 专模后上线。
 
@@ -47,8 +47,8 @@ JXVisionAI：多路 RTSP 视频智能分析。主检为 **Ultralytics YOLO26**�
 | ZLM RTSP | **18554** → 554 |
 | ZLM RTMP | **11935** → 1935 |
 | ZLM WebRTC | **18000** → 8000（tcp/udp） |
-| 国标 SIP | **15060** → 5060（tcp/udp） |
-| 国标 PS/RTP | **10000** → 10000（udp） |
+| 国标 SIP | **15060** → 15060（tcp/udp；平台默认监听 15060） |
+| 国标 PS/RTP | **10000–10200** → 10000–10200（tcp+udp；Invite 占用独立口，跳过 10000） |
 
 ---
 
@@ -78,7 +78,7 @@ flowchart LR
   Worker -->|截图上传| MinIO
   Cam -->|RTSP| ZLM
   Cam -->|SIP REGISTER/INVITE| Sip
-  Cam -->|PS RTP :10000| ZLM
+  Cam -->|PS RTP 10000-10200| ZLM
   Sip <-->|账号 · runtime| Redis
   ZLM -->|compose 网内 RTSP| Worker
   Cam -.->|fallback 直连| Worker
@@ -113,6 +113,8 @@ docker compose up -d
 docker compose restart visionai-api visionai-worker visionai-alert
 ```
 
+SIP 监听或国标平台参数变更后再：`docker compose restart visionai-sip`。
+
 ### 宿主机 `./start.sh`（开发 / 对照）
 
 ```text
@@ -120,7 +122,7 @@ docker compose restart visionai-api visionai-worker visionai-alert
   ├─ docker compose：Redis / MinIO /（可选）ZLMediaKit
   ├─（可选）visionai-inferd     # [infer] backend=cpp
   ├─ python -m visionai.workers.alert_worker
-  ├─ python -m visionai.sip                    # 国标信令 :5060
+  ├─ python -m visionai.sip                    # 国标信令（默认 :15060）
   ├─ python -m visionai.worker
   └─ python -m visionai.api                    # Flask :5000
 ```
@@ -129,6 +131,7 @@ docker compose restart visionai-api visionai-worker visionai-alert
 flowchart TB
   Start["docker compose up -d<br/>或 ./start.sh"] --> Deps["Redis / MinIO / ZLM"]
   Start --> AW["alert / visionai-alert"]
+  Start --> SIP["sip / visionai-sip"]
   Start --> W["worker / visionai-worker"]
   Start --> A["api / visionai-api"]
 
@@ -160,11 +163,14 @@ flowchart TB
 | `visionai-worker` / `visionai.worker` | 每路 RTSP 线程：读帧 → 主检 → 行为 → 截图 → 入队告警；写流在线状态 |
 | `visionai-alert` / `alert_worker` | 消费 Redis `alert_queue`，发邮件 / Webhook |
 | `visionai-inferd` | 可选；`backend=cpp` 时提供 ORT 主检 |
-| `visionai-sip` / `visionai.sip` | 国标 REGISTER / 心跳 / Catalog / Invite；写 `gb28181/runtime` |
+| `visionai-sip` / `visionai.sip` | 国标 REGISTER / Keepalive / Catalog / Invite；写 `gb28181/runtime`；启动时清空在线缓存 |
 
-流「在线/离线」由 **worker** 写入 Redis Hash `{key_prefix}stream_runtime_status`（JSON：`status` + `updated_at`），API 跨进程读取。超过约 **180s** 未刷新的「在线」按离线展示。
+流「在线/离线」分两层：
 
-遗留入口 `python -m visionai`（`__main__.py`）仍可单进程同跑 Web + 拉流，**生产请用 Compose 三服务或 `./start.sh`**。
+- **分析流**：由 **worker** 写入 Redis Hash `{key_prefix}stream_runtime_status`（JSON：`status` + `updated_at`），API 跨进程读取。超过约 **180s** 未刷新的「在线」按离线展示。仅 `analyze=true` 且未暂停的流会拉流检测。
+- **国标 SIP 账号**：由 **sip** 写 `gb28181/runtime`。设备列表只显示 SIP 注册状态；Invite 还需要进程内会话（重启后等心跳重建，见 [gb28181.md](gb28181.md)）。
+
+遗留入口 `python -m visionai`（`__main__.py`）仍可单进程同跑 Web + 拉流，**生产请用 Compose（api/worker/alert/sip）或 `./start.sh`**。
 
 ---
 
@@ -271,6 +277,7 @@ flowchart TB
     FACE["face_library:persons"]
     PLATE["plate_library:plates"]
     LEASE["stream_lease:*<br/>可选 HA"]
+    GB["gb28181/platform · devices · runtime"]
   end
   subgraph objects [对象存储 / 本地]
     Snap["snapshots/ 或<br/>visionai/snapshots/"]
@@ -281,6 +288,8 @@ flowchart TB
   API --> DET
   API --> FACE
   API --> PLATE
+  API --> GB
+  SIP[visionai-sip] --> GB
   W[visionai-worker] --> SL
   W --> ST
   W --> AQ
@@ -292,8 +301,9 @@ flowchart TB
 
 | 数据 | 位置 |
 |------|------|
-| 流配置 | Redis Hash `{prefix}streamlist` |
+| 流配置 | Redis Hash `{prefix}streamlist`（含 `access_method`、`analyze`） |
 | 流在线状态 | Redis Hash `{prefix}stream_runtime_status`（worker 心跳；超时约 180s） |
+| 国标平台/账号/运行时 | Redis `{prefix}gb28181/platform`、`devices`、`runtime`、`sip_alive` |
 | 异步告警队列 | Redis List `{prefix}alert_queue`（及 `alert_queue:dead`） |
 | 流租约（HA） | Redis `{prefix}stream_lease:{stream_id}` |
 | 检测记录 | Redis Hash `{prefix}{stream_id}` + TTL（`detection_retention_days`） |
@@ -301,7 +311,7 @@ flowchart TB
 | 人脸库 | Redis `face_library:persons` + MinIO 照片 |
 | 车牌库 | Redis `plate_library:plates` |
 | 专模 | `models/specialists/<key>/` |
-| 日志 | `logs/visionai.log`、`worker.log`、`alert_worker.log`（及 `inferd.log`） |
+| 日志 | `logs/visionai.log`、`worker.log`、`alert_worker.log`、`sip.log`（及 `inferd.log`） |
 
 ---
 
@@ -315,7 +325,7 @@ models/             # YOLO26*.pt、buffalo_l、specialists、repo/
 docs/               # 本目录：架构与使用说明
 scripts/            # 工具脚本（含 download_yolo26.sh、compose_up.sh）
 start.sh / stop.sh  # 宿主机多进程启停（不停止 Redis/MinIO/ZLM 容器）
-docker-compose.yaml # Redis + MinIO + ZLM + api/worker/alert
+docker-compose.yaml # Redis + MinIO + ZLM + api/worker/alert/sip
 ```
 
 更细的操作步骤见 [getting-started.md](getting-started.md)、[configuration.md](configuration.md)、[user-guide.md](user-guide.md)。

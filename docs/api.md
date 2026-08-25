@@ -8,8 +8,10 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`、`plate_recognition_config`、`status`；状态来自 Redis） |
+| `GET` | `/api/streams` | 流列表（含 `detections`、`analyze`、`access_method`、`face_recognition_config`、`plate_recognition_config`、`status`；状态来自 Redis） |
 | `POST` | `/api/streams` | 保存流配置到 Redis |
+| `PATCH` | `/api/streams/<stream_id>` | 更新单路（`name` / `url` / `enabled` / **`analyze`** / ONVIF 元数据） |
+| `DELETE` | `/api/streams/<stream_id>` | 删除流；国标会尝试 BYE |
 | `GET` | `/api/stream-status` | 各流在线状态（Redis `{prefix}stream_runtime_status`，worker 心跳） |
 | `POST` | `/api/onvif/discover` | 局域网 WS-Discovery（body: `timeout_sec?`） |
 | `POST` | `/api/onvif/probe` | 探测设备（`host/port/username/password`） |
@@ -91,3 +93,23 @@
 成功后热加载插件，一般无需重启。操作说明见 [detection.md](detection.md#导入现成专模社区--平台权重)。
 
 完整训练实验室接口（项目、采图、标注、训练任务、验证、快照回流等）见 `/training` 页面与 `visionai/web/training_routes.py`。
+
+---
+
+## 国标 GB/T 28181
+
+均需登录。Invite / BYE / Catalog 由 API 写入 Redis 命令队列，`visionai-sip` 执行。说明见 [gb28181.md](gb28181.md)。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` / `PUT` | `/api/gb28181/platform` | 平台参数（SIP 信令 + 媒体收流）；GET 含 `sip_ready` |
+| `GET` | `/api/gb28181/devices` | SIP 账号列表（在线状态来自 sip runtime；不含分析徽章） |
+| `POST` | `/api/gb28181/devices` | 新建账号（可自动分配 SIP 用户/认证 ID） |
+| `PATCH` / `DELETE` | `/api/gb28181/devices/<device_id>` | 改账号 / 删除整行 SIP 账号 |
+| `POST` | `/api/gb28181/refresh-status` | 刷新在线状态展示 |
+| `GET` | `/api/gb28181/preview-ids` | 预览下一次自动分配的编码（不落库） |
+| `GET` / `POST` | `/api/gb28181/devices/<device_id>/channels` | 通道列表 / 新增通道 |
+| `PATCH` / `DELETE` | `/api/gb28181/devices/<device_id>/channels/<channel_id>` | 改别名等 / 删通道 |
+| `POST` | `…/channels/<channel_id>/preview` | 点播预览（不写入检测配置；已接入分析则复用） |
+| `POST` | `…/channels/<channel_id>/bye` | 结束点播（已接入分析的通道通常不 BYE） |
+| `POST` | `…/channels/<channel_id>/monitor` | **接入分析**：Invite + 写入 streamlist（`analyze: true`） |

@@ -36,7 +36,7 @@ docker compose up -d --build
 
 - 管理端：Compose `http://服务器IP:15000`；宿主机 `./start.sh` 则为 `:5000`
 - 登录密钥：`VISIONAI_SECRET` / `config.ini` 中 `visionai_secret`
-- 至少一路可用 RTSP（事件监控中已配置，或训练页直接填 URL）
+- 至少一路可用 RTSP（设备接入中已配置，或训练页直接填 URL）
 
 ---
 
@@ -162,7 +162,7 @@ docker compose up -d --build
    - 写入 `specialist.json`（含阈值、kind、类别契约等）
    - **不会** 写入 `config.ini` 的 `glasses_model_path`（该键已废弃）
 5. 专模 **热加载**：一般 **无需重启**；刷新管理端检测类型目录即可
-6. 打开 **事件监控** → 对应流 **检测类型配置** → 勾选 **未戴眼镜** → 保存
+6. 打开 **检测配置** → 对应流 **检测类型配置** → 勾选 **未戴眼镜** → 保存
 
 ---
 

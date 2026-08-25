@@ -9,6 +9,7 @@ Compose 与宿主机均挂载/写入项目 `logs/`：
 | `logs/visionai.log` | `visionai-api` / `visionai.api`（Web / HTTP） |
 | `logs/worker.log` | `visionai-worker` / `visionai.worker`（拉流检测） |
 | `logs/alert_worker.log` | `visionai-alert` / 异步告警消费 |
+| `logs/sip.log` | `visionai-sip` / `visionai.sip`（国标信令） |
 | `logs/inferd.log` | `visionai-inferd`（仅 `[infer] backend=cpp`） |
 | `logs/zlm/` | ZLMediaKit |
 
@@ -19,7 +20,7 @@ tail -f logs/worker.log logs/visionai.log
 grep -E "开始处理|检测到|face_recognition|YOLO模型|ERROR|离线|ZLM" logs/worker.log
 
 # Compose 容器日志
-docker compose logs -f --tail 100 visionai-worker visionai-api
+docker compose logs -f --tail 100 visionai-worker visionai-api visionai-sip
 ```
 
 ---
@@ -63,6 +64,17 @@ YOLO模型加载完成
 | 无 Media / 无 RTSP | 在摄像机端开启 ONVIF / RTSP；确认 Profile S |
 | 加入后仍离线 | 用返回的 RTSP 在 VLC 验证；检查密码中的 `@` 是否已编码 |
 
+### 国标 28181 排障
+
+| 现象 | 处理 |
+|------|------|
+| 列表在线，预览/接入分析报「未在 SIP 注册」 | 列表在线是 Redis 缓存，Invite 要 sip **内存会话**。重启 sip 后等摄像机心跳或重新 REGISTER。详见 [gb28181.md](gb28181.md#在线但点播报未注册) |
+| Invite 415 | 海康常拒绝 UDP RTP；平台使用 TCP 被动收流，不要改回 UDP/RTP/AVP |
+| 无画面 / 流名是 8 位十六进制 | 媒体 IP 须摄像机可达；端口 10000–10200 TCP+UDP；不要打到 ZLM `rtp_proxy:10000` |
+| 信令未运行 | `docker compose ps visionai-sip` 或 `logs/sip.log`；宿主机确认 `./start.sh` 拉起了 sip |
+
+完整步骤见 [gb28181.md](gb28181.md)、[user-guide.md](user-guide.md#国标-28181)。
+
 ### 状态概览 / ZLM 排障
 
 | 现象 | 处理 |
@@ -87,8 +99,9 @@ YOLO模型加载完成
 ## 路线图
 
 - [x] 多路流、Web 管理端、Redis 配置、历史告警
-- [x] 多进程（api / worker / alert）、整栈 Compose（三应用 + Redis + MinIO + ZLM）、ZLM WebRTC 预览
+- [x] 多进程（api / worker / alert / sip）、整栈 Compose（四应用 + Redis + MinIO + ZLM）、ZLM WebRTC 预览
 - [x] 流在线状态 Redis 共享、ZLM 媒体面与直连回退
+- [x] 设备接入与接入分析分离（`analyze`）；国标通道级预览/Invite/ZLM 收 PS
 - [x] 邮件、Webhook、对象存储、系统设置页；吸烟等场景可通过 **训练专模** 实现
 - [x] Web 训练实验室（审核标注、独立测试集、部署门禁、类别契约）
 - [x] **人脸识别**（buffalo_l、人脸库、按流触发、画面旋转、可选性别年龄）
@@ -102,6 +115,7 @@ YOLO模型加载完成
 
 ## 相关文档
 
-- [使用指南 - 常见问题](user-guide.md#常见问题)
+- [使用指南](user-guide.md)
+- [国标 28181](gb28181.md)
 - [快速开始](getting-started.md)
 - [配置说明](configuration.md)
