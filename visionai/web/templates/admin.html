@@ -96,6 +96,14 @@
         .config-modal-overlay.show {
             display: flex;
         }
+        /* 通道配置打开后再点预览：预览必须盖在通道弹窗之上 */
+        #streamPreviewModal {
+            z-index: 1400;
+        }
+        #talkModal,
+        #detectionConfigModal {
+            z-index: 1350;
+        }
         .config-modal-panel {
             background: white;
             border-radius: 12px;
@@ -394,8 +402,13 @@
             background: #f8d7da;
             color: #721c24;
         }
+
+        .status-warn {
+            background: #fff3cd;
+            color: #856404;
+        }
         
-        /* 事件监控页（视频列表） */
+        /* 视频流卡片（直连 / ONVIF / 策略等） */
         .stream-item {
             background: #ffffff;
             border: 1px solid #e9ecef;
@@ -407,10 +420,319 @@
                 box-shadow 0.15s ease;
         }
 
-        #streamContainer > .stream-item:nth-child(even) {
+        #directStreamContainer > .stream-item:nth-child(even),
+        #policyStreamContainer > .stream-item:nth-child(even),
+        #onvifStreamContainer > .stream-item:nth-child(even) {
             background: #eef4fb;
             border-color: #d8e6f5;
             box-shadow: 0 2px 8px rgba(31, 86, 138, 0.07);
+        }
+
+        .stream-item-highlight {
+            border-color: #2b6cb0 !important;
+            box-shadow: 0 0 0 3px rgba(43, 108, 176, 0.25) !important;
+        }
+
+        .stream-name-link {
+            color: #1a365d;
+            cursor: pointer;
+            text-decoration: none;
+            border-bottom: 1px dashed #94a3b8;
+        }
+        .stream-name-link:hover {
+            color: #2b6cb0;
+            border-bottom-color: #2b6cb0;
+        }
+        .access-badge {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            background: #e2e8f0;
+            color: #334155;
+            vertical-align: middle;
+        }
+
+        .access-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 18px;
+            padding: 6px;
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        .access-tab-btn {
+            border: none;
+            background: transparent;
+            color: #475569;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .access-tab-btn:hover {
+            background: #e2e8f0;
+            color: #1e293b;
+        }
+        .access-tab-btn.active {
+            background: #fff;
+            color: #1a365d;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+        }
+        .access-tab-panel {
+            display: none;
+        }
+        .access-tab-panel.active {
+            display: block;
+        }
+
+        .gb28181-form {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 16px;
+            max-width: 560px;
+        }
+        .gb28181-form > label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #495057;
+        }
+        .gb28181-form > label input,
+        .gb28181-form > label select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-weight: 400;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .gb28181-form > label.gb-check {
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+        }
+        .gb28181-form > label.gb-check input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .gb-collapse-head {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px 16px;
+            margin-bottom: 8px;
+        }
+        .gb-collapse-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: none;
+            font: inherit;
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            cursor: pointer;
+        }
+        .gb-collapse-chevron {
+            display: inline-block;
+            font-size: 12px;
+            color: #64748b;
+            transition: transform 0.15s ease;
+        }
+        .gb-collapse-toggle[aria-expanded="true"] .gb-collapse-chevron {
+            transform: rotate(90deg);
+        }
+        .gb-collapse-enable {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #495057;
+            cursor: pointer;
+        }
+        .gb-collapse-enable input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+        .gb-collapse-summary {
+            font-size: 13px;
+            font-weight: 400;
+            color: #64748b;
+        }
+        .gb-collapse-body[hidden] {
+            display: none;
+        }
+
+        .gb-dev-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 10px;
+        }
+        .gb-dev-status-filter {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-left: 8px;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .gb-dev-status-filter select {
+            height: 36px;
+            min-width: 120px;
+            padding: 0 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            background: #fff;
+            font-size: 13px;
+            color: #1e293b;
+        }
+        .gb-dev-table-wrap {
+            overflow-x: auto;
+        }
+        .gb-dev-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 880px;
+        }
+        .gb-dev-table th,
+        .gb-dev-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef0f2;
+            text-align: left;
+            vertical-align: middle;
+        }
+        .gb-dev-table th {
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .gb-dev-table tbody tr:hover {
+            background: #f8fafc;
+        }
+        .gb-dev-table tbody tr.gb-dev-draft {
+            background: #f0f7ff;
+        }
+        .gb-dev-table .gb-col-check {
+            width: 36px;
+            text-align: center;
+        }
+        .gb-dev-table .gb-col-id {
+            width: 48px;
+            color: #64748b;
+        }
+        .gb-dev-table input[type="text"],
+        .gb-dev-table input[type="password"] {
+            width: 100%;
+            min-width: 0 !important;
+            flex: none !important;
+            height: 32px;
+            padding: 0 8px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        .gb-dev-table .gb-f-sip {
+            background: #eef2f7;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+        }
+        .gb-dev-table .gb-sip-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .gb-dev-table .gb-sip-actions > button {
+            height: 30px;
+            padding: 0 10px !important;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .gb-draft-err {
+            margin: 8px 0 0 0;
+            font-size: 12px;
+            color: #c62828;
+        }
+        .gb-ch-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .gb-ch-table th, .gb-ch-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eef0f2;
+            text-align: left;
+            vertical-align: middle;
+        }
+        .gb-ch-table th {
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 600;
+        }
+        .gb-ch-table input {
+            width: 100%;
+            min-width: 0 !important;
+            flex: none !important;
+            height: 34px;
+            padding: 0 8px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        .gb-ch-table .gb-ch-status {
+            white-space: nowrap;
+        }
+        .gb-ch-table .gb-ch-status .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin: 0 4px 0 0;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        .gb-ch-table .gb-ch-actions {
+            display: flex;
+            gap: 6px;
+            white-space: nowrap;
+        }
+        .gb-ch-table .gb-ch-actions button {
+            height: 32px;
+            padding: 0 10px !important;
+            font-size: 12px;
+        }
+        .gb-ch-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .gb-dev-table .status {
+            margin: 0;
         }
         
         .stream-inputs {
@@ -1010,6 +1332,44 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+        .btn-talk {
+            padding: 8px 16px;
+            background: #00897b;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        .btn-talk:hover:not(:disabled) {
+            background: #00695c;
+            transform: translateY(-1px);
+        }
+        .btn-talk.talking {
+            background: #c62828;
+            animation: talkPulse 1.2s ease-in-out infinite;
+        }
+        .btn-talk:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        @keyframes talkPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.45); }
+            50% { box-shadow: 0 0 0 8px rgba(198, 40, 40, 0); }
+        }
+        .talk-badge {
+            display: inline-block;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .talk-badge.yes { background: #e0f2f1; color: #00695c; }
+        .talk-badge.no { background: #eceff1; color: #607d8b; }
         
         /* 历史告警 */
         .alerts-table {
@@ -1208,9 +1568,15 @@
                     </button>
                 </li>
                 <li class="menu-item">
-                    <button type="button" class="menu-nav-btn" data-page="video" onclick="return visionaiMenuActivate(event, this);">
-                        <span class="menu-icon">🎥</span>
-                        事件监控
+                    <button type="button" class="menu-nav-btn" data-page="access" onclick="return visionaiMenuActivate(event, this);">
+                        <span class="menu-icon">📥</span>
+                        设备接入
+                    </button>
+                </li>
+                <li class="menu-item">
+                    <button type="button" class="menu-nav-btn" data-page="policy" onclick="return visionaiMenuActivate(event, this);">
+                        <span class="menu-icon">🎯</span>
+                        检测配置
                     </button>
                 </li>
                 <li class="menu-item">
@@ -1229,6 +1595,12 @@
                     <a href="/face-library" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
                         <span class="menu-icon">👤</span>
                         人脸库管理
+                    </a>
+                </li>
+                <li class="menu-item">
+                    <a href="/plate-library" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
+                        <span class="menu-icon">🚗</span>
+                        车牌库管理
                     </a>
                 </li>
                 <li class="menu-item">
@@ -1263,7 +1635,7 @@
                             <div class="status-card">
                                 <h3>检测能力</h3>
                                 <div class="value" id="detectionCapabilityCount">—</div>
-                                <span class="status status-online">COCO 80类 + 打电话 + 玩手机 + 人员聚集 + 人脸识别 + 专模（自训/导入）</span>
+                                <span class="status status-online">COCO 80类 + 玩手机 + 人员聚集 + 人脸识别 + 专模（自训/导入）</span>
                             </div>
                             <div class="status-card">
                                 <h3>在线流 / 视频</h3>
@@ -1285,26 +1657,116 @@
                     
                     <div class="card">
                         <h2>视频</h2>
+                        <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">在线状态一览。预览、对讲、复制 HLS 请到「设备接入」对应连接操作。</p>
                         <div id="streamStatusList">
                             <!-- 流状态将通过JavaScript动态生成 -->
                         </div>
                     </div>
                 </div>
                 
-                <!-- 事件监控页面 -->
-                <div id="videoPage" class="page-content" style="display: none;">
+                <!-- 设备接入：直连 / ONVIF / 国标 -->
+                <div id="accessPage" class="page-content" style="display: none;">
+                    <div class="access-tabs" role="tablist" aria-label="接入方式">
+                        <button type="button" class="access-tab-btn active" data-access-tab="direct" role="tab">RTSP直连</button>
+                        <button type="button" class="access-tab-btn" data-access-tab="onvif" role="tab">ONVIF 接入</button>
+                        <button type="button" class="access-tab-btn" data-access-tab="gb28181" role="tab">国标 28181</button>
+                    </div>
+
+                    <div id="accessTabDirect" class="access-tab-panel active" data-access-panel="direct">
+                        <div class="card">
+                            <h2>RTSP直连</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 8px 0;">填写可拉流的 <code>rtsp://</code> / <code>rtsps://</code> 地址。保存后接入平台并定时探测在线；离线不可预览。点「接入AI分析」后才会进入检测配置。</p>
+                            <p style="color:#856404;font-size:12px;margin:0 0 14px 0;background:#fff3cd;padding:8px 10px;border-radius:6px;">修改地址后需「保存」并重启服务生效。</p>
+                            <div id="directStreamContainer"></div>
+                            <div class="stream-toolbar">
+                                <button type="button" class="btn-add" id="addStreamBtn">➕ 添加 RTSP 流</button>
+                            </div>
+                            <div class="button-group">
+                                <button type="button" class="btn-save" id="saveStreamsBtn">💾 保存接入配置</button>
+                                <button type="button" class="btn-restart" id="restartBtn">🔄 重启服务</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="accessTabOnvif" class="access-tab-panel" data-access-panel="onvif">
+                        <div class="card">
+                            <h2>ONVIF 接入</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 14px 0;">发现或手填 IP 探测设备 → 选 Profile 加入平台。可预览（需在线）、复制 HLS、改名称、刷新 RTSP、对讲、删除。点「接入AI分析」后才会进入检测配置。</p>
+                            <div class="stream-toolbar" style="margin-top:0;">
+                                <button type="button" class="btn-add btn-onvif" id="onvifDiscoverBtn">📡 ONVIF 发现 / 手动探测</button>
+                            </div>
+                            <div id="onvifStreamContainer" style="margin-top:16px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="accessTabGb28181" class="access-tab-panel" data-access-panel="gb28181">
+                        <div class="card" id="gbPlatformCard">
+                            <div class="gb-collapse-head">
+                                <button type="button" class="gb-collapse-toggle" id="gbPlatformCollapseBtn" aria-expanded="false" aria-controls="gbPlatformCollapseBody">
+                                    <span class="gb-collapse-chevron" aria-hidden="true">▶</span>
+                                    SIP 信令（平台）
+                                </button>
+                                <label class="gb-collapse-enable"><input type="checkbox" id="gbEnabled">启用平台</label>
+                                <span id="gbPlatformSummary" class="gb-collapse-summary"></span>
+                            </div>
+                            <div id="gbPlatformCollapseBody" class="gb-collapse-body" hidden>
+                                <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">摄像机「上级平台」填 SIP 服务器 ID、域、对外地址和 SIP 服务器端口。监听地址不填到设备；对外地址必须是摄像机可达的 IP。</p>
+                                <div id="gb28181PlatformForm" class="gb28181-form">
+                                    <label>传输协议<select id="gbTransport"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="both">UDP+TCP</option></select></label>
+                                    <label>协议版本<input type="text" id="gbProtocolVersion" value="GB/T28181-2022"></label>
+                                    <label>SIP服务器ID<input type="text" id="gbServerId" placeholder="34020000002000000001"></label>
+                                    <label>SIP服务器域<input type="text" id="gbDomain" placeholder="3402000000"></label>
+                                    <label>监听地址 bind<input type="text" id="gbBindHost" placeholder="0.0.0.0"></label>
+                                    <label>对外地址 public<input type="text" id="gbPublicHost" placeholder="默认本机局域网 IP"></label>
+                                    <label>SIP服务器端口<input type="number" id="gbSipPort" value="15060"></label>
+                                    <label>注册有效期（秒）<input type="number" id="gbExpires" value="3600"></label>
+                                    <label>心跳周期（秒）<input type="number" id="gbKeepalive" value="60"></label>
+                                    <label>心跳超时次数<input type="number" id="gbKeepaliveMiss" value="3"></label>
+                                </div>
+                            </div>
+                            <p id="gbSipReadyHint" style="font-size:12px;color:#856404;margin:0 0 8px 0;"></p>
+                        </div>
+                        <div class="card">
+                            <h2>媒体收流（Invite / ZLM）</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">只用于点播 SDP，不填到摄像机 SIP 表单。每路通道从范围内占用一个 UDP 端口，可同时多路收流。</p>
+                            <div class="gb28181-form">
+                                <label>媒体收流 IP<input type="text" id="gbMediaIp" placeholder="摄像机推 PS 的目的 IP"></label>
+                                <label>媒体端口范围<input type="text" id="gbMediaPortRange" placeholder="10000-10200" value="10000-10200"></label>
+                            </div>
+                            <div class="button-group" style="margin-bottom:12px;">
+                                <button type="button" class="btn-save" id="gbSavePlatformBtn">💾 保存平台参数</button>
+                            </div>
+                            <p id="gbPlatformHint" style="font-size:12px;color:#856404;margin:0;"></p>
+                        </div>
+                        <div class="card">
+                            <h2>设备列表</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">点「新建」填写 SIP 用户与密码，用户名/认证 ID 自动分配。预览和接入分析在「通道」里按通道操作（预览不等于分析）。「复制参数」用于摄像机上级平台配置。</p>
+                            <div class="button-group gb-dev-toolbar" style="margin-bottom:12px;">
+                                <button type="button" class="btn-add" id="gbStartCreateBtn" style="width:auto;min-width:160px;">➕ 新建</button>
+                                <button type="button" class="btn-filter-apply" id="gbRefreshDraftIdsBtn">🔄 刷新编码</button>
+                                <button type="button" class="btn-filter-apply" id="gbRefreshStatusBtn">🔄 刷新在线状态</button>
+                                <label class="gb-dev-status-filter">在线状态
+                                    <select id="gbDeviceStatusFilter" title="按在线状态筛选">
+                                        <option value="">全部</option>
+                                        <option value="online">在线</option>
+                                        <option value="offline">离线</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <p id="gbDeviceListHint" style="font-size:12px;color:#856404;margin:0 0 10px 0;"></p>
+                            <div id="gb28181DeviceList" class="gb-dev-table-wrap"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 检测配置（策略，与接入方式无关） -->
+                <div id="policyPage" class="page-content" style="display: none;">
                     <div class="card">
-                        <h2>监控配置</h2>
-                        <div id="streamContainer">
-                            <!-- 视频列表将通过JavaScript动态生成 -->
-                        </div>
-                        <div class="stream-toolbar">
-                            <button type="button" class="btn-add btn-onvif" id="onvifDiscoverBtn">📡 ONVIF 发现</button>
-                            <button type="button" class="btn-add" id="addStreamBtn">➕ 添加视频</button>
-                        </div>
+                        <h2>检测配置</h2>
+                        <p style="color:#6c757d;font-size:13px;margin:0 0 14px 0;">仅显示已接入 AI 分析的视频流。RTSP/ONVIF 在接入页点「接入AI分析」；国标在通道配置中点「接入分析」。点「删除」会退出分析（RTSP/ONVIF 设备仍保留在接入列表；国标 SIP 账号仍保留）。</p>
+                        <div id="policyStreamContainer"></div>
                         <div class="button-group">
-                            <button type="button" class="btn-save" id="saveStreamsBtn">💾 保存配置</button>
-                            <button type="button" class="btn-restart" id="restartBtn">🔄 重启服务</button>
+                            <button type="button" class="btn-save" id="savePolicyBtn">💾 保存检测配置</button>
                         </div>
                     </div>
                 </div>
@@ -1377,11 +1839,6 @@
                 <div id="settingsPage" class="page-content" style="display: none;">
                     <div class="card">
                         <h2>系统设置</h2>
-                        <p class="settings-hint">
-                            按配置单元修改字段，保存后写入 <code>config/config.ini</code>（保留文件内注释与其余内容）。
-                            <strong>保存后需重启服务</strong>方全配置生效。
-                        </p>
-                        <p id="settingsMeta" class="settings-meta"></p>
                         <div id="configUnitsWrap" class="config-units-wrap">加载中…</div>
                         <div class="settings-actions">
                             <button type="button" class="btn-save" id="saveConfigIniBtn" onclick="saveSystemConfig()">💾 保存全部修改</button>
@@ -1437,6 +1894,20 @@
                         <option value="180">180°</option>
                         <option value="270">270°</option>
                     </select>
+                </div>
+                <div id="plateRecogConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
+                    <strong style="font-size:14px;">车牌识别 · 触发类型</strong>
+                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;">勾选后才会写入告警记录；需先在<a href="/plate-library" target="_blank">车牌库</a>录入号码。与专模「车牌检测」（仅颜色）二选一时优先本项（OCR+库）。</p>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
+                        <input type="checkbox" id="prTriggerKnown" style="width:auto;"> 库内车牌（known）
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
+                        <input type="checkbox" id="prTriggerUnknown" style="width:auto;"> 陌生车牌（unknown）
+                    </label>
+                    <label style="font-size:13px;margin-top:8px;">OCR 最低置信度（留空用全局默认 0.35）</label>
+                    <input type="text" id="prOcrMinConf" placeholder="0.35" style="width:120px;padding:6px 8px;margin-bottom:8px;">
+                    <label style="font-size:13px;">持续时长秒（留空用全局默认 1.0）</label>
+                    <input type="text" id="prMinDuration" placeholder="1.0" style="width:120px;padding:6px 8px;margin-bottom:8px;">
                 </div>
                 <div class="button-group" style="margin-top: 0;">
                     <button type="button" class="btn-save" id="detectionConfigSaveBtn">保存当前操作</button>
@@ -1517,7 +1988,62 @@
                         <input type="text" id="onvifStreamName" placeholder="流名称">
                     </label>
                     <button type="button" class="btn-save" id="onvifAddStreamBtn">加入监控</button>
+                    <p id="onvifTalkHint" style="width:100%;font-size:13px;margin:8px 0 0 0;color:#455a64;"></p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="talkModal" class="config-modal-overlay" aria-hidden="true">
+        <div class="config-modal-panel" role="dialog" aria-labelledby="talkModalTitle" style="max-width: 480px; width: min(480px, 96vw);">
+            <div class="config-modal-header">
+                <h3 id="talkModalTitle">语音对讲</h3>
+                <button type="button" class="config-modal-close" id="talkModalCloseBtn" aria-label="关闭">&times;</button>
+            </div>
+            <div class="config-modal-body">
+                <p id="talkModalStreamName" style="margin:0 0 8px 0;font-weight:600;"></p>
+                <p id="talkModalStatus" style="font-size:13px;color:#546e7a;margin:0 0 16px 0;">未开始</p>
+                <p style="font-size:12px;color:#78909c;margin:0 0 16px 0;line-height:1.5;">
+                    使用 ONVIF RTSP Audio Backchannel 将麦克风音频（G.711）回传到摄像机喇叭。
+                    请允许浏览器麦克风权限；对讲时请靠近麦克风说话。
+                </p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <button type="button" class="btn-talk" id="talkStartBtn">开始对讲</button>
+                    <button type="button" class="btn-restart" id="talkStopBtn" disabled>结束对讲</button>
+                    <button type="button" class="btn-filter-apply" id="talkReprobeBtn">重新探测</button>
+                </div>
+                <p id="talkModalDetail" style="font-size:12px;color:#607d8b;margin:14px 0 0 0;word-break:break-all;"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="gbChannelModal" class="config-modal-overlay" aria-hidden="true">
+        <div class="config-modal-panel" role="dialog" aria-labelledby="gbChannelModalTitle" style="max-width: 980px; width: min(980px, 96vw);">
+            <div class="config-modal-header">
+                <h3 id="gbChannelModalTitle">通道配置</h3>
+                <button type="button" class="config-modal-close" id="gbChannelModalCloseBtn" aria-label="关闭">&times;</button>
+            </div>
+            <div class="config-modal-body">
+                <p id="gbChannelModalSub" style="margin:0;font-size:13px;color:#64748b;"></p>
+                <div class="gb-ch-toolbar">
+                    <button type="button" class="btn-add" id="gbChannelAddBtn" style="width:auto;min-width:120px;">➕ 新增通道</button>
+                    <button type="button" class="btn-filter-apply" id="gbChannelReloadBtn">刷新列表</button>
+                </div>
+                <div class="config-modal-scroll" style="max-height:56vh;padding:0;border:1px solid #e9ecef;border-radius:8px;overflow:auto;">
+                    <table class="gb-ch-table" id="gbChannelTable">
+                        <thead>
+                            <tr>
+                                <th style="width:64px;">序号</th>
+                                <th style="min-width:180px;">通道 ID</th>
+                                <th style="min-width:120px;">别名</th>
+                                <th style="min-width:168px;">在线状态</th>
+                                <th style="width:240px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gbChannelTableBody"></tbody>
+                    </table>
+                </div>
+                <p style="margin:0;font-size:12px;color:#94a3b8;">同一 SIP 用户下可配置多个通道；视频通道 ID 为 20 位，第 11–13 位类型码须为 131/132（海康校验）；137 是语音输出通道。新增时默认按 131 自动分配。</p>
             </div>
         </div>
     </div>
@@ -1532,9 +2058,12 @@
         
         let streamPreviewPc = null;
         let streamPreviewStreamId = null;
+        let streamPreviewApp = '';
+        let gbPreviewSession = null;
         let detectionConfigTargetItem = null;
         let detectionModalDraft = null;
         let detectionFaceRecogDraft = null;
+        let detectionPlateRecogDraft = null;
 
         function defaultFaceRecogConfig() {
             return {
@@ -1544,6 +2073,14 @@
                 watchlist: [],
                 rotate: null,
                 genderage_enabled: false
+            };
+        }
+
+        function defaultPlateRecogConfig() {
+            return {
+                trigger_types: ['known', 'unknown'],
+                min_duration_sec: null,
+                ocr_min_conf: null
             };
         }
 
@@ -1566,6 +2103,20 @@
             return base;
         }
 
+        function normalizePlateRecogConfigClient(raw) {
+            const base = defaultPlateRecogConfig();
+            if (!raw || typeof raw !== 'object') return base;
+            const triggers = [];
+            (raw.trigger_types || []).forEach(t => {
+                const k = String(t).toLowerCase();
+                if ((k === 'known' || k === 'unknown') && !triggers.includes(k)) triggers.push(k);
+            });
+            if (triggers.length) base.trigger_types = triggers;
+            if (raw.min_duration_sec != null && raw.min_duration_sec !== '') base.min_duration_sec = raw.min_duration_sec;
+            if (raw.ocr_min_conf != null && raw.ocr_min_conf !== '') base.ocr_min_conf = raw.ocr_min_conf;
+            return base;
+        }
+
         function syncFaceRecogPanelFromDraft() {
             const panel = document.getElementById('faceRecogConfigPanel');
             if (!panel || !detectionFaceRecogDraft) return;
@@ -1583,6 +2134,19 @@
             if (rotSel) rotSel.value = detectionFaceRecogDraft.rotate != null ? String(detectionFaceRecogDraft.rotate) : '';
         }
 
+        function syncPlateRecogPanelFromDraft() {
+            const panel = document.getElementById('plateRecogConfigPanel');
+            if (!panel || !detectionPlateRecogDraft) return;
+            const on = !!(detectionModalDraft && detectionModalDraft.plate_recognition);
+            panel.style.display = on ? 'block' : 'none';
+            if (!on) return;
+            const tt = detectionPlateRecogDraft.trigger_types || [];
+            document.getElementById('prTriggerKnown').checked = tt.includes('known');
+            document.getElementById('prTriggerUnknown').checked = tt.includes('unknown');
+            document.getElementById('prOcrMinConf').value = detectionPlateRecogDraft.ocr_min_conf != null ? String(detectionPlateRecogDraft.ocr_min_conf) : '';
+            document.getElementById('prMinDuration').value = detectionPlateRecogDraft.min_duration_sec != null ? String(detectionPlateRecogDraft.min_duration_sec) : '';
+        }
+
         function readFaceRecogPanelToDraft() {
             if (!detectionFaceRecogDraft) detectionFaceRecogDraft = defaultFaceRecogConfig();
             const triggers = [];
@@ -1597,6 +2161,18 @@
             detectionFaceRecogDraft.min_duration_sec = dur ? parseFloat(dur) : null;
             const rot = document.getElementById('frRotate').value.trim();
             detectionFaceRecogDraft.rotate = rot ? parseInt(rot, 10) : null;
+        }
+
+        function readPlateRecogPanelToDraft() {
+            if (!detectionPlateRecogDraft) detectionPlateRecogDraft = defaultPlateRecogConfig();
+            const triggers = [];
+            if (document.getElementById('prTriggerKnown').checked) triggers.push('known');
+            if (document.getElementById('prTriggerUnknown').checked) triggers.push('unknown');
+            if (triggers.length) detectionPlateRecogDraft.trigger_types = triggers;
+            const oc = document.getElementById('prOcrMinConf').value.trim();
+            detectionPlateRecogDraft.ocr_min_conf = oc ? parseFloat(oc) : null;
+            const dur = document.getElementById('prMinDuration').value.trim();
+            detectionPlateRecogDraft.min_duration_sec = dur ? parseFloat(dur) : null;
         }
 
         function waitIceGatheringComplete(pc) {
@@ -1672,18 +2248,49 @@
                 .then(function (offer) { return pc.setLocalDescription(offer); })
                 .then(function () { return waitIceGatheringComplete(pc); })
                 .then(function () {
-                    return fetch('/api/zlm/webrtc/play', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({
-                            stream_id: sid,
-                            sdp: pc.localDescription.sdp,
-                            type: 'offer',
-                        }),
-                    });
+                    const webrtcBody = {
+                        stream_id: sid,
+                        sdp: pc.localDescription.sdp,
+                        type: 'offer',
+                    };
+                    if (streamPreviewApp === 'rtp') {
+                        webrtcBody.app = 'rtp';
+                        webrtcBody.stream = sid;
+                    }
+                    const postWebrtc = function () {
+                        return fetch('/api/zlm/webrtc/play', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify(webrtcBody),
+                        });
+                    };
+                    if (streamPreviewApp !== 'rtp') {
+                        return postWebrtc();
+                    }
+                    // 国标 RTP 刚 Invite 完可能还差几百毫秒才上线，多试几次
+                    const retry = function (left) {
+                        return postWebrtc().then(function (r) {
+                            return r.json().then(function (data) {
+                                if (r.ok && data && data.success) {
+                                    return { ok: true, data: data, _done: true };
+                                }
+                                const msg = (data && data.message) || '';
+                                if (left > 0 && msg.indexOf('国标媒体未上线') >= 0) {
+                                    return new Promise(function (resolve) {
+                                        setTimeout(function () { resolve(retry(left - 1)); }, 1500);
+                                    });
+                                }
+                                return { ok: r.ok, data: data, _done: true };
+                            });
+                        });
+                    };
+                    return retry(4);
                 })
                 .then(function (r) {
+                    if (r && r._done) {
+                        return { ok: r.ok, data: r.data };
+                    }
                     return r.json().then(function (data) { return { ok: r.ok, data: data }; });
                 })
                 .then(function (res) {
@@ -1706,7 +2313,8 @@
                 });
         }
 
-        function openStreamPreview(streamId, streamName) {
+        function openStreamPreview(streamId, streamName, opts) {
+            opts = opts || {};
             if (!streamId) {
                 showMessage('该流缺少 ID，请保存配置后重试', 'error');
                 return;
@@ -1721,14 +2329,27 @@
                 titleEl.textContent = streamName ? ('预览 · ' + streamName) : '流预览';
             }
             streamPreviewStreamId = streamId;
+            streamPreviewApp = opts.app || '';
+            if (opts.gbPreview) gbPreviewSession = opts.gbPreview;
             rebuildStreamPreview();
             modal.classList.add('show');
             modal.setAttribute('aria-hidden', 'false');
         }
 
+        function releaseGbPreview() {
+            const sess = gbPreviewSession;
+            gbPreviewSession = null;
+            if (!sess || !sess.bye_on_close || !sess.device_id || !sess.channel_id) return;
+            fetch('/api/gb28181/devices/' + encodeURIComponent(sess.device_id) +
+                '/channels/' + encodeURIComponent(sess.channel_id) + '/bye', { method: 'POST' })
+                .catch(function () {});
+        }
+
         function closeStreamPreview() {
             stopStreamPreviewPipeline();
             streamPreviewStreamId = null;
+            streamPreviewApp = '';
+            releaseGbPreview();
             const modal = document.getElementById('streamPreviewModal');
             if (modal) {
                 modal.classList.remove('show');
@@ -1743,6 +2364,8 @@
                 console.warn('stopStreamPreviewPipeline', err);
             }
             streamPreviewStreamId = null;
+            streamPreviewApp = '';
+            releaseGbPreview();
             const spm = document.getElementById('streamPreviewModal');
             if (spm) {
                 spm.classList.remove('show');
@@ -1761,15 +2384,124 @@
             }
         }
 
-        function applyVisionaiMainPage(pageKey, navEl) {
+        const ACCESS_TAB = { rtsp_url: 'direct', onvif: 'onvif', gb28181: 'gb28181' };
+        const ACCESS_TAB_LABEL = { direct: 'RTSP直连', onvif: 'ONVIF 接入', gb28181: '国标 28181' };
+        const ACCESS_LABEL = { rtsp_url: 'RTSP直连', onvif: 'ONVIF', gb28181: '国标 28181' };
+        const DIRECT_METHODS = { rtsp_url: 1 };
+        const ACCESS_TABS = { direct: 1, onvif: 1, gb28181: 1 };
+        let pendingHighlightStreamId = '';
+        let currentAccessTab = 'direct';
+
+        function normalizeAccessMethodClient(stream) {
+            if (!stream || typeof stream !== 'object') return 'rtsp_url';
+            const raw = String(stream.access_method || '').trim().toLowerCase();
+            if (ACCESS_TAB[raw]) return raw;
+            if (stream.gb28181 && typeof stream.gb28181 === 'object') return 'gb28181';
+            const ov = stream.onvif;
+            if (ov && typeof ov === 'object' && (String(ov.host || '').trim() || String(ov.profile_token || '').trim())) {
+                return 'onvif';
+            }
+            return 'rtsp_url';
+        }
+
+        function accessTabForStream(stream) {
+            return ACCESS_TAB[normalizeAccessMethodClient(stream)] || 'direct';
+        }
+
+        /** 兼容旧名：返回接入子 Tab key */
+        function accessPageForStream(stream) {
+            return accessTabForStream(stream);
+        }
+
+        function accessLabelForStream(stream) {
+            const m = normalizeAccessMethodClient(stream);
+            return stream.access_label || ACCESS_LABEL[m] || m;
+        }
+
+        function resolveNavPageKey(pageKey, opts) {
+            opts = opts || {};
+            if (pageKey === 'video') pageKey = 'direct';
+            if (ACCESS_TABS[pageKey]) {
+                opts.tab = pageKey;
+                pageKey = 'access';
+            }
+            if (pageKey === 'access' && opts.tab && ACCESS_TABS[opts.tab]) {
+                currentAccessTab = opts.tab;
+            }
+            return pageKey;
+        }
+
+        function goToPage(pageKey, opts) {
+            opts = opts || {};
+            pageKey = resolveNavPageKey(pageKey, opts);
+            const navKey = pageKey === 'access' ? 'access' : pageKey;
+            const navEl = document.querySelector('.menu-nav-btn[data-page="' + navKey + '"]');
+            if (opts.streamId) pendingHighlightStreamId = String(opts.streamId);
+            applyVisionaiMainPage(pageKey, navEl || null, opts);
+            try {
+                const q = new URLSearchParams();
+                q.set('page', pageKey);
+                if (pageKey === 'access') q.set('tab', currentAccessTab || 'direct');
+                if (opts.streamId) q.set('stream', opts.streamId);
+                history.replaceState(null, '', '#' + q.toString());
+            } catch (e) { /* ignore */ }
+        }
+
+        function highlightStreamCard(streamId) {
+            if (!streamId) return;
+            const safe = String(streamId).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const el = document.querySelector('.stream-item[data-id="' + safe + '"]');
+            if (!el) return;
+            el.classList.add('stream-item-highlight');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(function () { el.classList.remove('stream-item-highlight'); }, 2600);
+            pendingHighlightStreamId = '';
+        }
+
+        function showAccessTab(tab, afterLoad) {
+            const t = ACCESS_TABS[tab] ? tab : 'direct';
+            currentAccessTab = t;
+            document.querySelectorAll('.access-tab-btn').forEach(function (btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-access-tab') === t);
+            });
+            document.querySelectorAll('.access-tab-panel').forEach(function (panel) {
+                panel.classList.toggle('active', panel.getAttribute('data-access-panel') === t);
+            });
+            const pt = document.getElementById('pageTitle');
+            if (pt) {
+                pt.textContent = '设备接入 · ' + (ACCESS_TAB_LABEL[t] || t);
+            }
+            const done = typeof afterLoad === 'function' ? afterLoad : function () {};
+            let p = Promise.resolve();
+            if (t === 'direct') p = loadDirectStreams();
+            else if (t === 'onvif') p = loadOnvifStreams();
+            else if (t === 'gb28181') p = loadGb28181Streams();
+            Promise.resolve(p).then(done).catch(done);
+            try {
+                const q = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+                q.set('page', 'access');
+                q.set('tab', t);
+                if (pendingHighlightStreamId) q.set('stream', pendingHighlightStreamId);
+                else q.delete('stream');
+                history.replaceState(null, '', '#' + q.toString());
+            } catch (e) { /* ignore */ }
+        }
+
+        function applyVisionaiMainPage(pageKey, navEl, opts) {
             if (!pageKey) {
                 return;
             }
+            opts = opts || {};
+            pageKey = resolveNavPageKey(pageKey, opts);
             try {
                 safeCloseModalsForNav();
                 document.querySelectorAll('.menu-nav-btn[data-page]').forEach(function (item) {
                     item.classList.remove('active');
                 });
+                const navKey = pageKey === 'access' ? 'access' : pageKey;
+                if (!navEl) {
+                    navEl = document.querySelector('.menu-nav-btn[data-page="' + navKey + '"]');
+                }
                 if (navEl) {
                     navEl.classList.add('active');
                 }
@@ -1783,15 +2515,27 @@
                 }
                 pageEl.style.display = 'block';
                 const pt = document.getElementById('pageTitle');
-                if (pt && navEl) {
+                if (pt && navEl && pageKey !== 'access') {
                     pt.textContent = navEl.textContent.trim();
                 }
+                const afterLoad = function () {
+                    const sid = pendingHighlightStreamId;
+                    if (sid) highlightStreamCard(sid);
+                    if (pageKey === 'policy' && sid && opts.openDetection) {
+                        const safe = String(sid).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                        const card = document.querySelector('.stream-item[data-id="' + safe + '"]');
+                        const btn = card && card.querySelector('.stream-detection-config-btn');
+                        if (btn) openDetectionConfig(btn);
+                    }
+                };
                 if (pageKey === 'overview') {
                     loadStatusData();
                 } else if (pageKey === 'alerts') {
                     loadAlertsData();
-                } else if (pageKey === 'video') {
-                    loadStreams();
+                } else if (pageKey === 'access') {
+                    showAccessTab(opts.tab || currentAccessTab || 'direct', afterLoad);
+                } else if (pageKey === 'policy') {
+                    loadPolicyStreams().then(afterLoad);
                 } else if (pageKey === 'settings') {
                     loadSystemSettings();
                 }
@@ -1814,7 +2558,7 @@
             if (!pageKey) {
                 return false;
             }
-            applyVisionaiMainPage(pageKey, el);
+            goToPage(pageKey);
             return false;
         }
 
@@ -1899,50 +2643,67 @@
                         streamItem.className = 'stream-item';
                         const statusClass = stream.status === '在线' ? 'status-online' : 'status-offline';
                         const enabled = stream.enabled !== false;
-                        const enabledClass = enabled ? 'status-online' : 'status-offline';
-                        const enabledText = enabled ? '检测开启' : '检测禁用';
+                        const joined = isAnalysisJoined(stream);
+                        const hasTypes = streamHasAnyDetection(stream);
+                        let enabledClass;
+                        let enabledText;
+                        if (!joined) {
+                            enabledClass = 'status-warn';
+                            enabledText = '未接入分析';
+                        } else if (!enabled) {
+                            enabledClass = 'status-offline';
+                            enabledText = '检测禁用';
+                        } else if (!hasTypes) {
+                            enabledClass = 'status-warn';
+                            enabledText = '未配置检测类型';
+                        } else {
+                            enabledClass = 'status-online';
+                            enabledText = '检测开启';
+                        }
                         const sid = stream.id || '';
                         const zs = zlmById[sid];
-                        const playHls = zs && zs.play && zs.play.hls ? zs.play.hls : '';
                         const zlmBadge = zs
                             ? `<span class="status ${zs.online ? 'status-online' : 'status-offline'}">ZLM ${zs.online ? '代理中' : '未上线'}</span>`
                             : '';
-                        const copyBtn = playHls
-                            ? `<button type="button" class="btn-preview btn-copy-zlm" data-url="${escapeHtml(playHls)}">复制 HLS</button>`
+                        const isOnvif = normalizeAccessMethodClient(stream) === 'onvif';
+                        const talkOk = !!stream.talk_supported;
+                        const talkBadge = isOnvif
+                            ? (talkOk
+                                ? `<span class="talk-badge yes">支持对讲</span>`
+                                : `<span class="talk-badge no">未确认对讲</span>`)
                             : '';
+                        const accessBadge = `<span class="access-badge">${escapeHtml(accessLabelForStream(stream))}</span>`;
+                        const nameHtml = sid
+                            ? `<a href="#page=access&tab=${accessTabForStream(stream)}&stream=${encodeURIComponent(sid)}" class="stream-name-link" data-sid="${escapeHtml(sid)}">${escapeHtml(stream.name)}</a>`
+                            : `<strong>${escapeHtml(stream.name)}</strong>`;
                         streamItem.innerHTML = `
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                                 <div style="flex: 1; min-width: 200px;">
-                                    <strong>${escapeHtml(stream.name)}</strong>
-                                    <p style="color: #6c757d; font-size: 14px; word-break: break-all;">${escapeHtml(stream.url)}</p>
+                                    ${nameHtml}${accessBadge}${talkBadge}
+                                    <p style="color: #6c757d; font-size: 14px; word-break: break-all;">${escapeHtml(stream.url || '')}</p>
                                 </div>
                                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                     <span class="status ${statusClass}">${escapeHtml(stream.status)}</span>
                                     <span class="status ${enabledClass}">${enabledText}</span>
                                     ${zlmBadge}
-                                    ${copyBtn}
-                                    <button type="button" class="btn-preview" ${sid ? '' : 'disabled'}>预览</button>
+                                    <button type="button" class="btn-filter-apply btn-goto-access" ${sid ? '' : 'disabled'} title="跳转到对应接入配置">接入配置</button>
                                 </div>
                             </div>
                         `;
                         streamStatusList.appendChild(streamItem);
-                        const prevBtn = streamItem.querySelector('.btn-preview:not(.btn-copy-zlm)');
-                        if (prevBtn && sid) {
-                            prevBtn.addEventListener('click', function() {
-                                openStreamPreview(sid, stream.name);
+                        const goAccess = function () {
+                            goToPage(accessPageForStream(stream), { streamId: sid });
+                        };
+                        const nameLink = streamItem.querySelector('.stream-name-link');
+                        if (nameLink && sid) {
+                            nameLink.addEventListener('click', function (e) {
+                                e.preventDefault();
+                                goAccess();
                             });
                         }
-                        const cBtn = streamItem.querySelector('.btn-copy-zlm');
-                        if (cBtn) {
-                            cBtn.addEventListener('click', async function() {
-                                const u = this.getAttribute('data-url') || '';
-                                try {
-                                    await navigator.clipboard.writeText(u);
-                                    showMessage('已复制 HLS 地址', 'success');
-                                } catch (e) {
-                                    prompt('复制 HLS 地址', u);
-                                }
-                            });
+                        const gotoBtn = streamItem.querySelector('.btn-goto-access');
+                        if (gotoBtn && sid) {
+                            gotoBtn.addEventListener('click', goAccess);
                         }
                     });
                 }
@@ -1964,9 +2725,23 @@
         const ALERTS_PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 30, 50];
         let autoRefreshInterval = null;
         let configRefreshInterval = 20000; // 默认20秒
+        let appTimezone = 'Asia/Shanghai'; // 与 [basic] timezone / VISIONAI_TIMEZONE 一致
         
         let detectionCatalog = [];
         
+        function streamHasAnyDetection(stream) {
+            const d = (stream && stream.detections) || {};
+            return Object.keys(d).some(function (k) { return !!d[k]; });
+        }
+
+        function isAnalysisJoined(stream) {
+            if (!stream) return false;
+            if (!Object.prototype.hasOwnProperty.call(stream, 'analyze') || stream.analyze == null) {
+                return true;
+            }
+            return !!stream.analyze;
+        }
+
         function defaultAllOffDetections() {
             const d = {};
             for (let i = 0; i < 80; i++) d[String(i)] = false;
@@ -2085,8 +2860,12 @@
             });
             const total = detectionCatalog.length;
             const n = enabled.length;
+            if (!n) {
+                summaryEl.innerHTML = '<strong style="color:#c92a2a;">尚未勾选检测类型，拉流在线也不会产生告警。</strong>请点「检测类型配置」勾选后保存。';
+                return;
+            }
             summaryEl.innerHTML = `<strong>本流已开启 ${n}/${total} 项</strong>（系统均支持）` +
-                (n ? `：<span style="color:#212529">${enabled.slice(0, 12).join('、')}${enabled.length > 12 ? '…' : ''}</span>` : '。');
+                `：<span style="color:#212529">${enabled.slice(0, 12).join('、')}${enabled.length > 12 ? '…' : ''}</span>`;
         }
         
         function renderDetectionModalList(filterText) {
@@ -2167,10 +2946,12 @@
                     if (key && detectionModalDraft) {
                         detectionModalDraft[key] = this.checked;
                         if (key === 'face_recognition') syncFaceRecogPanelFromDraft();
+                        if (key === 'plate_recognition') syncPlateRecogPanelFromDraft();
                     }
                 });
             });
             syncFaceRecogPanelFromDraft();
+            syncPlateRecogPanelFromDraft();
         }
         
         function openDetectionConfig(button) {
@@ -2179,6 +2960,7 @@
             detectionConfigTargetItem = streamItem;
             detectionModalDraft = JSON.parse(JSON.stringify(streamItem._detections));
             detectionFaceRecogDraft = JSON.parse(JSON.stringify(streamItem._face_recognition_config || defaultFaceRecogConfig()));
+            detectionPlateRecogDraft = JSON.parse(JSON.stringify(streamItem._plate_recognition_config || defaultPlateRecogConfig()));
             document.getElementById('detectionConfigSearch').value = '';
             renderDetectionModalList('');
             document.getElementById('detectionConfigModal').classList.add('show');
@@ -2194,6 +2976,7 @@
             detectionConfigTargetItem = null;
             detectionModalDraft = null;
             detectionFaceRecogDraft = null;
+            detectionPlateRecogDraft = null;
         }
         
         // 获取配置
@@ -2202,8 +2985,19 @@
                 const response = await fetch('/api/config');
                 const config = await response.json();
                 configRefreshInterval = (config.auto_refresh_interval || 20) * 1000;
+                if (config.timezone) appTimezone = String(config.timezone);
             } catch (error) {
                 console.error('获取配置失败:', error);
+            }
+        }
+
+        function formatAlertTime(tsRaw) {
+            const time = new Date(tsRaw || '');
+            if (Number.isNaN(time.getTime())) return String(tsRaw || '');
+            try {
+                return time.toLocaleString('zh-CN', { hour12: false, timeZone: appTimezone });
+            } catch (e) {
+                return time.toLocaleString('zh-CN', { hour12: false });
             }
         }
         
@@ -2268,9 +3062,7 @@
             detections.forEach(detection => {
                 const row = document.createElement('tr');
                 
-                // 格式化时间
-                const time = new Date(detection.timestamp);
-                const formattedTime = time.toLocaleString('zh-CN');
+                const formattedTime = formatAlertTime(detection.timestamp);
                 
                 // 格式化检测类型（相同文案只显示一次）
                 const types = Array.isArray(detection.detection_types)
@@ -2461,37 +3253,157 @@
             }
         });
         
-        // 加载视频配置
-        async function loadStreams() {
+        async function fetchAllStreams() {
+            const response = await fetch('/api/streams');
+            return await response.json();
+        }
+
+        async function refreshZlmStatusCache() {
             try {
-                const response = await fetch('/api/streams');
-                const streams = await response.json();
-                
-                const container = document.getElementById('streamContainer');
-                container.innerHTML = '';
-                
-                streams.forEach((stream, index) => {
-                    addStreamItem(
-                        stream.name,
-                        stream.url,
-                        stream.detections,
-                        index,
-                        stream.status,
-                        stream.id,
-                        stream.enabled !== false,
-                        stream.alert_emails,
-                        stream.alert_email_enabled !== false,
-                        stream.alert_webhook_urls,
-                        stream.alert_webhook_enabled === true,
-                        stream.face_recognition_config
-                    );
+                const zlmRes = await fetch('/api/zlm/status');
+                if (zlmRes.ok) window._zlmStatusCache = await zlmRes.json();
+            } catch (e) { /* ignore */ }
+        }
+
+        function zlmPlayInfoForStream(sid) {
+            const zlm = window._zlmStatusCache;
+            if (!zlm || !zlm.streams || !sid) return null;
+            return zlm.streams.find(function (s) { return s.id === sid; }) || null;
+        }
+
+        function accessPlayButtonsHtml(sid, stream) {
+            const zs = zlmPlayInfoForStream(sid);
+            const playHls = zs && zs.play && zs.play.hls ? zs.play.hls : '';
+            const copyBtn = playHls
+                ? `<button type="button" class="btn-preview btn-copy-zlm" data-url="${escapeHtml(playHls)}" style="padding:8px 12px;">复制 HLS</button>`
+                : '';
+            const online = stream && stream.status === '在线';
+            let prev;
+            if (!sid) {
+                prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="请先保存该连接">预览</button>`;
+            } else if (!online) {
+                prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="设备离线，无法预览">预览</button>`;
+            } else {
+                prev = `<button type="button" class="btn-preview" data-access-preview style="padding:8px 12px;">预览</button>`;
+            }
+            return copyBtn + prev;
+        }
+
+        function accessAnalyzeHtml(stream) {
+            const sid = stream && stream.id;
+            if (!sid) return '';
+            if (isAnalysisJoined(stream)) {
+                return '<span class="status status-online">已接入分析</span>' +
+                    '<button type="button" class="btn-filter-apply" data-goto-policy style="padding:8px 12px;">检测配置</button>';
+            }
+            return '<button type="button" class="btn-save" data-join-analyze style="padding:8px 12px;">接入AI分析</button>';
+        }
+
+        function bindAccessAnalyzeButtons(root, stream) {
+            const sid = stream && stream.id;
+            if (!sid || !root) return;
+            root.querySelector('[data-join-analyze]')?.addEventListener('click', async function () {
+                const r = await apiPatchStream(sid, { analyze: true });
+                showMessage(r.success ? '已接入分析，请勾选检测类型并保存' : (r.message || '失败'), r.success ? 'success' : 'error');
+                if (r.success) gotoPolicyForStream(sid);
+            });
+            root.querySelector('[data-goto-policy]')?.addEventListener('click', function () {
+                goToPage('policy', { streamId: sid });
+            });
+        }
+
+        function bindAccessPlayButtons(root, stream) {
+            const sid = stream && stream.id;
+            const name = (stream && stream.name) || sid || '';
+            const prev = root.querySelector('[data-access-preview]');
+            if (prev && sid) {
+                prev.addEventListener('click', function () {
+                    openStreamPreview(sid, name);
                 });
-                await refreshSmtpHintForStreamForm();
-            } catch (error) {
-                showMessage('加载视频配置失败', 'error');
+            }
+            const cBtn = root.querySelector('.btn-copy-zlm');
+            if (cBtn) {
+                cBtn.addEventListener('click', async function () {
+                    const u = this.getAttribute('data-url') || '';
+                    try {
+                        await navigator.clipboard.writeText(u);
+                        showMessage('已复制 HLS 地址', 'success');
+                    } catch (e) {
+                        prompt('复制 HLS 地址', u);
+                    }
+                });
             }
         }
-        
+
+        async function loadDirectStreams() {
+            try {
+                await refreshZlmStatusCache();
+                const streams = await fetchAllStreams();
+                const container = document.getElementById('directStreamContainer');
+                if (!container) return;
+                container.innerHTML = '';
+                const direct = streams.filter(s => DIRECT_METHODS[normalizeAccessMethodClient(s)]);
+                if (!direct.length) {
+                    container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">暂无 RTSP 直连流，可点击下方添加。</p>';
+                }
+                direct.forEach((stream) => {
+                    addDirectStreamItem(stream);
+                });
+            } catch (error) {
+                showMessage('加载 RTSP 直连流失败', 'error');
+            }
+        }
+
+        async function loadOnvifStreams() {
+            try {
+                await refreshZlmStatusCache();
+                const streams = await fetchAllStreams();
+                const container = document.getElementById('onvifStreamContainer');
+                if (!container) return;
+                container.innerHTML = '';
+                const list = streams.filter(s => normalizeAccessMethodClient(s) === 'onvif');
+                if (!list.length) {
+                    container.innerHTML = '<p style="color:#6c757d;padding:8px 0;">暂无 ONVIF 接入流。请使用上方「ONVIF 发现 / 手动探测」。</p>';
+                    return;
+                }
+                list.forEach((stream) => addOnvifManageItem(container, stream));
+            } catch (error) {
+                showMessage('加载 ONVIF 流失败', 'error');
+            }
+        }
+
+        async function loadGb28181Streams() {
+            try {
+                await loadGb28181Platform();
+                await loadGb28181Devices();
+            } catch (error) {
+                /* ignore */
+            }
+        }
+
+        async function loadPolicyStreams() {
+            try {
+                const streams = await fetchAllStreams();
+                const container = document.getElementById('policyStreamContainer');
+                if (!container) return;
+                container.innerHTML = '';
+                const joined = streams.filter(isAnalysisJoined);
+                if (!joined.length) {
+                    container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">请先在「设备接入」中将设备接入平台。RTSP/ONVIF 点「接入AI分析」；国标打开「通道」后按通道点「接入分析」。</p>';
+                    return;
+                }
+                joined.forEach((stream) => addPolicyStreamItem(stream));
+                await refreshSmtpHintForStreamForm();
+            } catch (error) {
+                showMessage('加载检测配置失败', 'error');
+            }
+        }
+
+        // 兼容旧调用名
+        async function loadStreams() {
+            return loadDirectStreams();
+        }
+
         async function refreshSmtpHintForStreamForm() {
             try {
                 const r = await fetch('/api/config');
@@ -2510,35 +3422,200 @@
             }
         }
 
-        // 添加视频项（新增源默认关闭全部检测项）
-        function addStreamItem(name = '', url = '', detections = null, index = null, status = '未知', id = null, enabled = true, alertEmails = null, alertEmailEnabled = true, alertWebhookUrls = null, alertWebhookEnabled = false, faceRecogConfig = null) {
-            const container = document.getElementById('streamContainer');
+        async function apiPatchStream(streamId, body) {
+            const res = await fetch('/api/streams/' + encodeURIComponent(streamId), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body || {})
+            });
+            return res.json();
+        }
+
+        async function apiDeleteStream(streamId) {
+            const res = await fetch('/api/streams/' + encodeURIComponent(streamId), {
+                method: 'DELETE'
+            });
+            return res.json();
+        }
+
+        function addOnvifManageItem(container, stream) {
             const streamItem = document.createElement('div');
             streamItem.className = 'stream-item';
-            
-            streamItem._detections = normalizeDetectionsClient(detections);
-            streamItem._face_recognition_config = normalizeFaceRecogConfigClient(faceRecogConfig);
-            const statusClass = status === '在线' ? 'status-online' : 'status-offline';
-            const enabledClass = enabled ? 'btn-save' : 'btn-restart';
-            const enabledText = enabled ? '暂停' : '启用';
-            
-            if (id) {
-                streamItem.dataset.id = id;
-            }
-            streamItem.dataset.enabled = enabled;
-            
+            const sid = stream.id || '';
+            if (sid) streamItem.dataset.id = sid;
+            const statusClass = stream.status === '在线' ? 'status-online' : 'status-offline';
+            const ov = stream.onvif || {};
+            const metaBits = [
+                ov.manufacturer, ov.model, ov.host ? (ov.host + ':' + (ov.port || 80)) : '',
+                ov.profile_token ? ('Profile ' + ov.profile_token) : ''
+            ].filter(Boolean).join(' · ');
+            streamItem._talk_supported = !!stream.talk_supported;
             streamItem.innerHTML = `
                 <div class="stream-inputs">
-                    <input type="text" placeholder="流名称" value="${name.replace(/"/g, '&quot;')}" class="stream-name">
-                    <input type="text" placeholder="RTSP地址" value="${url.replace(/"/g, '&quot;')}" class="stream-url">
-                    <span class="status ${statusClass}">${status}</span>
+                    <input type="text" class="stream-name" value="${String(stream.name || '').replace(/"/g, '&quot;')}" placeholder="流名称" style="min-width:140px;">
+                    <span class="access-badge">ONVIF</span>
+                    <span class="status ${statusClass}">${escapeHtml(stream.status || '未知')}</span>
+                    ${accessPlayButtonsHtml(sid, stream)}
+                    <button type="button" class="btn-save" data-save-name style="padding:8px 12px;">保存名称</button>
+                    <button type="button" class="btn-filter-apply" data-refresh-rtsp style="padding:8px 12px;" title="需重新输入设备密码">刷新 RTSP</button>
+                    ${sid ? `<button type="button" class="btn-talk stream-talk-btn" style="padding:8px 12px;">${stream.talk_supported ? '对讲' : '探测对讲'}</button>` : ''}
+                    ${accessAnalyzeHtml(stream)}
+                    <button type="button" class="btn-delete" data-del-stream style="padding:8px 12px;">删除</button>
+                </div>
+                <p style="color:#6c757d;font-size:13px;word-break:break-all;margin:0 0 6px 0;">${escapeHtml(stream.url || '')}</p>
+                ${metaBits ? `<p style="color:#94a3b8;font-size:12px;margin:0;">${escapeHtml(metaBits)}</p>` : ''}
+            `;
+            container.appendChild(streamItem);
+            bindAccessPlayButtons(streamItem, stream);
+            bindAccessAnalyzeButtons(streamItem, stream);
+            streamItem.querySelector('[data-save-name]')?.addEventListener('click', async function () {
+                const name = streamItem.querySelector('.stream-name')?.value.trim();
+                if (!name || !sid) return;
+                const r = await apiPatchStream(sid, { name });
+                showMessage(r.success ? '名称已保存' : (r.message || '失败'), r.success ? 'success' : 'error');
+                if (r.success) await loadOnvifStreams();
+            });
+            streamItem.querySelector('[data-refresh-rtsp]')?.addEventListener('click', async function () {
+                if (!sid) return;
+                const username = prompt('ONVIF 用户名', 'admin') || '';
+                const password = prompt('ONVIF 密码（仅用于本次刷新，不会落库）', '') || '';
+                if (!password) {
+                    showMessage('已取消刷新', 'error');
+                    return;
+                }
+                try {
+                    const res = await fetch('/api/onvif/refresh-stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            stream_id: sid,
+                            username,
+                            password,
+                            probe_talk: true
+                        })
+                    });
+                    const data = await res.json();
+                    showMessage(data.success ? 'RTSP 已刷新' : (data.message || '失败'), data.success ? 'success' : 'error');
+                    if (data.success) await loadOnvifStreams();
+                } catch (e) {
+                    showMessage('刷新失败: ' + e, 'error');
+                }
+            });
+            streamItem.querySelector('.stream-talk-btn')?.addEventListener('click', function () {
+                openTalkModal(sid, stream.name || sid, !!stream.talk_supported);
+            });
+            streamItem.querySelector('[data-del-stream]')?.addEventListener('click', async function () {
+                if (!sid || !confirm('确定删除该 ONVIF 流？')) return;
+                const r = await apiDeleteStream(sid);
+                showMessage(r.success ? '已删除' : (r.message || '失败'), r.success ? 'success' : 'error');
+                if (r.success) await loadOnvifStreams();
+            });
+        }
+
+        function inferDirectAccessMethod(url) {
+            return 'rtsp_url';
+        }
+
+        function addDirectStreamItem(stream) {
+            const container = document.getElementById('directStreamContainer');
+            if (!container) return;
+            if (container.querySelector('p') && !container.querySelector('.stream-item')) {
+                container.innerHTML = '';
+            }
+            const streamItem = document.createElement('div');
+            streamItem.className = 'stream-item';
+            const name = (stream && stream.name) || '';
+            const url = (stream && stream.url) || '';
+            const status = (stream && stream.status) || '未知';
+            const id = (stream && stream.id) || null;
+            const statusClass = status === '在线' ? 'status-online' : 'status-offline';
+            const method = stream ? normalizeAccessMethodClient(stream) : 'rtsp_url';
+            streamItem.dataset.accessMethod = DIRECT_METHODS[method] ? method : 'rtsp_url';
+            streamItem._onvif = null;
+            streamItem._detections = stream && stream.detections
+                ? normalizeDetectionsClient(stream.detections)
+                : null;
+            streamItem._face_recognition_config = stream
+                ? normalizeFaceRecogConfigClient(stream.face_recognition_config)
+                : null;
+            streamItem._plate_recognition_config = stream
+                ? normalizePlateRecogConfigClient(stream.plate_recognition_config)
+                : null;
+            streamItem._alert_emails = (stream && stream.alert_emails) || [];
+            streamItem._alert_email_enabled = !stream || stream.alert_email_enabled !== false;
+            streamItem._alert_webhook_urls = (stream && stream.alert_webhook_urls) || [];
+            streamItem._alert_webhook_enabled = !!(stream && stream.alert_webhook_enabled);
+            streamItem._enabled = !stream || stream.enabled !== false;
+            if (id) streamItem.dataset.id = id;
+            streamItem.innerHTML = `
+                <div class="stream-inputs">
+                    <input type="text" placeholder="流名称" value="${String(name).replace(/"/g, '&quot;')}" class="stream-name">
+                    <input type="text" placeholder="rtsp:// 或 rtsps://" value="${String(url).replace(/"/g, '&quot;')}" class="stream-url">
+                    <span class="access-badge">RTSP</span>
+                    <span class="status ${statusClass}">${escapeHtml(status)}</span>
+                    ${accessPlayButtonsHtml(id, stream)}
+                    ${accessAnalyzeHtml(stream)}
+                    <button type="button" class="btn-delete" data-del-direct style="padding:8px 12px;">删除</button>
+                </div>
+            `;
+            container.appendChild(streamItem);
+            bindAccessPlayButtons(streamItem, stream || {});
+            bindAccessAnalyzeButtons(streamItem, stream || {});
+            streamItem.querySelector('[data-del-direct]')?.addEventListener('click', async function () {
+                if (id) {
+                    if (!confirm('确定删除该 RTSP 直连流？')) return;
+                    const r = await apiDeleteStream(id);
+                    showMessage(r.success ? '已删除' : (r.message || '失败'), r.success ? 'success' : 'error');
+                    if (r.success) await loadDirectStreams();
+                } else {
+                    streamItem.remove();
+                }
+            });
+        }
+
+        function addStreamItem() {
+            // 直连页「添加」：空行
+            addDirectStreamItem(null);
+        }
+
+        function addPolicyStreamItem(stream) {
+            const container = document.getElementById('policyStreamContainer');
+            if (!container) return;
+            const streamItem = document.createElement('div');
+            streamItem.className = 'stream-item';
+            const id = stream.id || '';
+            const enabled = stream.enabled !== false;
+            const enabledClass = enabled ? 'btn-save' : 'btn-restart';
+            const enabledText = enabled ? '暂停检测' : '启用检测';
+            streamItem._detections = normalizeDetectionsClient(stream.detections);
+            streamItem._face_recognition_config = normalizeFaceRecogConfigClient(stream.face_recognition_config);
+            streamItem._plate_recognition_config = normalizePlateRecogConfigClient(stream.plate_recognition_config);
+            streamItem._access_method = normalizeAccessMethodClient(stream);
+            streamItem._url = stream.url || '';
+            streamItem._name = stream.name || '';
+            streamItem._onvif = stream.onvif || null;
+            streamItem._talk_supported = !!stream.talk_supported;
+            streamItem._talk_protocol = stream.talk_protocol || '';
+            streamItem._talk_codec = stream.talk_codec || '';
+            streamItem._talk_detail = stream.talk_detail || '';
+            streamItem._gb28181 = stream.gb28181 || null;
+            if (id) streamItem.dataset.id = id;
+            streamItem.dataset.enabled = enabled ? 'true' : 'false';
+            const alertEmailEnabled = stream.alert_email_enabled !== false;
+            const alertWebhookEnabled = stream.alert_webhook_enabled === true;
+            streamItem.innerHTML = `
+                <div class="stream-inputs">
+                    <strong style="min-width:120px;">${escapeHtml(stream.name || '')}</strong>
+                    <span class="access-badge">${escapeHtml(accessLabelForStream(stream))}</span>
                     <button type="button" class="btn-save stream-detection-config-btn" onclick="openDetectionConfig(this)" style="padding: 8px 14px;">检测类型配置</button>
                     <button type="button" class="${enabledClass}" onclick="toggleStreamEnabled(this)" style="padding: 8px 12px;">${enabledText}</button>
-                    <button type="button" class="btn-delete" onclick="deleteStream(this)">删除</button>
+                    <button type="button" class="btn-filter-apply" style="padding:8px 12px;" data-goto-access="${escapeHtml(id)}">接入配置</button>
+                    ${id ? '<button type="button" class="btn-delete" data-del-policy style="padding:8px 12px;">删除</button>' : ''}
                 </div>
+                <p style="color:#6c757d;font-size:12px;word-break:break-all;margin:0 0 8px 0;">${escapeHtml(stream.url || '')}</p>
                 <div class="stream-detection-row">
                     <div style="flex:1;min-width:220px;">
-                        <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 专模（自训/导入） + 人脸识别</span>
+                        <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 专模（自训/导入） + 人脸/车牌识别</span>
                         <div class="stream-detection-summary"></div>
                     </div>
                 </div>
@@ -2564,27 +3641,65 @@
             container.appendChild(streamItem);
             const ta = streamItem.querySelector('.stream-alert-emails');
             if (ta) {
-                let em = alertEmails;
-                if (typeof em === 'string') {
-                    ta.value = em;
-                } else if (Array.isArray(em) && em.length) {
-                    ta.value = em.join('\n');
-                } else {
-                    ta.value = '';
-                }
+                let em = stream.alert_emails;
+                if (typeof em === 'string') ta.value = em;
+                else if (Array.isArray(em) && em.length) ta.value = em.join('\n');
+                else ta.value = '';
             }
             const taWh = streamItem.querySelector('.stream-alert-webhooks');
             if (taWh) {
-                let wh = alertWebhookUrls;
-                if (typeof wh === 'string') {
-                    taWh.value = wh;
-                } else if (Array.isArray(wh) && wh.length) {
-                    taWh.value = wh.join('\n');
-                } else {
-                    taWh.value = '';
-                }
+                let wh = stream.alert_webhook_urls;
+                if (typeof wh === 'string') taWh.value = wh;
+                else if (Array.isArray(wh) && wh.length) taWh.value = wh.join('\n');
+                else taWh.value = '';
             }
             updateStreamDetectionSummary(streamItem);
+            const gotoBtn = streamItem.querySelector('[data-goto-access]');
+            if (gotoBtn && id) {
+                gotoBtn.addEventListener('click', function () {
+                    goToPage(accessPageForStream(stream), { streamId: id });
+                });
+            }
+            const delBtn = streamItem.querySelector('[data-del-policy]');
+            if (delBtn && id) {
+                delBtn.addEventListener('click', function () {
+                    deletePolicyStream(streamItem, stream);
+                });
+            }
+        }
+
+        function policyDeleteConfirmMessage(stream) {
+            const name = (stream && stream.name) ? String(stream.name) : '该路视频';
+            const method = normalizeAccessMethodClient(stream || {});
+            if (method === 'gb28181') {
+                return '确定从检测列表删除「' + name + '」？删除后将停止分析。国标 SIP 账号仍保留，可再次「接入分析」。';
+            }
+            return '确定退出「' + name + '」的 AI 分析？设备仍保留在接入列表，可再次「接入AI分析」。';
+        }
+
+        async function deletePolicyStream(streamItem, stream) {
+            const id = (stream && stream.id) || (streamItem && streamItem.dataset.id) || '';
+            if (!id) return;
+            if (!confirm(policyDeleteConfirmMessage(stream))) return;
+            try {
+                const method = normalizeAccessMethodClient(stream || {});
+                let r;
+                if (method === 'gb28181') {
+                    r = await apiDeleteStream(id);
+                } else {
+                    r = await apiPatchStream(id, { analyze: false });
+                }
+                if (r.success) {
+                    showMessage(method === 'gb28181'
+                        ? '已从检测列表删除，该路视频不再分析'
+                        : '已退出分析，设备仍在接入列表', 'success');
+                    await loadPolicyStreams();
+                } else {
+                    showMessage(r.message || '操作失败', 'error');
+                }
+            } catch (error) {
+                showMessage('操作失败: ' + error.message, 'error');
+            }
         }
         
         // 切换流启用状态
@@ -2601,81 +3716,162 @@
             button.textContent = newEnabled ? '暂停' : '启用';
         }
         
-        // 删除视频
-        function deleteStream(button) {
-            button.parentElement.parentElement.remove();
+        async function postStreamsMerged(streams) {
+            const response = await fetch('/api/streams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(streams)
+            });
+            return response.json();
         }
-        
-        // 保存视频配置
+
+        // 保存直连接入（合并保留 ONVIF / 国标流及策略字段）
         async function saveStreams() {
-            const streamItems = document.querySelectorAll('.stream-item');
-            const streams = [];
-            
+            const container = document.getElementById('directStreamContainer');
+            if (!container) return;
+            const streamItems = container.querySelectorAll('.stream-item');
+            const edited = [];
+            let schemeError = '';
             streamItems.forEach(item => {
                 const nameInput = item.querySelector('.stream-name');
                 const urlInput = item.querySelector('.stream-url');
-                
-                if (nameInput && urlInput) {
-                    const name = nameInput.value.trim();
-                    const url = urlInput.value.trim();
-                    
-                    if (name && url) {
-                        const detections = item._detections
-                            ? JSON.parse(JSON.stringify(item._detections))
-                            : defaultAllOffDetections();
-                        
-                        const streamData = { name, url, detections };
-                        const taMail = item.querySelector('.stream-alert-emails');
-                        const rawMail = taMail ? taMail.value.trim() : '';
-                        streamData.alert_emails = rawMail
-                            ? rawMail.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
-                            : [];
-                        const mailSw = item.querySelector('.stream-alert-email-enabled');
-                        streamData.alert_email_enabled = !!(mailSw && mailSw.checked);
-                        const taWh = item.querySelector('.stream-alert-webhooks');
-                        const rawWh = taWh ? taWh.value.trim() : '';
-                        streamData.alert_webhook_urls = rawWh
-                            ? rawWh.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
-                            : [];
-                        const whSw = item.querySelector('.stream-alert-webhook-enabled');
-                        streamData.alert_webhook_enabled = !!(whSw && whSw.checked);
-                        // 保留流 ID（若有，来自服务端）
-                        if (item.dataset.id) {
-                            streamData.id = item.dataset.id;
-                        }
-                        streamData.enabled = item.dataset.enabled === 'true';
-                        if (item._face_recognition_config) {
-                            streamData.face_recognition_config = JSON.parse(JSON.stringify(item._face_recognition_config));
-                        }
-                        streams.push(streamData);
-                    }
+                if (!nameInput || !urlInput) return;
+                const name = nameInput.value.trim();
+                const url = urlInput.value.trim();
+                if (!name || !url) return;
+                const low = url.toLowerCase();
+                if (!low.startsWith('rtsp://') && !low.startsWith('rtsps://')) {
+                    schemeError = '地址必须以 rtsp:// 或 rtsps:// 开头：' + name;
+                    return;
                 }
+                const accessMethod = 'rtsp_url';
+                const streamData = {
+                    name,
+                    url,
+                    access_method: accessMethod,
+                    detections: item._detections
+                        ? JSON.parse(JSON.stringify(item._detections))
+                        : defaultAllOffDetections(),
+                    alert_emails: Array.isArray(item._alert_emails) ? item._alert_emails : [],
+                    alert_email_enabled: item._alert_email_enabled !== false,
+                    alert_webhook_urls: Array.isArray(item._alert_webhook_urls) ? item._alert_webhook_urls : [],
+                    alert_webhook_enabled: !!item._alert_webhook_enabled,
+                    enabled: item._enabled !== false,
+                    analyze: false
+                };
+                if (item.dataset.id) streamData.id = item.dataset.id;
+                if (item._face_recognition_config) {
+                    streamData.face_recognition_config = JSON.parse(JSON.stringify(item._face_recognition_config));
+                }
+                if (item._plate_recognition_config) {
+                    streamData.plate_recognition_config = JSON.parse(JSON.stringify(item._plate_recognition_config));
+                }
+                edited.push(streamData);
             });
-            
-            // 检查是否有流配置
-            if (streams.length === 0) {
-                showMessage('请至少配置一个视频', 'error');
+            if (schemeError) {
+                showMessage(schemeError, 'error');
                 return;
             }
-            
+
             try {
-                const response = await fetch('/api/streams', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(streams)
+                const all = await fetchAllStreams();
+                const keep = all.filter(s => !DIRECT_METHODS[normalizeAccessMethodClient(s)]);
+                // 已有直连流：用页面编辑覆盖；策略字段优先保留 Redis 中的（若页面缓存了则用页面的）
+                const byId = {};
+                all.forEach(s => { if (s.id) byId[s.id] = s; });
+                const mergedDirect = edited.map(ed => {
+                    const prev = ed.id ? byId[ed.id] : null;
+                    if (!prev) return ed;
+                    return {
+                        ...prev,
+                        name: ed.name,
+                        url: ed.url,
+                        access_method: ed.access_method
+                    };
                 });
-                
-                const result = await response.json();
-                
+                const streams = [...keep, ...mergedDirect];
+                if (streams.length === 0) {
+                    showMessage('请至少保留一路视频流（RTSP 直连或其它接入）', 'error');
+                    return;
+                }
+                const result = await postStreamsMerged(streams);
                 if (result.success) {
-                    showMessage('视频配置保存成功，需要重启服务使配置生效', 'success');
+                    showMessage('RTSP 直连已保存；修改地址后需重启服务生效', 'success');
+                    await loadDirectStreams();
                 } else {
-                    showMessage('保存视频配置失败: ' + result.message, 'error');
+                    showMessage('保存失败: ' + result.message, 'error');
                 }
             } catch (error) {
-                showMessage('保存视频配置失败: ' + error.message, 'error');
+                showMessage('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        // 保存检测配置策略（不改接入 URL）
+        async function savePolicyStreams() {
+            const container = document.getElementById('policyStreamContainer');
+            if (!container) return;
+            const items = container.querySelectorAll('.stream-item');
+            const policyById = {};
+            items.forEach(item => {
+                const id = item.dataset.id;
+                if (!id) return;
+                const taMail = item.querySelector('.stream-alert-emails');
+                const rawMail = taMail ? taMail.value.trim() : '';
+                const taWh = item.querySelector('.stream-alert-webhooks');
+                const rawWh = taWh ? taWh.value.trim() : '';
+                const mailSw = item.querySelector('.stream-alert-email-enabled');
+                const whSw = item.querySelector('.stream-alert-webhook-enabled');
+                policyById[id] = {
+                    detections: item._detections
+                        ? JSON.parse(JSON.stringify(item._detections))
+                        : defaultAllOffDetections(),
+                    alert_emails: rawMail
+                        ? rawMail.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
+                        : [],
+                    alert_email_enabled: !!(mailSw && mailSw.checked),
+                    alert_webhook_urls: rawWh
+                        ? rawWh.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
+                        : [],
+                    alert_webhook_enabled: !!(whSw && whSw.checked),
+                    enabled: item.dataset.enabled === 'true',
+                    face_recognition_config: item._face_recognition_config
+                        ? JSON.parse(JSON.stringify(item._face_recognition_config))
+                        : undefined,
+                    plate_recognition_config: item._plate_recognition_config
+                        ? JSON.parse(JSON.stringify(item._plate_recognition_config))
+                        : undefined
+                };
+            });
+            try {
+                const all = await fetchAllStreams();
+                if (!all.length) {
+                    showMessage('暂无视频流', 'error');
+                    return;
+                }
+                const streams = all.map(s => {
+                    const pol = s.id ? policyById[s.id] : null;
+                    if (!pol) return s;
+                    return {
+                        ...s,
+                        detections: pol.detections,
+                        alert_emails: pol.alert_emails,
+                        alert_email_enabled: pol.alert_email_enabled,
+                        alert_webhook_urls: pol.alert_webhook_urls,
+                        alert_webhook_enabled: pol.alert_webhook_enabled,
+                        enabled: pol.enabled,
+                        face_recognition_config: pol.face_recognition_config || s.face_recognition_config,
+                        plate_recognition_config: pol.plate_recognition_config || s.plate_recognition_config
+                    };
+                });
+                const result = await postStreamsMerged(streams);
+                if (result.success) {
+                    showMessage('检测配置已保存（热更新，无需重启）', 'success');
+                    await loadPolicyStreams();
+                } else {
+                    showMessage('保存失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('保存失败: ' + error.message, 'error');
             }
         }
         
@@ -2726,6 +3922,26 @@
             el.textContent = parts.filter(Boolean).join(' · ');
         }
 
+        const TIMEZONE_OPTIONS = [
+            'Asia/Shanghai',
+            'Asia/Hong_Kong',
+            'Asia/Tokyo',
+            'Asia/Singapore',
+            'Asia/Kolkata',
+            'Europe/London',
+            'Europe/Berlin',
+            'Europe/Paris',
+            'Europe/Moscow',
+            'America/New_York',
+            'America/Chicago',
+            'America/Denver',
+            'America/Los_Angeles',
+            'America/Sao_Paulo',
+            'Australia/Sydney',
+            'Pacific/Auckland',
+            'UTC',
+        ];
+
         function renderConfigFieldInput(field) {
             const key = field.key;
             const val = field.value == null ? '' : String(field.value);
@@ -2736,6 +3952,18 @@
             if (type === 'bool') {
                 const checked = ['true', '1', 'yes', 'on'].includes(val.toLowerCase());
                 return '<label><input type="checkbox" class="cfg-input" data-cfg-key="' + escapeHtml(key) + '" ' + (checked ? 'checked' : '') + '> 启用</label>';
+            }
+            if (type === 'timezone' || key === 'timezone') {
+                const opts = TIMEZONE_OPTIONS.slice();
+                if (val && opts.indexOf(val) < 0) opts.unshift(val);
+                const optionsHtml = opts.map(function (z) {
+                    return '<option value="' + escapeHtml(z) + '"' + (z === val ? ' selected' : '') + '>' + escapeHtml(z) + '</option>';
+                }).join('');
+                return (
+                    '<select class="config-field-input cfg-input" data-cfg-key="' + escapeHtml(key) + '">' +
+                    optionsHtml +
+                    '</select>'
+                );
             }
             const inputType = (type === 'password') ? 'password' : ((type === 'int' || type === 'float') ? 'text' : 'text');
             return '<input type="' + inputType + '" class="config-field-input cfg-input" data-cfg-key="' + escapeHtml(key) + '" value="' + escapeHtml(val) + '">';
@@ -3041,6 +4269,16 @@
                 }
                 onvifProbeInfo = data;
                 renderOnvifDevices();
+                const talkHint = document.getElementById('onvifTalkHint');
+                if (talkHint) {
+                    if (data.talk_supported) {
+                        talkHint.innerHTML = `<span class="talk-badge yes">支持对讲</span> ${escapeHtml(data.talk_detail || data.talk_protocol || 'ONVIF RTSP Backchannel')}`;
+                        talkHint.style.color = '#00695c';
+                    } else {
+                        talkHint.innerHTML = `<span class="talk-badge no">未检测到对讲</span> ${escapeHtml(data.talk_detail || '设备可能未开放 Audio Backchannel（加入后仍可在设备接入页重新探测）')}`;
+                        talkHint.style.color = '#607d8b';
+                    }
+                }
                 setOnvifMsg('设备正常，正在加载码流 Profile…', 'ok');
                 await onvifLoadProfiles();
             } catch (e) {
@@ -3081,7 +4319,10 @@
                     : (dev.name || dev.host);
                 document.getElementById('onvifStreamName').value = defaultName;
                 document.getElementById('onvifJoinPanel').style.display = 'flex';
-                setOnvifMsg(`设备正常，共 ${onvifProfiles.length} 路码流，选择后可加入监控`, 'ok');
+                const talkPart = (onvifProbeInfo && onvifProbeInfo.talk_supported)
+                    ? '；已检测到 ONVIF 对讲能力'
+                    : '；未检测到对讲（仍可加入监控）';
+                setOnvifMsg(`设备正常，共 ${onvifProfiles.length} 路码流，选择后可加入监控` + talkPart, 'ok');
             } catch (e) {
                 setOnvifMsg('加载 Profile 失败: ' + e, 'error');
             }
@@ -3129,6 +4370,10 @@
                     body: JSON.stringify({
                         name,
                         rtsp_url: prof.rtsp_url,
+                        talk_supported: !!(onvifProbeInfo && onvifProbeInfo.talk_supported),
+                        talk_protocol: (onvifProbeInfo && onvifProbeInfo.talk_protocol) || '',
+                        talk_codec: (onvifProbeInfo && onvifProbeInfo.talk_codec) || '',
+                        talk_detail: (onvifProbeInfo && onvifProbeInfo.talk_detail) || '',
                         onvif: {
                             host: dev.host,
                             port: dev.port || 80,
@@ -3143,12 +4388,12 @@
                     setOnvifMsg(data.message || '加入失败', 'error');
                     return;
                 }
-                setOnvifMsg('已加入监控', 'ok');
+                setOnvifMsg(data.message || '已接入平台', 'ok');
                 closeOnvifModal();
-                if (typeof loadStreams === 'function') {
-                    await loadStreams();
-                }
-                alert('已加入监控：' + name);
+                if (typeof loadOnvifStreams === 'function') await loadOnvifStreams();
+                if (typeof loadStatusData === 'function') await loadStatusData();
+                goToPage('access', { tab: 'onvif', streamId: (data.stream && data.stream.id) || '' });
+                alert((data.message || '已接入平台') + '：' + name);
             } catch (e) {
                 setOnvifMsg('加入失败: ' + e, 'error');
             }
@@ -3160,8 +4405,935 @@
         });
         
         document.getElementById('saveStreamsBtn')?.addEventListener('click', saveStreams);
+        document.getElementById('savePolicyBtn')?.addEventListener('click', savePolicyStreams);
         
         document.getElementById('restartBtn')?.addEventListener('click', restartService);
+
+        function updateGbPlatformSummary() {
+            const el = document.getElementById('gbPlatformSummary');
+            if (!el) return;
+            const host = (document.getElementById('gbPublicHost')?.value || '').trim();
+            const port = (document.getElementById('gbSipPort')?.value || '').trim();
+            const proto = (document.getElementById('gbTransport')?.value || '').toUpperCase();
+            const bits = [];
+            if (host || port) bits.push((host || '—') + (port ? (':' + port) : ''));
+            if (proto) bits.push(proto);
+            el.textContent = bits.join(' · ');
+        }
+
+        function applyGbPlatformCollapsed(collapsed) {
+            const btn = document.getElementById('gbPlatformCollapseBtn');
+            const body = document.getElementById('gbPlatformCollapseBody');
+            if (!btn || !body) return;
+            const fold = !!collapsed;
+            body.hidden = fold;
+            btn.setAttribute('aria-expanded', fold ? 'false' : 'true');
+            try {
+                localStorage.setItem('visionai.gbPlatformCollapsed', fold ? '1' : '0');
+            } catch (e) { /* ignore */ }
+        }
+
+        async function loadGb28181Platform() {
+            try {
+                const res = await fetch('/api/gb28181/platform');
+                const data = await res.json();
+                const p = (data && data.platform) || {};
+                const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+                const en = document.getElementById('gbEnabled');
+                if (en) en.checked = !!p.enabled;
+                set('gbServerId', p.server_id || '');
+                set('gbDomain', p.domain || '');
+                set('gbBindHost', p.bind_host || p.sip_host || '0.0.0.0');
+                set('gbPublicHost', p.public_host || '');
+                set('gbSipPort', p.public_port != null ? p.public_port : (p.bind_port != null ? p.bind_port : (p.sip_port != null ? p.sip_port : 15060)));
+                set('gbTransport', p.transport || 'tcp');
+                set('gbProtocolVersion', p.protocol_version || 'GB/T28181-2022');
+                set('gbExpires', p.register_expires_sec != null ? p.register_expires_sec : 3600);
+                set('gbKeepalive', p.keepalive_interval_sec != null ? p.keepalive_interval_sec : 60);
+                set('gbKeepaliveMiss', p.keepalive_timeout_count != null ? p.keepalive_timeout_count : 3);
+                set('gbMediaIp', p.media_ip || '');
+                set('gbMediaPortRange', p.media_port_range || ((p.media_port != null ? p.media_port : 10000) + '-' + (p.media_port_end != null ? p.media_port_end : 10200)));
+                updateGbPlatformSummary();
+                const sipHint = document.getElementById('gbSipReadyHint');
+                if (sipHint) {
+                    sipHint.textContent = data.sip_ready
+                        ? '信令进程在线，设备可按复制参数注册。'
+                        : '信令进程未运行：请启动 visionai-sip（compose 服务或 ./start.sh）。';
+                    sipHint.style.color = data.sip_ready ? '#155724' : '#856404';
+                }
+                const hint = document.getElementById('gbPlatformHint');
+                if (hint) {
+                    hint.textContent = '「复制参数」同时给出上级平台与本机 SIP 用户/认证ID/通道编码，对照设备国标页填写。媒体 IP 不会写入复制清单。';
+                }
+            } catch (e) {
+                /* ignore */
+            }
+        }
+
+        async function saveGb28181Platform() {
+            const body = {
+                enabled: !!(document.getElementById('gbEnabled') && document.getElementById('gbEnabled').checked),
+                server_id: document.getElementById('gbServerId')?.value.trim() || '',
+                domain: document.getElementById('gbDomain')?.value.trim() || '',
+                bind_host: document.getElementById('gbBindHost')?.value.trim() || '0.0.0.0',
+                bind_port: parseInt(document.getElementById('gbSipPort')?.value || '15060', 10) || 15060,
+                public_host: document.getElementById('gbPublicHost')?.value.trim() || '',
+                public_port: parseInt(document.getElementById('gbSipPort')?.value || '15060', 10) || 15060,
+                transport: document.getElementById('gbTransport')?.value || 'tcp',
+                protocol_version: document.getElementById('gbProtocolVersion')?.value.trim() || 'GB/T28181-2022',
+                register_expires_sec: parseInt(document.getElementById('gbExpires')?.value || '3600', 10) || 3600,
+                keepalive_interval_sec: parseInt(document.getElementById('gbKeepalive')?.value || '60', 10) || 60,
+                keepalive_timeout_count: parseInt(document.getElementById('gbKeepaliveMiss')?.value || '3', 10) || 3,
+                password: '',
+                device_password_mode: 'per_device',
+                media_ip: document.getElementById('gbMediaIp')?.value.trim() || '',
+                media_port_range: document.getElementById('gbMediaPortRange')?.value.trim() || '10000-10200',
+            };
+            try {
+                const res = await fetch('/api/gb28181/platform', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                showMessage(data.success ? '平台参数已保存' : (data.message || '失败'), data.success ? 'success' : 'error');
+                if (data.success) await loadGb28181Platform();
+            } catch (e) {
+                showMessage('保存失败: ' + e, 'error');
+            }
+        }
+
+        function gbCameraCfgText(cfg, d, passwordOverride) {
+            cfg = cfg || {};
+            d = d || {};
+            if (cfg.copy_text && passwordOverride == null) return cfg.copy_text;
+            const channels = cfg.channels || d.channels || [];
+            const chLines = channels.length
+                ? channels.map(function (c, i) {
+                    const alias = c.alias || c.name || '';
+                    const cid = c.channel_id || '';
+                    return '通道号 ' + (c.index || (i + 1)) + ': ' + cid +
+                        (alias && alias !== cid ? '  别名: ' + alias : '');
+                })
+                : ['(未配置通道)'];
+            return [
+                '【上级平台】',
+                '启用: 开',
+                '协议版本: ' + (cfg.protocol_version || 'GB/T28181-2022'),
+                '传输协议: ' + (cfg.sip_transport || 'TCP'),
+                'SIP服务器ID: ' + (cfg.sip_server_id || ''),
+                'SIP服务器域: ' + (cfg.sip_domain || ''),
+                'SIP服务器地址: ' + (cfg.sip_server_host || ''),
+                'SIP服务器端口: ' + (cfg.sip_server_port || ''),
+                '',
+                '【本机注册】',
+                'SIP用户名: ' + (cfg.sip_user || d.sip_user || ''),
+                'SIP用户认证ID: ' + (cfg.sip_auth_id || d.auth_id || ''),
+                'SIP用户认证密码: ' + (passwordOverride != null ? passwordOverride : (cfg.sip_password || d.password || '')),
+                '注册有效期: ' + (cfg.register_expires_sec || 3600),
+                '心跳周期: ' + (cfg.keepalive_interval_sec || 60),
+                '最大心跳超时次数: ' + (cfg.keepalive_timeout_count || 3),
+                '',
+                '【视频通道编码ID】'
+            ].concat(chLines).concat([
+                '',
+                '【设备侧保持默认】',
+                '本地SIP端口: 5060（设备本机监听，不是平台端口）',
+                '28181码流索引: 主码流'
+            ]).join('\n');
+        }
+
+        function gbSipRowEl(el) {
+            return el && el.closest ? el.closest('tr[data-sip-row]') : null;
+        }
+
+        function gbDevTableHeadHtml() {
+            return `<table class="gb-dev-table">
+                <thead>
+                    <tr>
+                        <th class="gb-col-check"><input type="checkbox" id="gbDevCheckAll" title="全选"></th>
+                        <th class="gb-col-id">ID</th>
+                        <th>SIP用户</th>
+                        <th>SIP用户名/认证ID</th>
+                        <th>SIP用户密码</th>
+                        <th>备注</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <p class="gb-draft-err" id="gbDraftErr" style="display:none;"></p>`;
+        }
+
+        function gbSipRowHtml(opts) {
+            opts = opts || {};
+            const isDraft = !!opts.draft;
+            const did = opts.sip_user || '';
+            const online = String(opts.status || '').toLowerCase() === 'online';
+            const stLabel = isDraft ? '—' : (online ? '在线' : (String(opts.status || '') === 'unknown' ? '未知' : '离线'));
+            const stClass = online ? 'status-online' : 'status-offline';
+            const chCount = Number(opts.channel_count || 0) || 0;
+            const rowId = opts.row_id != null ? String(opts.row_id) : (isDraft ? '—' : '');
+            const monitoredCount = Number(opts.monitored_count || 0) || 0;
+            const streamId = String(opts.monitor_stream_id || '');
+            const actions = isDraft
+                ? `<button type="button" class="btn-save" data-gb-save-create>保存</button>
+                   <button type="button" class="btn-restart" data-gb-cancel-create>取消</button>`
+                : `<button type="button" class="btn-filter-apply" data-gb-channels>通道 (${chCount})</button>
+                   <button type="button" class="btn-save" data-gb-save-edit>保存</button>
+                   <button type="button" class="btn-filter-apply" data-copy-cfg>复制</button>
+                   <button type="button" class="btn-delete" data-del-sip>删除</button>`;
+            const sipId = String(did || opts.auth_id || '');
+            const stHtml = isDraft
+                ? '—'
+                : `<span class="status ${stClass}">${stLabel}</span>`;
+            return `
+                <tr class="${isDraft ? 'gb-dev-draft' : ''}" data-sip-row="1" data-sip-user="${escapeHtml(did)}" data-channel-id="${escapeHtml(String(opts.channel_id || ''))}" data-cfg="${opts.cfg_attr || ''}" data-copy-err="${escapeHtml(opts.copy_err || '')}" data-channel-count="${chCount}" data-monitored-count="${monitoredCount}" data-stream-id="${escapeHtml(streamId)}">
+                    <td class="gb-col-check"><input type="checkbox" class="gb-dev-check" ${isDraft ? 'disabled' : ''}></td>
+                    <td class="gb-col-id">${escapeHtml(rowId)}</td>
+                    <td><input type="text" class="gb-f-name" value="${String(opts.name || '').replace(/"/g, '&quot;')}" placeholder="SIP用户"></td>
+                    <td><input type="text" class="gb-f-sip gb-f-auth" value="${sipId.replace(/"/g, '&quot;')}" readonly title="自动分配，用户名与认证ID相同"></td>
+                    <td><input type="text" class="gb-f-password" value="${String(opts.password || '').replace(/"/g, '&quot;')}" placeholder="密码" autocomplete="off"></td>
+                    <td><input type="text" class="gb-f-remark" value="${String(opts.remark || '').replace(/"/g, '&quot;')}" placeholder=""></td>
+                    <td>${stHtml}</td>
+                    <td><div class="gb-sip-actions">${actions}</div></td>
+                </tr>
+            `;
+        }
+
+        let gbChannelModalDeviceId = '';
+        let gbChannelModalDevice = null;
+
+        function closeGbChannelModal() {
+            const modal = document.getElementById('gbChannelModal');
+            if (modal) {
+                modal.classList.remove('show');
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            gbChannelModalDeviceId = '';
+            gbChannelModalDevice = null;
+        }
+
+        function gbChannelStatusLabel(st) {
+            const s = String(st || '').toLowerCase();
+            if (s === 'online') return { text: '在线', cls: 'status-online' };
+            if (s === 'unknown') return { text: '未知', cls: 'status-offline' };
+            return { text: '离线', cls: 'status-offline' };
+        }
+
+        function normalizeGbChannelsClient(channels) {
+            const list = Array.isArray(channels) ? channels : [];
+            const out = [];
+            const seen = {};
+            list.forEach(function (ch, i) {
+                if (!ch) return;
+                const cid = String(ch.channel_id || '').trim();
+                if (!cid || seen[cid]) return;
+                seen[cid] = true;
+                const alias = String(ch.alias || ch.name || '').trim() || cid;
+                let index = parseInt(ch.index, 10);
+                if (!Number.isFinite(index) || index < 1) index = i + 1;
+                out.push({
+                    index: index,
+                    channel_id: cid,
+                    alias: alias,
+                    name: alias,
+                    status: String(ch.status || 'offline').toLowerCase(),
+                    monitored: !!ch.monitored,
+                    stream_id: String(ch.stream_id || '')
+                });
+            });
+            out.sort(function (a, b) {
+                return (a.index - b.index) || String(a.channel_id).localeCompare(String(b.channel_id));
+            });
+            out.forEach(function (ch, i) { ch.index = i + 1; });
+            return out;
+        }
+
+        async function fetchGbDeviceById(deviceId) {
+            const r = await fetch('/api/gb28181/devices');
+            const j = await fetchJsonOrThrow(r);
+            if (!j.success) throw new Error(j.message || '加载账号失败');
+            const devices = j.devices || [];
+            const found = devices.find(function (d) {
+                return String(d.sip_user || d.device_id || '') === String(deviceId);
+            });
+            if (!found) throw new Error('账号不存在');
+            // 兼容旧数据：仅有 channel_id 时合成一条通道
+            if ((!found.channels || !found.channels.length) && found.channel_id) {
+                found.channels = [{
+                    index: 1,
+                    channel_id: found.channel_id,
+                    alias: found.name || found.channel_id,
+                    status: found.status || 'offline'
+                }];
+            }
+            found.channels = normalizeGbChannelsClient(found.channels || []);
+            return found;
+        }
+
+        async function saveGbDeviceChannels(channels) {
+            if (!gbChannelModalDevice) throw new Error('未加载账号');
+            const d = gbChannelModalDevice;
+            const normalized = normalizeGbChannelsClient(channels);
+            const payload = {
+                auto_allocate: false,
+                sip_user: d.sip_user || gbChannelModalDeviceId,
+                device_id: d.sip_user || gbChannelModalDeviceId,
+                auth_id: d.auth_id || d.sip_user || gbChannelModalDeviceId,
+                name: d.name || '',
+                password: d.password || '',
+                channels: normalized,
+                channel_id: normalized.length ? normalized[0].channel_id : '',
+                status: d.status || 'offline',
+                source: 'provisioned'
+            };
+            const r = await fetch('/api/gb28181/devices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const j = await fetchJsonOrThrow(r);
+            if (!j.success) throw new Error(j.message || '保存失败');
+            gbChannelModalDevice = j.device || { ...d, channels: normalized };
+            gbChannelModalDevice.channels = normalizeGbChannelsClient(
+                (j.device && j.device.channels) || normalized
+            );
+            return gbChannelModalDevice.channels;
+        }
+
+        async function allocateNextChannelId() {
+            // 优先专用接口；旧进程无该路由时回退 preview-ids
+            try {
+                const r = await fetch('/api/gb28181/preview-channel-id');
+                if (r.status !== 404) {
+                    const j = await fetchJsonOrThrow(r);
+                    if (j.success && j.channel_id) return String(j.channel_id);
+                }
+            } catch (e) { /* fallback below */ }
+            const r2 = await fetch('/api/gb28181/preview-ids');
+            const j2 = await fetchJsonOrThrow(r2);
+            if (!j2.success) throw new Error(j2.message || '无法分配通道编码');
+            const cid = (j2.allocation && j2.allocation.channel_id) || '';
+            if (!cid) throw new Error('无法分配通道编码');
+            return String(cid);
+        }
+
+        function renderGbChannelRows(channels) {
+            const tbody = document.getElementById('gbChannelTableBody');
+            if (!tbody) return;
+            const list = normalizeGbChannelsClient(channels);
+            const devOnline = String((gbChannelModalDevice && gbChannelModalDevice.status) || '').toLowerCase() === 'online';
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">暂无通道，点击「新增通道」添加。</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(function (ch) {
+                const st = gbChannelStatusLabel(ch.status);
+                const cid = String(ch.channel_id || '');
+                const alias = String(ch.alias || ch.name || '');
+                const idx = ch.index != null ? ch.index : '';
+                return `<tr data-channel-id="${escapeHtml(cid)}" data-stream-id="${escapeHtml(String(ch.stream_id || ''))}">
+                    <td><input type="number" class="gb-ch-index" min="1" value="${escapeHtml(String(idx))}" style="width:56px;"></td>
+                    <td><input type="text" class="gb-ch-id" value="${escapeHtml(cid)}"></td>
+                    <td><input type="text" class="gb-ch-alias" value="${escapeHtml(alias)}" placeholder="别名"></td>
+                    <td class="gb-ch-status"><span class="status ${st.cls}">${st.text}</span>${ch.monitored ? ' <span class="status status-online">已接入分析</span>' : ''}</td>
+                    <td><div class="gb-ch-actions">
+                        <button type="button" class="btn-preview" data-gb-ch-preview ${devOnline ? '' : 'disabled title="设备离线，无法点播"'}>预览</button>
+                        <button type="button" class="btn-save" data-gb-ch-save>保存</button>
+                        ${ch.monitored
+                            ? `<button type="button" class="btn-save" data-gb-ch-policy>检测配置</button>`
+                            : `<button type="button" class="btn-save" data-gb-ch-monitor ${devOnline ? '' : 'disabled title="设备离线，无法接入分析"'}>接入分析</button>`}
+                        <button type="button" class="btn-delete" data-gb-ch-del>删除</button>
+                    </div></td>
+                </tr>`;
+            }).join('');
+            tbody.querySelectorAll('[data-gb-ch-save]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const tr = this.closest('tr');
+                    saveGbChannelRow(tr);
+                });
+            });
+            tbody.querySelectorAll('[data-gb-ch-del]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const tr = this.closest('tr');
+                    deleteGbChannelRow(tr);
+                });
+            });
+            tbody.querySelectorAll('[data-gb-ch-monitor]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const tr = this.closest('tr');
+                    joinGbChannelMonitor(tr);
+                });
+            });
+            tbody.querySelectorAll('[data-gb-ch-policy]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const tr = this.closest('tr');
+                    const sid = tr && tr.getAttribute('data-stream-id');
+                    if (sid) {
+                        closeGbChannelModal();
+                        goToPage('policy', { streamId: sid });
+                    } else {
+                        showMessage('未找到对应检测配置', 'error');
+                    }
+                });
+            });
+            tbody.querySelectorAll('[data-gb-ch-preview]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const tr = this.closest('tr');
+                    const cid = tr && (tr.querySelector('.gb-ch-id')?.value.trim() || tr.getAttribute('data-channel-id') || '');
+                    startGbChannelPreview(gbChannelModalDeviceId, cid);
+                });
+            });
+        }
+
+        async function startGbChannelPreview(deviceId, channelId) {
+            deviceId = (deviceId || '').trim();
+            channelId = (channelId || '').trim();
+            if (!deviceId || !channelId) {
+                showMessage('缺少设备或通道', 'error');
+                return;
+            }
+            showMessage('正在点播…', 'success');
+            try {
+                const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(deviceId) +
+                    '/channels/' + encodeURIComponent(channelId) + '/preview', { method: 'POST' });
+                const j = await fetchJsonOrThrow(r);
+                if (!j.success) {
+                    showMessage(j.message || '点播失败', 'error');
+                    return;
+                }
+                if (j.already_monitored && j.stream_id) {
+                    openStreamPreview(j.stream_id, j.name || channelId, {
+                        gbPreview: { device_id: deviceId, channel_id: channelId, bye_on_close: false }
+                    });
+                    return;
+                }
+                if (j.media_online === false) {
+                    showMessage(j.message || 'Invite 已发送，媒体尚未上线', 'error');
+                }
+                const zlmStream = j.zlm_stream || '';
+                if (!zlmStream) {
+                    showMessage('未返回媒体流', 'error');
+                    return;
+                }
+                openStreamPreview(zlmStream, j.name || channelId, {
+                    app: 'rtp',
+                    gbPreview: { device_id: deviceId, channel_id: channelId, bye_on_close: true }
+                });
+            } catch (e) {
+                showMessage('点播失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function postGbJoinMonitor(deviceId, channelId) {
+            deviceId = (deviceId || '').trim();
+            channelId = (channelId || '').trim();
+            if (!deviceId || !channelId) {
+                showMessage('缺少设备或通道', 'error');
+                return null;
+            }
+            showMessage('正在接入分析…', 'success');
+            const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(deviceId) +
+                '/channels/' + encodeURIComponent(channelId) + '/monitor', { method: 'POST' });
+            const j = await fetchJsonOrThrow(r);
+            if (j.success && gbPreviewSession &&
+                gbPreviewSession.device_id === deviceId &&
+                gbPreviewSession.channel_id === channelId) {
+                gbPreviewSession.bye_on_close = false;
+            }
+            return j;
+        }
+
+        function gotoPolicyForStream(streamId) {
+            const sid = String(streamId || '');
+            if (!sid) return;
+            closeGbChannelModal();
+            goToPage('policy', { streamId: sid, openDetection: true });
+        }
+
+        async function joinGbChannelMonitor(tr) {
+            if (!tr || !gbChannelModalDeviceId) return;
+            const channel_id = tr.querySelector('.gb-ch-id')?.value.trim() || tr.getAttribute('data-channel-id') || '';
+            try {
+                const j = await postGbJoinMonitor(gbChannelModalDeviceId, channel_id);
+                if (!j) return;
+                showMessage(j.success ? (j.message || '已接入分析') : (j.message || '失败'), j.success ? 'success' : 'error');
+                const sid = (j.stream && j.stream.id) || '';
+                if (j.success && sid) gotoPolicyForStream(sid);
+            } catch (e) {
+                showMessage('接入分析失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function loadGbChannelModalList() {
+            if (!gbChannelModalDeviceId) return;
+            const tbody = document.getElementById('gbChannelTableBody');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">加载中…</td></tr>';
+            try {
+                const d = await fetchGbDeviceById(gbChannelModalDeviceId);
+                gbChannelModalDevice = d;
+                const sub = document.getElementById('gbChannelModalSub');
+                if (sub) {
+                    sub.textContent = 'SIP 用户: ' + (d.sip_user || gbChannelModalDeviceId) +
+                        (d.name ? '　·　' + d.name : '');
+                }
+                renderGbChannelRows(d.channels || []);
+            } catch (e) {
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color:#c62828;padding:18px 10px;">' +
+                        escapeHtml(String(e.message || e)) + '</td></tr>';
+                }
+            }
+        }
+
+        async function openGbChannelModal(deviceId, deviceName) {
+            gbChannelModalDeviceId = deviceId || '';
+            gbChannelModalDevice = null;
+            if (!gbChannelModalDeviceId) return;
+            const modal = document.getElementById('gbChannelModal');
+            const title = document.getElementById('gbChannelModalTitle');
+            if (title) title.textContent = '通道配置' + (deviceName ? ' · ' + deviceName : '');
+            if (modal) {
+                modal.classList.add('show');
+                modal.setAttribute('aria-hidden', 'false');
+            }
+            await loadGbChannelModalList();
+        }
+
+        async function addGbChannel() {
+            if (!gbChannelModalDeviceId) return;
+            const alias = window.prompt('通道别名（可留空）', '') || '';
+            try {
+                if (!gbChannelModalDevice) {
+                    gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
+                }
+                const cid = await allocateNextChannelId();
+                const channels = normalizeGbChannelsClient(gbChannelModalDevice.channels || []);
+                channels.push({
+                    index: channels.length + 1,
+                    channel_id: cid,
+                    alias: alias.trim() || ('通道' + (channels.length + 1)),
+                    status: 'offline'
+                });
+                const saved = await saveGbDeviceChannels(channels);
+                showMessage('已新增通道', 'success');
+                renderGbChannelRows(saved);
+                await loadGb28181Devices();
+            } catch (e) {
+                showMessage('新增失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function saveGbChannelRow(tr) {
+            if (!tr || !gbChannelModalDeviceId) return;
+            const oldId = tr.getAttribute('data-channel-id') || '';
+            const channel_id = tr.querySelector('.gb-ch-id')?.value.trim() || '';
+            const alias = tr.querySelector('.gb-ch-alias')?.value.trim() || '';
+            const indexRaw = tr.querySelector('.gb-ch-index')?.value;
+            const index = parseInt(indexRaw, 10);
+            if (!channel_id) {
+                showMessage('通道 ID 不能为空', 'error');
+                return;
+            }
+            try {
+                if (!gbChannelModalDevice) {
+                    gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
+                }
+                const channels = normalizeGbChannelsClient(gbChannelModalDevice.channels || []);
+                let found = false;
+                for (let i = 0; i < channels.length; i++) {
+                    if (channels[i].channel_id !== oldId) continue;
+                    found = true;
+                    if (channel_id !== oldId && channels.some(function (c) { return c.channel_id === channel_id; })) {
+                        throw new Error('通道 ID 已存在');
+                    }
+                    channels[i].channel_id = channel_id;
+                    channels[i].alias = alias || channel_id;
+                    channels[i].name = channels[i].alias;
+                    if (Number.isFinite(index)) channels[i].index = index;
+                    break;
+                }
+                if (!found) throw new Error('通道不存在');
+                const saved = await saveGbDeviceChannels(channels);
+                showMessage('通道已保存', 'success');
+                renderGbChannelRows(saved);
+                await loadGb28181Devices();
+            } catch (e) {
+                showMessage('保存失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function deleteGbChannelRow(tr) {
+            if (!tr || !gbChannelModalDeviceId) return;
+            const cid = tr.getAttribute('data-channel-id') || '';
+            if (!cid || !confirm('确定删除通道 ' + cid + '？')) return;
+            try {
+                if (!gbChannelModalDevice) {
+                    gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
+                }
+                const channels = normalizeGbChannelsClient(gbChannelModalDevice.channels || [])
+                    .filter(function (c) { return c.channel_id !== cid; });
+                const saved = await saveGbDeviceChannels(channels);
+                showMessage('通道已删除', 'success');
+                renderGbChannelRows(saved);
+                await loadGb28181Devices();
+            } catch (e) {
+                showMessage('删除失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        function bindGbSipListActions(box) {
+            box.querySelectorAll('[data-copy-cfg]').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const card = gbSipRowEl(this);
+                    const err = (card && card.getAttribute('data-copy-err')) || '';
+                    if (err) {
+                        showMessage(err, 'error');
+                        return;
+                    }
+                    let text = '';
+                    try {
+                        text = decodeURIComponent((card && card.getAttribute('data-cfg')) || '');
+                    } catch (e) { text = ''; }
+                    if (!text) {
+                        showMessage('无可复制参数', 'error');
+                        return;
+                    }
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        showMessage('已复制设备端国标参数', 'success');
+                    } catch (e) {
+                        prompt('复制以下参数到摄像机', text);
+                    }
+                });
+            });
+            box.querySelectorAll('[data-del-sip]').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const card = gbSipRowEl(this);
+                    const id = card && card.getAttribute('data-sip-user');
+                    if (!id || !confirm('确定删除整行 SIP 账号 ' + id + '？')) return;
+                    try {
+                        const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(id), { method: 'DELETE' });
+                        const j = await fetchJsonOrThrow(r);
+                        showMessage(j.success ? '已删除' : (j.message || '失败'), j.success ? 'success' : 'error');
+                        if (j.success) await loadGb28181Devices();
+                    } catch (e) {
+                        showMessage('删除失败: ' + (e.message || e), 'error');
+                    }
+                });
+            });
+            box.querySelectorAll('[data-gb-channels]').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const card = gbSipRowEl(this);
+                    const id = card && card.getAttribute('data-sip-user');
+                    const name = card?.querySelector('.gb-f-name')?.value.trim() || '';
+                    if (id) openGbChannelModal(id, name);
+                });
+            });
+            box.querySelectorAll('[data-gb-save-edit]').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const card = gbSipRowEl(this);
+                    const id = card && card.getAttribute('data-sip-user');
+                    if (!id || !card) return;
+                    const name = card.querySelector('.gb-f-name')?.value.trim() || '';
+                    const password = card.querySelector('.gb-f-password')?.value || '';
+                    const remark = card.querySelector('.gb-f-remark')?.value.trim() || '';
+                    if (!name) {
+                        showMessage('SIP用户不能为空', 'error');
+                        return;
+                    }
+                    try {
+                        const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(id), {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, password, remark })
+                        });
+                        const j = await fetchJsonOrThrow(r);
+                        showMessage(j.success ? '已保存修改' : (j.message || '失败'), j.success ? 'success' : 'error');
+                        if (j.success) await loadGb28181Devices();
+                    } catch (e) {
+                        showMessage('保存失败: ' + (e.message || e), 'error');
+                    }
+                });
+            });
+        }
+
+        function bindGbDevCheckAll(box) {
+            const all = box.querySelector('#gbDevCheckAll');
+            if (!all) return;
+            all.addEventListener('change', function () {
+                box.querySelectorAll('.gb-dev-check:not(:disabled)').forEach(function (cb) {
+                    cb.checked = all.checked;
+                });
+            });
+        }
+
+        let gbDeviceListCache = [];
+
+        function gbStatusFilterValue() {
+            const el = document.getElementById('gbDeviceStatusFilter');
+            return el ? String(el.value || '') : '';
+        }
+
+        function filterGbDeviceList(devices) {
+            const f = gbStatusFilterValue();
+            const list = devices || [];
+            if (!f) return list;
+            return list.filter(function (d) {
+                const st = String((d && d.status) || 'offline').toLowerCase();
+                return st === f;
+            });
+        }
+
+        function renderGb28181DeviceList(devices, hintText) {
+            const box = document.getElementById('gb28181DeviceList');
+            const hintEl = document.getElementById('gbDeviceListHint');
+            if (devices) gbDeviceListCache = devices;
+            if (hintEl && hintText != null) hintEl.textContent = hintText || '';
+            if (!box) return;
+            const all = gbDeviceListCache || [];
+            const list = filterGbDeviceList(all);
+            box.innerHTML = gbDevTableHeadHtml();
+            const tbody = box.querySelector('tbody');
+            if (!all.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+            } else if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">当前筛选下没有设备。</td></tr>';
+            } else {
+                tbody.innerHTML = list.map(function (d, i) {
+                    const did = d.sip_user || d.device_id || '';
+                    const cfg = d.camera_config || {};
+                    const copyErr = (cfg.copy_errors && cfg.copy_errors.length) ? cfg.copy_errors.join('；') : '';
+                    const cfgText = cfg.copy_ok ? gbCameraCfgText(cfg, d) : '';
+                    const chs = Array.isArray(d.channels) ? d.channels : [];
+                    const chCount = chs.length || (d.channel_count || 0);
+                    const firstCid = (chs[0] && chs[0].channel_id) || d.channel_id || '';
+                    return gbSipRowHtml({
+                        draft: false,
+                        row_id: i + 1,
+                        name: d.name || '',
+                        password: d.password || '',
+                        remark: d.remark || '',
+                        sip_user: did,
+                        auth_id: d.auth_id || did,
+                        status: d.status || 'offline',
+                        channel_count: chCount,
+                        channel_id: firstCid,
+                        monitored_count: d.monitored_count || 0,
+                        monitor_stream_id: d.monitor_stream_id || '',
+                        cfg_attr: encodeURIComponent(cfgText),
+                        copy_err: copyErr
+                    });
+                }).join('');
+            }
+            bindGbSipListActions(box);
+            bindGbDevCheckAll(box);
+        }
+
+        async function fetchJsonOrThrow(res) {
+            const text = await res.text();
+            let data = null;
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch (e) {
+                const snip = (text || '').replace(/\s+/g, ' ').slice(0, 120);
+                throw new Error(
+                    '接口返回非 JSON（HTTP ' + res.status + '）。请重启 visionai-api 后硬刷新。' +
+                    (snip ? ' 片段: ' + snip : '')
+                );
+            }
+            if (!res.ok && !(data && data.message)) {
+                throw new Error('HTTP ' + res.status);
+            }
+            return data;
+        }
+
+        function gbDraftRow() {
+            return document.querySelector('#gb28181DeviceList tr.gb-dev-draft');
+        }
+
+        async function refreshGb28181DraftIds(opts) {
+            opts = opts || {};
+            const draft = gbDraftRow();
+            if (!draft) {
+                if (opts.fromToolbar) showMessage('请先点「新建」', 'error');
+                return;
+            }
+            const errEl = document.getElementById('gbDraftErr');
+            try {
+                const res = await fetch('/api/gb28181/preview-ids');
+                const data = await fetchJsonOrThrow(res);
+                if (!data.success) {
+                    if (errEl) {
+                        errEl.style.display = 'block';
+                        errEl.textContent = data.message || '无法分配编码';
+                    }
+                    return;
+                }
+                const a = data.allocation || {};
+                const sip = draft.querySelector('.gb-f-sip');
+                if (sip) sip.value = a.sip_user || a.auth_id || '';
+                draft.setAttribute('data-sip-user', a.sip_user || '');
+                if (errEl) {
+                    errEl.style.display = 'none';
+                    errEl.textContent = '';
+                }
+            } catch (e) {
+                if (errEl) {
+                    errEl.style.display = 'block';
+                    errEl.textContent = String(e.message || e);
+                }
+            }
+        }
+
+        async function startGb28181CreateDraft() {
+            const box = document.getElementById('gb28181DeviceList');
+            if (!box) return;
+            if (!box.querySelector('table.gb-dev-table')) {
+                box.innerHTML = gbDevTableHeadHtml();
+            }
+            const tbody = box.querySelector('tbody');
+            if (!tbody) return;
+            if (gbDraftRow()) {
+                gbDraftRow().querySelector('.gb-f-name')?.focus();
+                return;
+            }
+            const empty = tbody.querySelector('td[colspan]');
+            if (empty) empty.parentElement.remove();
+            tbody.insertAdjacentHTML('afterbegin', gbSipRowHtml({
+                draft: true,
+                name: '',
+                password: '',
+                remark: '',
+                sip_user: '',
+                auth_id: '',
+                status: 'draft'
+            }));
+            const draft = gbDraftRow();
+            draft.querySelector('[data-gb-cancel-create]')?.addEventListener('click', function () {
+                draft.remove();
+                if (!tbody.querySelector('tr[data-sip-row]')) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+                }
+            });
+            draft.querySelector('[data-gb-save-create]')?.addEventListener('click', saveGb28181CreateDraft);
+            await refreshGb28181DraftIds();
+            draft.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            draft.querySelector('.gb-f-name')?.focus();
+        }
+
+        async function saveGb28181CreateDraft() {
+            const draft = gbDraftRow();
+            if (!draft) return;
+            const name = draft.querySelector('.gb-f-name')?.value.trim() || '';
+            const password = draft.querySelector('.gb-f-password')?.value || '';
+            const remark = draft.querySelector('.gb-f-remark')?.value.trim() || '';
+            if (!name) {
+                showMessage('请填写 SIP用户', 'error');
+                return;
+            }
+            if (!password) {
+                showMessage('请填写密码', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/gb28181/devices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        auto_allocate: true,
+                        password,
+                        name,
+                        remark,
+                        channels: [],
+                        source: 'provisioned'
+                    })
+                });
+                const data = await fetchJsonOrThrow(res);
+                if (!data.success) {
+                    showMessage(data.message || '失败', 'error');
+                    return;
+                }
+                const d = data.device || {};
+                const text = gbCameraCfgText(data.camera_config, d, password);
+                try {
+                    await navigator.clipboard.writeText(text);
+                    showMessage('已创建 ' + (d.sip_user || '') + '，请点「通道配置」添加通道；参数已复制', 'success');
+                } catch (e) {
+                    showMessage('已创建 ' + (d.sip_user || '') + '，请点「通道配置」添加通道', 'success');
+                }
+                await loadGb28181Devices();
+            } catch (e) {
+                showMessage('创建失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function loadGb28181Devices() {
+            const box = document.getElementById('gb28181DeviceList');
+            if (!box) return;
+            try {
+                const res = await fetch('/api/gb28181/devices');
+                const data = await fetchJsonOrThrow(res);
+                renderGb28181DeviceList(data.devices || [], data.hint || '');
+            } catch (e) {
+                box.innerHTML = '<p style="color:#c62828;">加载账号失败: ' + escapeHtml(String(e.message || e)) + '</p>';
+            }
+        }
+
+        async function refreshGb28181Status() {
+            try {
+                const res = await fetch('/api/gb28181/refresh-status', { method: 'POST' });
+                const data = await fetchJsonOrThrow(res);
+                if (!data.success) {
+                    showMessage(data.message || '刷新失败', 'error');
+                    return;
+                }
+                renderGb28181DeviceList(data.devices || [], data.message || '');
+                showMessage(data.message || '已刷新', 'success');
+            } catch (e) {
+                showMessage('刷新失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        document.getElementById('gbSavePlatformBtn')?.addEventListener('click', saveGb28181Platform);
+        document.getElementById('gbPlatformCollapseBtn')?.addEventListener('click', function () {
+            const body = document.getElementById('gbPlatformCollapseBody');
+            applyGbPlatformCollapsed(!(body && body.hidden));
+        });
+        (function initGbPlatformCollapse() {
+            let fold = true;
+            try {
+                const v = localStorage.getItem('visionai.gbPlatformCollapsed');
+                if (v === '0') fold = false;
+                if (v === '1') fold = true;
+            } catch (e) { /* ignore */ }
+            applyGbPlatformCollapsed(fold);
+        })();
+        document.getElementById('gbStartCreateBtn')?.addEventListener('click', startGb28181CreateDraft);
+        document.getElementById('gbRefreshDraftIdsBtn')?.addEventListener('click', function () {
+            refreshGb28181DraftIds({ fromToolbar: true });
+        });
+        document.getElementById('gbRefreshStatusBtn')?.addEventListener('click', refreshGb28181Status);
+        document.getElementById('gbDeviceStatusFilter')?.addEventListener('change', function () {
+            renderGb28181DeviceList();
+        });
+        document.getElementById('gbChannelModalCloseBtn')?.addEventListener('click', closeGbChannelModal);
+        document.getElementById('gbChannelModal')?.addEventListener('click', function (e) {
+            if (e.target === this) closeGbChannelModal();
+        });
+        document.getElementById('gbChannelAddBtn')?.addEventListener('click', addGbChannel);
+        document.getElementById('gbChannelReloadBtn')?.addEventListener('click', loadGbChannelModalList);
+
+        document.querySelectorAll('.access-tab-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const tab = this.getAttribute('data-access-tab') || 'direct';
+                showAccessTab(tab, function () {
+                    if (pendingHighlightStreamId) highlightStreamCard(pendingHighlightStreamId);
+                });
+            });
+        });
 
         document.getElementById('onvifDiscoverBtn')?.addEventListener('click', openOnvifModal);
         document.getElementById('onvifModalCloseBtn')?.addEventListener('click', closeOnvifModal);
@@ -3169,6 +5341,261 @@
         document.getElementById('onvifManualAddBtn')?.addEventListener('click', onvifManualAdd);
         document.getElementById('onvifProbeBtn')?.addEventListener('click', onvifProbeSelected);
         document.getElementById('onvifAddStreamBtn')?.addEventListener('click', onvifAddToMonitor);
+
+        // -------- 语音对讲（ONVIF RTSP Backchannel + 浏览器采麦 G.711）--------
+        let talkState = {
+            streamId: null,
+            streamName: '',
+            sessionId: null,
+            codec: 'PCMA',
+            audioCtx: null,
+            processor: null,
+            mediaStream: null,
+            sending: false,
+            timer: null
+        };
+
+        function linearToPcmaSample(sample) {
+            // ITU-T G.711 A-law
+            const ALAW_MAX = 0xFFF;
+            let pcm = sample | 0;
+            let mask = 0x55;
+            if (pcm >= 0) mask = 0xD5;
+            else pcm = -pcm - 1; // ones' complement for negatives as common in ref impls
+            if (pcm > ALAW_MAX) pcm = ALAW_MAX;
+            let seg = 0;
+            if (pcm >= 256) {
+                let x = pcm >> 8;
+                while (x) { seg++; x >>= 1; }
+            }
+            const aval = (seg << 4) | ((pcm >> (seg ? seg + 3 : 4)) & 0x0F);
+            return (aval ^ mask) & 0xFF;
+        }
+        function linearToPcmuSample(sample) {
+            // ITU-T G.711 µ-law
+            const BIAS = 0x84;
+            const CLIP = 32635;
+            let pcm = sample | 0;
+            let sign = (pcm < 0) ? 0x80 : 0;
+            if (pcm < 0) pcm = -pcm;
+            if (pcm > CLIP) pcm = CLIP;
+            pcm = pcm + BIAS;
+            let exp = 7;
+            for (let eMask = 0x4000; (pcm & eMask) === 0 && exp > 0; exp--, eMask >>= 1) {}
+            const mantissa = (pcm >> (exp + 3)) & 0x0F;
+            return (~(sign | (exp << 4) | mantissa)) & 0xFF;
+        }
+        function encodeG711(float32, codec) {
+            const out = new Uint8Array(float32.length);
+            const isAlaw = String(codec || 'PCMA').toUpperCase() !== 'PCMU';
+            for (let i = 0; i < float32.length; i++) {
+                let s = Math.max(-1, Math.min(1, float32[i]));
+                const pcm = (s < 0 ? s * 0x8000 : s * 0x7FFF) | 0;
+                out[i] = isAlaw ? linearToPcmaSample(pcm) : linearToPcmuSample(pcm);
+            }
+            return out;
+        }
+        function downsampleTo8k(float32, srcRate) {
+            if (srcRate === 8000) return float32;
+            const ratio = srcRate / 8000;
+            const newLen = Math.floor(float32.length / ratio);
+            const out = new Float32Array(newLen);
+            for (let i = 0; i < newLen; i++) {
+                out[i] = float32[Math.floor(i * ratio)] || 0;
+            }
+            return out;
+        }
+        function setTalkUi(status, detail) {
+            const st = document.getElementById('talkModalStatus');
+            const det = document.getElementById('talkModalDetail');
+            if (st) st.textContent = status || '';
+            if (det && detail != null) det.textContent = detail;
+            const startBtn = document.getElementById('talkStartBtn');
+            const stopBtn = document.getElementById('talkStopBtn');
+            if (startBtn) startBtn.disabled = !!talkState.sending;
+            if (stopBtn) stopBtn.disabled = !talkState.sending;
+            if (startBtn) {
+                startBtn.classList.toggle('talking', !!talkState.sending);
+                startBtn.textContent = talkState.sending ? '对讲中…' : '开始对讲';
+            }
+        }
+        async function openTalkModal(streamId, streamName, knownSupported) {
+            talkState.streamId = streamId;
+            talkState.streamName = streamName || streamId;
+            const modal = document.getElementById('talkModal');
+            const nameEl = document.getElementById('talkModalStreamName');
+            if (nameEl) nameEl.textContent = talkState.streamName;
+            if (modal) {
+                modal.classList.add('show');
+                modal.setAttribute('aria-hidden', 'false');
+            }
+            setTalkUi(knownSupported ? '已标记支持对讲，可直接开始' : '正在自动探测 ONVIF Backchannel…', '');
+            // 无论是否已标记，点开都先跑一次探测，避免「没反应」
+            await talkReprobe(false);
+        }
+        async function closeTalkModal() {
+            await talkStop(true);
+            const modal = document.getElementById('talkModal');
+            if (modal) {
+                modal.classList.remove('show');
+                modal.setAttribute('aria-hidden', 'true');
+            }
+        }
+        async function talkReprobe(silentFail) {
+            if (!talkState.streamId) return;
+            setTalkUi('正在探测 ONVIF RTSP Audio Backchannel…', '');
+            try {
+                const res = await fetch('/api/talk/probe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stream_id: talkState.streamId, persist: true })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    setTalkUi('探测失败', data.message || '');
+                    return;
+                }
+                const ok = !!data.talk_supported;
+                setTalkUi(
+                    ok ? '探测成功：支持对讲' : '探测结果：不支持 / 未开放 Backchannel',
+                    data.detail || data.error || data.sdp_summary || ''
+                );
+                const accessPage = document.getElementById('accessPage');
+                if (accessPage && accessPage.style.display !== 'none') {
+                    if (currentAccessTab === 'onvif' && typeof loadOnvifStreams === 'function') {
+                        await loadOnvifStreams();
+                    } else if (currentAccessTab === 'direct' && typeof loadDirectStreams === 'function') {
+                        await loadDirectStreams();
+                    } else if (currentAccessTab === 'gb28181' && typeof loadGb28181Streams === 'function') {
+                        await loadGb28181Streams();
+                    }
+                }
+                if (typeof loadStatusData === 'function') await loadStatusData();
+            } catch (e) {
+                if (!silentFail) setTalkUi('探测异常', String(e));
+            }
+        }
+        async function talkStart() {
+            if (!talkState.streamId || talkState.sending) return;
+            setTalkUi('正在建立对讲会话…', '');
+            try {
+                const res = await fetch('/api/talk/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stream_id: talkState.streamId })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    setTalkUi('无法开始对讲', data.message || JSON.stringify(data.probe || {}));
+                    return;
+                }
+                talkState.sessionId = data.session_id;
+                talkState.codec = data.codec || 'PCMA';
+                talkState.sending = true;
+                setTalkUi('对讲中：请对着麦克风说话', data.detail || '');
+                await talkStartMic(talkState.codec);
+            } catch (e) {
+                setTalkUi('开始对讲失败', String(e));
+                talkState.sending = false;
+            }
+        }
+        async function talkStartMic(codec) {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    channelCount: 1
+                },
+                video: false
+            });
+            talkState.mediaStream = stream;
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            talkState.audioCtx = audioCtx;
+            const source = audioCtx.createMediaStreamSource(stream);
+            const bufferSize = 2048;
+            const processor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+            talkState.processor = processor;
+            let pending = new Float32Array(0);
+            processor.onaudioprocess = function(ev) {
+                if (!talkState.sending || !talkState.sessionId) return;
+                const input = ev.inputBuffer.getChannelData(0);
+                const ds = downsampleTo8k(input, audioCtx.sampleRate);
+                const merged = new Float32Array(pending.length + ds.length);
+                merged.set(pending, 0);
+                merged.set(ds, pending.length);
+                // 约 40ms = 320 samples @8k，攒够再发
+                const frame = 320;
+                let offset = 0;
+                const chunks = [];
+                while (offset + frame <= merged.length) {
+                    chunks.push(encodeG711(merged.subarray(offset, offset + frame), codec));
+                    offset += frame;
+                }
+                pending = merged.subarray(offset);
+                if (!chunks.length) return;
+                let total = 0;
+                chunks.forEach(c => { total += c.length; });
+                const body = new Uint8Array(total);
+                let o = 0;
+                chunks.forEach(c => { body.set(c, o); o += c.length; });
+                fetch('/api/talk/audio?session_id=' + encodeURIComponent(talkState.sessionId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Talk-Session': talkState.sessionId
+                    },
+                    body: body,
+                    credentials: 'same-origin'
+                }).catch(function() { /* 丢包忽略 */ });
+            };
+            const mute = audioCtx.createGain();
+            mute.gain.value = 0;
+            source.connect(processor);
+            processor.connect(mute);
+            mute.connect(audioCtx.destination);
+        }
+        async function talkStop(quiet) {
+            talkState.sending = false;
+            try {
+                if (talkState.processor) {
+                    talkState.processor.disconnect();
+                    talkState.processor.onaudioprocess = null;
+                }
+            } catch (_) {}
+            talkState.processor = null;
+            try {
+                if (talkState.mediaStream) {
+                    talkState.mediaStream.getTracks().forEach(t => t.stop());
+                }
+            } catch (_) {}
+            talkState.mediaStream = null;
+            try {
+                if (talkState.audioCtx) await talkState.audioCtx.close();
+            } catch (_) {}
+            talkState.audioCtx = null;
+            const sid = talkState.sessionId;
+            const streamId = talkState.streamId;
+            talkState.sessionId = null;
+            if (sid || streamId) {
+                try {
+                    await fetch('/api/talk/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sid || '', stream_id: streamId || '' })
+                    });
+                } catch (_) {}
+            }
+            if (!quiet) setTalkUi('已结束对讲', '');
+        }
+
+        document.getElementById('talkModalCloseBtn')?.addEventListener('click', closeTalkModal);
+        document.getElementById('talkStartBtn')?.addEventListener('click', talkStart);
+        document.getElementById('talkStopBtn')?.addEventListener('click', function() { talkStop(false); });
+        document.getElementById('talkReprobeBtn')?.addEventListener('click', function() { talkReprobe(false); });
+        document.getElementById('talkModal')?.addEventListener('click', function(e) {
+            if (e.target === this) closeTalkModal();
+        });
+
         document.getElementById('onvifPassToggle')?.addEventListener('click', () => {
             const input = document.getElementById('onvifPassword');
             const btn = document.getElementById('onvifPassToggle');
@@ -3232,22 +5659,51 @@ document.getElementById('detectionConfigModalCloseBtn')?.addEventListener('click
             detectionConfigTargetItem._detections = JSON.parse(JSON.stringify(detectionModalDraft));
             readFaceRecogPanelToDraft();
             detectionConfigTargetItem._face_recognition_config = JSON.parse(JSON.stringify(detectionFaceRecogDraft));
+            readPlateRecogPanelToDraft();
+            detectionConfigTargetItem._plate_recognition_config = JSON.parse(JSON.stringify(detectionPlateRecogDraft));
             updateStreamDetectionSummary(detectionConfigTargetItem);
-            showMessage('已保存本条视频的检测类型设置（请点击「保存配置」并重启服务）', 'success');
+            showMessage('已写入本条检测类型（请再点「保存检测配置」生效；检测策略热更新，无需重启）', 'success');
             closeDetectionConfigModal();
         });
+
+        function applyHashRoute() {
+            try {
+                const raw = (location.hash || '').replace(/^#/, '');
+                if (!raw) return false;
+                const q = new URLSearchParams(raw);
+                let page = q.get('page') || '';
+                if (page === 'video') page = 'direct';
+                const tab = q.get('tab') || '';
+                const sid = q.get('stream') || '';
+                if (!page) return false;
+                const opts = {};
+                if (sid) opts.streamId = sid;
+                if (tab) opts.tab = tab;
+                goToPage(page, opts);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
         
         // 页面加载时加载数据
         document.addEventListener('DOMContentLoaded', async () => {
             await fetchConfig();
             await loadDetectionCatalog();
-            loadStreams();
-            loadStatusData();
             syncAlertsPageSizeSelect();
+            if (!applyHashRoute()) {
+                loadStatusData();
+            }
+            window.addEventListener('hashchange', function () {
+                applyHashRoute();
+            });
             
             // 定时刷新状态数据（每10秒）
             setInterval(() => {
-                loadStatusData();
+                const ov = document.getElementById('overviewPage');
+                if (ov && ov.style.display !== 'none') {
+                    loadStatusData();
+                }
             }, 10000);
             
             // 启动检测记录自动刷新

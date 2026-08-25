@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车牌库管理 - JXVisionAI</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #212529; }
+        .top { background: #fff; border-bottom: 1px solid #e9ecef; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .top-brand { display: flex; align-items: center; gap: 12px; }
+        .top-brand img {
+            height: 44px;
+            width: auto;
+            border-radius: 0;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+        .top h1 { margin: 0; font-size: 20px; }
+        .top a { color: #2196F3; text-decoration: none; margin-left: 16px; }
+        .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+        .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        .card h2 { margin: 0 0 16px; font-size: 17px; }
+        .status { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; }
+        .status.ok { background: #d4edda; color: #155724; }
+        .status.bad { background: #f8d7da; color: #721c24; }
+        label { display: block; font-size: 13px; margin-bottom: 4px; color: #495057; }
+        input[type=text] { width: 100%; max-width: 480px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #2196F3; color: #fff; }
+        .btn-danger { background: #dc3545; color: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid #e9ecef; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .msg { margin-top: 12px; font-size: 13px; padding: 8px 12px; border-radius: 6px; display: none; }
+        .msg.show { display: block; }
+        .msg.ok { background: #d4edda; color: #155724; }
+        .msg.err { background: #f8d7da; color: #721c24; }
+        .hint { font-size: 12px; color: #6c757d; margin-top: 4px; }
+        .plate-no { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; letter-spacing: 0.04em; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <div class="top-brand">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
+            <h1>车牌库管理</h1>
+        </div>
+        <div>
+            <a href="/">← 返回管理端</a>
+            <a href="/logout">退出</a>
+        </div>
+    </div>
+    <div class="wrap">
+        <div id="engineStatus" class="status">正在检查状态…</div>
+
+        <div class="card">
+            <h2>录入车牌</h2>
+            <p class="hint">填写大陆车牌号（如 <strong>浙F351TK</strong>）；系统会规范化（去空格、大写、易混字符修正）后写入 Redis 车牌库。</p>
+            <form id="enrollForm">
+                <label>车牌号 *</label>
+                <input type="text" id="enrollPlate" required placeholder="浙F351TK" autocomplete="off">
+                <label>车主/名称</label>
+                <input type="text" id="enrollName" placeholder="可选，如员工姓名或车辆备注">
+                <label>备注</label>
+                <input type="text" id="enrollNote" placeholder="可选">
+                <div style="margin-top: 12px;">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+            <div id="enrollMsg" class="msg"></div>
+        </div>
+
+        <div class="card">
+            <h2>车牌列表 <span id="plateCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>车牌号</th>
+                        <th>名称</th>
+                        <th>备注</th>
+                        <th>录入时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="plateTableBody">
+                    <tr><td colspan="5" style="text-align:center;color:#6c757d;">加载中…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        function showMsg(el, text, ok) {
+            el.textContent = text;
+            el.className = 'msg show ' + (ok ? 'ok' : 'err');
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function loadStatus() {
+            const el = document.getElementById('engineStatus');
+            try {
+                const r = await fetch('/api/plate-library');
+                const data = await r.json();
+                if (data.ocr_ready) {
+                    el.className = 'status ok';
+                    el.textContent = 'OCR 引擎可用。当前库内 ' + (data.count || 0) + ' 条车牌。';
+                } else {
+                    el.className = 'status bad';
+                    el.textContent = 'OCR 未就绪：请安装 rapidocr_onnxruntime（库管理仍可录入/删除）。当前库内 ' + (data.count || 0) + ' 条。';
+                }
+                renderTable(data.plates || []);
+            } catch (e) {
+                el.className = 'status bad';
+                el.textContent = '加载失败：' + e.message;
+            }
+        }
+
+        function renderTable(plates) {
+            const tbody = document.getElementById('plateTableBody');
+            document.getElementById('plateCount').textContent = '(' + plates.length + ' 条)';
+            if (!plates.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6c757d;">暂无车牌，请先录入</td></tr>';
+                return;
+            }
+            tbody.innerHTML = plates.map(p => `
+                <tr>
+                    <td class="plate-no">${escapeHtml(p.plate_no)}</td>
+                    <td>${escapeHtml(p.name || '')}</td>
+                    <td>${escapeHtml(p.note || '')}</td>
+                    <td>${escapeHtml((p.created_at || '').replace('T', ' '))}</td>
+                    <td><button type="button" class="btn btn-danger" data-plate="${escapeHtml(p.plate_no)}" onclick="deletePlate(this)">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        async function deletePlate(btn) {
+            const plate = btn.getAttribute('data-plate');
+            if (!plate || !confirm('确定删除车牌 ' + plate + '？')) return;
+            const r = await fetch('/api/plate-library/' + encodeURIComponent(plate), { method: 'DELETE' });
+            const data = await r.json();
+            if (data.success) loadStatus();
+            else alert(data.message || '删除失败');
+        }
+
+        document.getElementById('enrollForm').addEventListener('submit', async function(ev) {
+            ev.preventDefault();
+            const msg = document.getElementById('enrollMsg');
+            try {
+                const r = await fetch('/api/plate-library', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        plate_no: document.getElementById('enrollPlate').value.trim(),
+                        name: document.getElementById('enrollName').value.trim(),
+                        note: document.getElementById('enrollNote').value.trim(),
+                    }),
+                });
+                const data = await r.json();
+                if (data.success) {
+                    showMsg(msg, '已保存：' + ((data.plate && data.plate.plate_no) || ''), true);
+                    document.getElementById('enrollForm').reset();
+                    loadStatus();
+                } else {
+                    showMsg(msg, data.message || '保存失败', false);
+                }
+            } catch (e) {
+                showMsg(msg, '请求失败：' + e.message, false);
+            }
+        });
+
+        loadStatus();
+    </script>
+</body>
+</html>

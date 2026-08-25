@@ -12,7 +12,6 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime
 from typing import List
 
 import cv2
@@ -26,6 +25,7 @@ from visionai.config.detection_catalog import (
     NUM_COCO_CLASSES,
     PHONE_PLAY_KEY,
     FACE_RECOG_KEY,
+    PLATE_RECOG_KEY,
     all_extension_keys,
     normalize_detections,
     label_zh_for_class,
@@ -56,6 +56,7 @@ from visionai.core.face_recognition_config import (
     default_face_recognition_config,
     normalize_face_recognition_config,
 )
+from visionai.core.plate_recognition_config import default_plate_recognition_config
 from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
@@ -83,6 +84,7 @@ def _center_xyxy(box: tuple[int, int, int, int]) -> tuple[float, float]:
 _BEHAVIOR_COLORS = {
     CALL_KEY: (0, 0, 255),
     FACE_RECOG_KEY: (0, 200, 0),
+    PLATE_RECOG_KEY: (255, 140, 0),
 }
 
 
@@ -120,6 +122,7 @@ class Detector:
         self.alert_webhook_urls: List[str] = []
         self.alert_webhook_enabled: bool = False
         self.face_recognition_config = default_face_recognition_config()
+        self.plate_recognition_config = default_plate_recognition_config()
         self._cpp_session_ready = False
         self._load_model()
 
@@ -234,6 +237,7 @@ class Detector:
         phone_play_on = self.detections.get(PHONE_PLAY_KEY, False)
         gather_on = self.detections.get(GATHER_KEY, False)
         face_recog_on = self.detections.get(FACE_RECOG_KEY, False)
+        plate_recog_on = self.detections.get(PLATE_RECOG_KEY, False)
         p_keys = person_behavior_keys()
         s_keys = scene_behavior_keys()
         person_behavior_on = any(self.detections.get(k, False) for k in p_keys)
@@ -257,7 +261,12 @@ class Detector:
             or other_person_behaviors
         )
         collect_phone = alarm_phone or (call_on and not use_dedicated_call) or phone_play_on
-        behavior_needed = person_behavior_on or scene_behavior_on or face_recog_on
+        behavior_needed = (
+            person_behavior_on
+            or scene_behavior_on
+            or face_recog_on
+            or plate_recog_on
+        )
         behavior_src = frame.copy() if behavior_needed else None
 
         from visionai.core.infer_types import DetectionBox, boxes_from_ultralytics
@@ -361,7 +370,10 @@ class Detector:
                 cell_phones=cell_phones,
                 stream_name=self.stream_name,
                 now=now,
-                extra={"face_recognition_config": self.face_recognition_config},
+                extra={
+                    "face_recognition_config": self.face_recognition_config,
+                    "plate_recognition_config": self.plate_recognition_config,
+                },
             )
             behaviors_out = run_behaviors(ctx, self._behavior_state, self.detections)
 
@@ -408,6 +420,7 @@ class Detector:
         gather_cluster_set = set(gather_cluster_indices)
 
         def _person_should_draw(idx: int) -> bool:
+            # 专模（跌倒/打电话/口罩等）只画 event_boxes，不画关联人物辅助框
             if alarm_person:
                 return True
             if call_on and idx in persons_in_call:
@@ -416,9 +429,6 @@ class Detector:
                 return True
             if gather_on and gathering_alert and idx in gather_cluster_set:
                 return True
-            for bk, pset in person_behavior_alerts.items():
-                if idx in pset:
-                    return True
             return False
 
         fs_px = label_font_px(frame)
@@ -503,30 +513,31 @@ class Detector:
                     frame, eb.get("box"), label, color_call, font_px=fs_px
                 )
 
-        for bk, pset in person_behavior_alerts.items():
+        for bk in person_behavior_alerts:
             if bk == CALL_KEY:
                 continue
             br = behaviors_out.get(bk, {})
             color = _color_for_behavior(bk)
             tag = label_zh_for_extension(bk)
-            for pi in pset:
-                if pi < 0 or pi >= len(persons):
-                    continue
-                pb = persons[pi]["box"]
-                sc = float(br.get("scores", {}).get(str(pi), 0.0))
-                put_text(
-                    frame,
-                    f"{tag}: {sc:.2f}",
-                    (pb[0], max(pb[1] - 10, 20)),
-                    color,
-                    font_px=fs_px,
-                )
-            for eb in br.get("event_boxes") or []:
-                nm = str(eb.get("name") or bk)
-                sconf = float(eb.get("confidence", 0.0))
-                draw_labeled_box(
-                    frame, eb.get("box"), f"{nm}: {sconf:.2f}", color, font_px=fs_px
-                )
+            event_boxes = list(br.get("event_boxes") or [])
+            if event_boxes:
+                for eb in event_boxes:
+                    nm = tag or str(eb.get("name") or bk)
+                    sconf = float(eb.get("confidence", 0.0))
+                    draw_labeled_box(
+                        frame, eb.get("box"), f"{nm}: {sconf:.2f}", color, font_px=fs_px
+                    )
+            else:
+                # 无专模框时才退回画人物（少数仅关联人物、无独立检测框的专模）
+                for pi in br.get("person_indices") or []:
+                    pi = int(pi)
+                    if pi < 0 or pi >= len(persons):
+                        continue
+                    pb = persons[pi]["box"]
+                    sc = float(br.get("scores", {}).get(str(pi), 0.0))
+                    draw_labeled_box(
+                        frame, pb, f"{tag}: {sc:.2f}", color, font_px=fs_px
+                    )
 
         for sk in s_keys:
             if not self.detections.get(sk, False):
@@ -578,6 +589,56 @@ class Detector:
                 elif age is not None:
                     label = f"{name} {age}岁 {sim:.2f}"
                 draw_labeled_box(frame, box, label, color, font_px=fs_px)
+
+        pr_result = behaviors_out.get(PLATE_RECOG_KEY, {})
+        if plate_recog_on:
+            alert_keys: set = set()
+            if pr_result.get("alert"):
+                for m in pr_result.get("alert_matches") or []:
+                    if m.get("match_type") == "known":
+                        alert_keys.add(str(m.get("plate_no") or ""))
+                    else:
+                        alert_keys.add(f"unknown_{m.get('plate_key')}")
+            matched_boxes: set = set()
+            for m in pr_result.get("matches") or []:
+                box = m.get("box")
+                if not box:
+                    continue
+                plate_no = str(m.get("plate_no") or "")
+                owner = str(m.get("owner_name") or "")
+                mt = m.get("match_type")
+                ocr_c = float(m.get("ocr_confidence", 0.0))
+                if mt == "known":
+                    ak = plate_no
+                else:
+                    ak = f"unknown_{m.get('plate_key')}"
+                is_alert = ak in alert_keys
+                if mt == "known":
+                    color = (0, 220, 0) if is_alert else (0, 180, 180)
+                    label = f"{plate_no}" + (f" {owner}" if owner else "")
+                else:
+                    color = (0, 0, 230) if is_alert else (0, 140, 255)
+                    label = f"{plate_no}"
+                label = f"{label} {ocr_c:.2f}"
+                draw_labeled_box(frame, box, label, color, font_px=fs_px)
+                matched_boxes.add(tuple(int(v) for v in box[:4]))
+            # 无可靠 OCR 的检测框仍画出颜色类名
+            for bx in pr_result.get("boxes") or []:
+                box = bx.get("box")
+                if not box:
+                    continue
+                key = tuple(int(v) for v in box[:4])
+                if key in matched_boxes:
+                    continue
+                nm = str(bx.get("name") or "plate")
+                sconf = float(bx.get("confidence", 0.0))
+                draw_labeled_box(
+                    frame,
+                    box,
+                    f"{nm}: {sconf:.2f}",
+                    _color_for_behavior(PLATE_RECOG_KEY),
+                    font_px=fs_px,
+                )
 
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
@@ -701,25 +762,71 @@ class Detector:
                     if gzh:
                         item["gender_zh"] = str(gzh)
                     fr_extra_matches.append(item)
-                detection_extra = {
-                    "face_recognition": {
-                        "trigger_types": fr_saved.get("trigger_types") or [],
-                        "matches": fr_extra_matches,
-                        "alert_matches": [
-                            {
-                                "person_id": m.get("person_id"),
-                                "person_name": str(m.get("person_name") or "陌生人"),
-                                "similarity": float(m.get("similarity", 0.0)),
-                                "match_type": m.get("match_type"),
-                            }
-                            for m in alert_matches
-                        ],
-                    }
+                if detection_extra is None:
+                    detection_extra = {}
+                detection_extra["face_recognition"] = {
+                    "trigger_types": fr_saved.get("trigger_types") or [],
+                    "matches": fr_extra_matches,
+                    "alert_matches": [
+                        {
+                            "person_id": m.get("person_id"),
+                            "person_name": str(m.get("person_name") or "陌生人"),
+                            "similarity": float(m.get("similarity", 0.0)),
+                            "match_type": m.get("match_type"),
+                        }
+                        for m in alert_matches
+                    ],
+                }
+
+        pr_saved = behaviors_saved.get(PLATE_RECOG_KEY, {})
+        if self.detections.get(PLATE_RECOG_KEY, False) and pr_saved.get("alert"):
+            alert_matches = pr_saved.get("alert_matches") or []
+            if alert_matches:
+                should_save = True
+                frame_matches = pr_saved.get("matches") or alert_matches
+                pr_extra_matches = []
+                for m in frame_matches:
+                    plate_no = str(m.get("plate_no") or "")
+                    owner = str(m.get("owner_name") or "")
+                    mt = m.get("match_type")
+                    ocr_c = float(m.get("ocr_confidence", 0.0))
+                    if mt == "known":
+                        label = f"车牌识别: 库内/{plate_no}"
+                        if owner:
+                            label = f"{label}({owner})"
+                    else:
+                        label = f"车牌识别: 陌生车牌/{plate_no}"
+                    if label not in detection_types:
+                        detection_types.append(label)
+                    info.append(f"{label} ({ocr_c:.2f})")
+                    pr_extra_matches.append(
+                        {
+                            "plate_no": plate_no,
+                            "owner_name": owner,
+                            "match_type": mt,
+                            "ocr_confidence": ocr_c,
+                            "box": m.get("box"),
+                        }
+                    )
+                if detection_extra is None:
+                    detection_extra = {}
+                detection_extra["plate_recognition"] = {
+                    "trigger_types": pr_saved.get("trigger_types") or [],
+                    "matches": pr_extra_matches,
+                    "alert_matches": [
+                        {
+                            "plate_no": str(m.get("plate_no") or ""),
+                            "owner_name": str(m.get("owner_name") or ""),
+                            "match_type": m.get("match_type"),
+                            "ocr_confidence": float(m.get("ocr_confidence", 0.0)),
+                        }
+                        for m in alert_matches
+                    ],
                 }
 
         p_keys = person_behavior_keys()
         for ek in all_extension_keys():
-            if ek in (FACE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY):
+            if ek in (FACE_RECOG_KEY, PLATE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY):
                 continue
             if ek == CALL_KEY and detections.get("calls"):
                 # 已在上方按 calls 记录
@@ -743,7 +850,9 @@ class Detector:
         if not should_save:
             return False
 
-        now = datetime.now()
+        from visionai.utils.timeutil import app_now
+
+        now = app_now()
         timestamp = now.strftime(SAVE_FORMAT)
         save_dir = self.save_dir or SAVE_DIR
         save_path = os.path.join(save_dir, timestamp)

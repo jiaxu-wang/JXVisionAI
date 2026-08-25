@@ -4,7 +4,7 @@
   <img src="logo.png" alt="JXVisionAI" width="420">
 </p>
 
-多路 **RTSP** 视频智能分析平台：YOLO26 主检测（COCO 80）+ 行为扩展（打电话、玩手机、人员聚集、人脸识别）+ **训练实验室专模**（吸烟、安全帽、未戴眼镜等）；告警写入 Redis，截图可落盘或上传 MinIO/S3；Flask Web 管理端配置每路流与检测项。
+多路 **RTSP** 视频智能分析平台：YOLO26 主检测（COCO 80）+ 行为扩展（玩手机、人员聚集、人脸识别）+ **训练实验室专模**（吸烟、安全帽、未戴眼镜等，可自训）；告警写入 Redis，截图可落盘或上传 MinIO/S3；Flask Web 管理端配置每路流与检测项。
 
 > 品牌名 **JXVisionAI**。GitHub 仓库与 Python 包分别为 `JXVisionAI` / `visionai`。`visionai_secret`、Redis 键 `visionai:*`、对象存储前缀 `visionai/` 等技术标识保持不变，以免破坏现有部署。
 
@@ -28,27 +28,28 @@
 | [训练示例](docs/training-glasses-guide.md) | 采图→标注→训练→部署 |
 | [HTTP API](docs/api.md) | 管理端 API |
 | [运维与排障](docs/operations.md) | 日志、常见问题 |
+| [ONVIF 对讲](docs/talk-onvif.md) | Audio Backchannel 探测与对讲 |
 
 ---
 
 ## 快速体验
 
+**推荐整栈 Docker**（API + worker + alert + Redis + MinIO + ZLM）：
+
 ```bash
 git clone https://github.com/jiaxu-wang/JXVisionAI.git
 cd JXVisionAI
-python3 -m venv env && source env/bin/activate
-pip install -r requirements.txt
 cp config/config.example.ini config/config.ini
-docker compose up -d redis minio          # 可选再加 zlmediakit
-# 下载 YOLO26 权重（n/s/m/l/x），见 docs/getting-started.md
-./scripts/download_yolo26.sh
-# 配置 [models] yolo_model = models/yolo26s.pt 后启动
-./start.sh
+./scripts/download_yolo26.sh          # YOLO26 权重 → models/
+docker compose up -d --build
+# 或：bash scripts/compose_up.sh
 ```
 
-`./start.sh` 拉起多进程：`visionai.api`（Web :5000）+ `visionai.worker`（拉流检测）+ `alert_worker`（异步告警）；可选 `visionai-inferd`（`[infer] backend=cpp`）与 compose 中的 ZLMediaKit。流在线状态写入 Redis，供管理端跨进程展示。
+管理端：<http://服务器IP:15000>（避开 EasyAIoT `:5000`）。  
+健康检查：`curl -s http://127.0.0.1:15000/readyz`。  
+宿主机映射见 `docker-compose.yaml` 注释（Redis `16379`、MinIO `19000/19001`、ZLM `18080/18554/18000`）。
 
-管理端：<http://服务器IP:5000>，登录密钥见 `config.ini` 的 `[basic]` → `visionai_secret`。
+备选：本机 venv + `./start.sh`（Web `:5000`），依赖仍可用 `docker compose up -d redis minio zlmediakit`。详见 [docs/getting-started.md](docs/getting-started.md)。
 
 ---
 

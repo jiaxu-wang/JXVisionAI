@@ -1,0 +1,2 @@
+0: face
+1: face_mask

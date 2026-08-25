@@ -319,7 +319,6 @@
   }
 
   function canShowDeployButton() {
-    if (state.deployTarget === 'make_call') return true;
     var t = getCurrentTemplate();
     if (t && t.deploy_mode === 'specialist') return true;
     if (state.deployMode === 'specialist') return true;
@@ -328,12 +327,11 @@
   }
 
   function isSpecialistDeploy() {
-    if (state.deployTarget === 'make_call') return false;
     var t = getCurrentTemplate();
     if (t && t.deploy_mode === 'specialist') return true;
     if (state.deployMode === 'specialist') return true;
     if (state.templateId === 'custom') return true;
-    return !state.deployTarget;
+    return true;
   }
 
   async function loadSpecialists() {
@@ -1330,17 +1328,8 @@
         return;
       }
     } else {
-      body.target = state.deployTarget || 'make_call';
-      body.patch_config = true;
-      if (
-        !window.confirm(
-          '将通过测试集门禁的 best.pt 部署到 models/ 并更新 config.ini（' +
-            body.target +
-            '）。\nmake_call 会自动导出 ONNX。\n部署后需重启服务。继续？'
-        )
-      ) {
-        return;
-      }
+      alert('内置部署目标已下线，请使用专模部署（自定义或场景模板）。');
+      return;
     }
     var r = await api('/api/training/projects/' + state.projectId + '/deploy', {
       method: 'POST',

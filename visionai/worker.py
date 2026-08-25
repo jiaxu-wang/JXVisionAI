@@ -12,6 +12,7 @@ import time
 
 from visionai import __main__ as core
 from visionai.config.settings import SAVE_DIR, STREAM_LEASE_ENABLED
+from visionai.config.stream_access import stream_should_analyze
 from visionai.core import stream_sync
 from visionai.core.state_manager import set_stream_status
 from visionai.core.stream_handler import StreamHandler
@@ -50,8 +51,8 @@ def main() -> None:
         set_stream_status(stream_info["name"], "离线")
 
     for stream_info in streams:
-        if not stream_info.get("enabled", True):
-            logger.info("视频流已禁用，跳过: %s", stream_info["name"])
+        if not stream_should_analyze(stream_info):
+            logger.info("视频流未接入分析或已暂停，跳过: %s", stream_info["name"])
             continue
         if not _lease_gate(stream_info):
             logger.info("流租约在其他 worker，跳过: %s", stream_info["name"])
@@ -71,27 +72,48 @@ def main() -> None:
                 if kicked:
                     stream_sync.clear_kick()
                 wait_sec = 60.0
-                enabled = [s for s in core.get_streams() if s.get("enabled", True)]
+                enabled = [s for s in core.get_streams() if stream_should_analyze(s)]
                 for stream_info in enabled:
                     name = stream_info["name"]
+                    key = core.stream_thread_key(stream_info)
                     with core.threads_lock:
-                        if name in core.active_threads:
+                        if key in core.active_threads:
                             _lease_gate(stream_info)
                             continue
                     if not _lease_gate(stream_info):
                         continue
                     log.info("[离线检测] 尝试为流启动处理线程: %s", name)
-                    sh = StreamHandler(stream_info)
-                    if not sh.connect():
-                        continue
-                    sh.disconnect()
-                    with core.threads_lock:
-                        if name in core.active_threads:
+                    start_info = stream_info
+                    gb = False
+                    try:
+                        from visionai.core.gb_play import is_gb_stream, prepare_gb_stream
+
+                        gb = is_gb_stream(stream_info)
+                        if gb:
+                            prepared, err = prepare_gb_stream(stream_info)
+                            if err or not prepared:
+                                log.warning("[离线检测] 国标点播失败 %s: %s", name, err)
+                                set_stream_status(name, "离线")
+                                continue
+                            start_info = prepared
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("[离线检测] 国标准备失败 %s: %s", name, e)
+                        if gb:
+                            set_stream_status(name, "离线")
                             continue
-                    set_stream_status(name, "在线")
+                    if not gb:
+                        sh = StreamHandler(stream_info)
+                        if not sh.connect():
+                            continue
+                        sh.disconnect()
+                    with core.threads_lock:
+                        if key in core.active_threads:
+                            continue
+                    if not gb:
+                        set_stream_status(name, "在线")
                     threading.Thread(
                         target=core.run_video_processing,
-                        args=(stream_info,),
+                        args=(start_info,),
                         daemon=True,
                     ).start()
                     log.info("[离线检测] 已启动流 %s 的处理线程", name)

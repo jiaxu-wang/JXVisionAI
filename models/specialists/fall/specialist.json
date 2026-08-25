@@ -1,0 +1,32 @@
+{
+  "key": "fall",
+  "kind": "person_event",
+  "name_zh": "跌倒检测",
+  "name_en": "fall",
+  "model_path": "models/specialists/fall/model.onnx",
+  "classes": [
+    "stand",
+    "fall"
+  ],
+  "conf": 0.35,
+  "score_threshold": 0.35,
+  "min_duration_sec": 1.0,
+  "max_persons": 8,
+  "needs_persons": true,
+  "class_ids": null,
+  "positive_class_ids": [
+    1
+  ],
+  "subject_class_ids": [
+    0
+  ],
+  "comply_class_ids": [
+    1
+  ],
+  "created_at": 1785464674.718496,
+  "updated_at": 1785464674.718496,
+  "source_project_id": null,
+  "test_metrics": null,
+  "source": "specialist",
+  "origin": "imported"
+}

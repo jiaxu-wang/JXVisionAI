@@ -1579,11 +1579,16 @@ def _register_api_routes(app):
         tpl = TRAINING_TEMPLATES.get(template_id, TRAINING_TEMPLATES["custom"])
         deploy_mode = (data.get("deploy_mode") or meta.get("deploy_mode") or tpl.get("deploy_mode") or "").strip()
         target = (data.get("target") or meta.get("deploy_target") or "").strip()
-        is_builtin = deploy_mode == "builtin" or target == "make_call"
+        is_builtin = deploy_mode == "builtin" or bool(target and target in DEPLOY_TARGETS)
 
         if is_builtin:
-            if not target:
-                target = "make_call"
+            if not target or target not in DEPLOY_TARGETS:
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "内置部署目标已下线，请用专模方式部署（自定义/场景模板 → models/specialists/）",
+                    }
+                ), 400
         elif not (data.get("key") or (tpl.get("specialist_defaults") or {}).get("key_suggestion")):
             return jsonify({"success": False, "message": "专模部署需提供 key（或选择带默认键名的模板）"}), 400
 

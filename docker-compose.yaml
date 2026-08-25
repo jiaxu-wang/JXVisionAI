@@ -1,8 +1,79 @@
-# JXVisionAI + Redis + MinIO（S3 兼容，可换为云 S3：改环境变量并去掉 minio 服务）
-# 使用：docker-compose up -d --build
-# 管理界面：http://localhost:5000
-# MinIO 控制台：http://localhost:9001 用户/密码同 MINIO_ROOT_*
-# Redis 对外端口 16379
+# JXVisionAI + Redis + MinIO + ZLMediaKit
+# 使用：docker compose up -d --build
+# 管理界面：http://localhost:15000
+# MinIO 控制台：http://localhost:19001
+# Redis 对外：16379
+#
+# 宿主机端口已避开 EasyAIoT（5000/9000/9001/1935/8080/8000 等）：
+#   Web 15000 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935 | WebRTC 18000
+#
+# 应用拆为三服务（同镜像）：visionai-api / visionai-worker / visionai-alert
+# 模型与配置通过 volume 挂载，改 config.ini / 换权重后重启对应容器即可。
+
+x-visionai-common: &visionai-common
+  image: visionai:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      ORT_PKG: onnxruntime
+  environment: &visionai-env
+    # 应用时区（IANA）。优先环境变量 VISIONAI_TIMEZONE；未设则读 config.ini [basic] timezone
+    # 例：Europe/Berlin、America/New_York。也可在系统设置页改 timezone 后重启容器
+    VISIONAI_TIMEZONE: ${VISIONAI_TIMEZONE:-}
+    TZ: ${VISIONAI_TIMEZONE:-Asia/Shanghai}
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    REDIS_PASSWORD: VisionAI@2026
+    REDIS_DB: "0"
+    VISIONAI_SECRET: "123456-bb6b-4889-a715-d9eb2d1925cc"
+    SAVE_DIR: /app/snapshots
+    LOG_DIR: /app/logs
+    # 容器默认 CPU；有 NVIDIA Container Toolkit 时可改 gpu 并加 deploy.resources
+    INFERENCE_DEVICE: cpu
+    ONNX_PROVIDER: cpu
+    OBJECT_STORAGE_ENABLED: "true"
+    OBJECT_STORAGE_KEEP_LOCAL: "true"
+    S3_ENDPOINT_URL: http://minio:9000
+    S3_ACCESS_KEY_ID: minioadmin
+    S3_SECRET_ACCESS_KEY: minioadmin
+    S3_BUCKET: visionai
+    S3_USE_SSL: "false"
+    S3_REGION: us-east-1
+    ZLM_ENABLED: "true"
+    ZLM_API_BASE: http://zlmediakit:80
+    ZLM_SECRET: jxvisionai-zlm-a7f3c91e4b2d6e80
+    # 浏览器播放仍用宿主机映射端口（避开 EasyAIoT）
+    ZLM_HTTP_PORT: "18080"
+    ZLM_RTSP_PORT: "18554"
+    ZLM_PUBLIC_HOST: "127.0.0.1"
+    ZLM_RTC_PORT: "18000"
+    # worker 在 compose 网络内回源 ZLM
+    ZLM_PULL_HOST: zlmediakit
+    ZLM_PULL_RTSP_PORT: "554"
+    ZLM_PREFER_LOCAL_PULL: "true"
+    ZLM_FALLBACK_DIRECT_RTSP: "true"
+    NO_PROXY: "127.0.0.1,localhost,redis,minio,zlmediakit"
+    no_proxy: "127.0.0.1,localhost,redis,minio,zlmediakit"
+  volumes:
+    - ./snapshots:/app/snapshots
+    - ./logs:/app/logs
+    - ./config:/app/config
+    - ./models:/app/models
+    # 挂载源码与入口：系统设置改动能立即生效（entrypoint 含时区读取）
+    - ./visionai:/app/visionai
+    - ./docker/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+    # 告警框中文：宿主机字体（容器内 slim 默认无 CJK；包内也带了 wqy-microhei）
+    - /usr/share/fonts:/usr/share/fonts:ro
+    - /mnt/c/Windows/Fonts:/mnt/c/Windows/Fonts:ro
+  depends_on:
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_started
+    zlmediakit:
+      condition: service_started
+  restart: unless-stopped
 
 services:
   minio:
@@ -13,8 +84,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
     volumes:
       - ./minio-data:/data
     restart: unless-stopped
@@ -36,52 +107,64 @@ services:
       retries: 5
       start_period: 5s
 
-
-  #visionai:
-  #  build:
-  #    context: .
-  #    dockerfile: Dockerfile
-  #  image: visionai:latest
-  #  container_name: visionai-app
-  #  ports:
-  #    - "5000:5000"
-  #  environment:
-  #    REDIS_HOST: redis
-  #    REDIS_PORT: "6379"
-  #    REDIS_PASSWORD: VisionAI@2026
-  #    REDIS_DB: "0"
-  #    # 生产环境请修改
-  #    VISIONAI_SECRET: "123456-bb6b-4889-a715-d9eb2d1925cc"
-      # 对象存储：默认连 compose 内 MinIO；可改为云 S3 的 endpoint/密钥
-  #    OBJECT_STORAGE_ENABLED: "true"
-  #    OBJECT_STORAGE_KEEP_LOCAL: "true"
-  #    S3_ENDPOINT_URL: http://minio:9000
-  #    S3_ACCESS_KEY_ID: minioadmin
-  #    S3_SECRET_ACCESS_KEY: minioadmin
-  #    S3_BUCKET: visionai
-  #    S3_USE_SSL: "false"
-  #    S3_REGION: us-east-1
-  #  volumes:
-  #    - ./snapshots:/app/snapshots
-  #    - ./logs:/app/logs
-  #    - ./config:/app/config
-  #  depends_on:
-  #    redis:
-  #      condition: service_healthy
-  #    minio:
-  #      condition: service_started
-  #  restart: unless-stopped
-
   zlmediakit:
     image: zlmediakit/zlmediakit:master
     container_name: visionai-zlm
     ports:
-      - "8080:80"      # HTTP API / HLS / FLV / WebRTC 信令
-      - "8554:554"     # RTSP（检测本地回源）
-      - "1935:1935"    # RTMP
-      - "8000:8000/udp"  # WebRTC media (STUN/DTLS/SRTP)
-      - "8000:8000/tcp"  # WebRTC TCP 候选（可选）
+      - "18080:80"       # HTTP API / HLS / FLV / WebRTC 信令（避开 EasyAIoT SRS :8080）
+      - "18554:554"      # RTSP
+      - "11935:1935"     # RTMP（避开 EasyAIoT SRS :1935）
+      - "18000:8000/udp" # WebRTC media（避开 EasyAIoT SRS :8000）
+      - "18000:8000/tcp"
+      - "10000-10200:10000-10200/udp" # GB28181 PS/RTP
+      - "10000-10200:10000-10200/tcp"
     volumes:
       - ./config/zlm/config.ini:/opt/media/conf/config.ini:ro
       - ./logs/zlm:/opt/media/bin/log
     restart: unless-stopped
+
+  visionai-api:
+    <<: *visionai-common
+    container_name: visionai-api
+    command: ["api"]
+    ports:
+      - "15000:5000"   # 避开 EasyAIoT AI :5000
+    # 不要用 network_mode: host：
+    # 1) ports 映射会被丢弃（你看到的警告）
+    # 2) 容器无法用 redis/minio/zlmediakit 服务名访问依赖
+    # 3) WSL2 下 host 网仍非 Windows 局域网，ONVIF 组播扫描依然常失败
+    # ONVIF：请用「手动 IP」；真要组播请在 Windows/物理机跑，或 WSL mirrored 网络
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  visionai-worker:
+    <<: *visionai-common
+    container_name: visionai-worker
+    command: ["worker"]
+    environment:
+      <<: *visionai-env
+      WORKER_ID: compose-worker-1
+    # worker 无 HTTP；覆盖镜像默认 healthcheck
+    healthcheck:
+      disable: true
+
+  visionai-alert:
+    <<: *visionai-common
+    container_name: visionai-alert
+    command: ["alert"]
+    healthcheck:
+      disable: true
+
+  visionai-sip:
+    <<: *visionai-common
+    container_name: visionai-sip
+    command: ["sip"]
+    ports:
+      - "15060:15060/udp"
+      - "15060:15060/tcp"
+    healthcheck:
+      disable: true

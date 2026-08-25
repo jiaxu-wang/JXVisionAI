@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # ---------- 场景模板 ----------
-# deploy_mode: builtin → DEPLOY_TARGETS（仅 make_call）；specialist → models/specialists/
+# deploy_mode: specialist → models/specialists/；builtin 已无默认目标（DEPLOY_TARGETS 为空）
 TRAINING_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "smoking": {
         "id": "smoking",
@@ -83,19 +83,6 @@ TRAINING_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "default_pretrained": "yolo26s.pt",
         "recommended_labeled": 120,
     },
-    "make_call": {
-        "id": "make_call",
-        "title": "打电话",
-        "description": "单类 make_call；部署时自动导出 ONNX → models/make_call.onnx",
-        "classes": ["make_call"],
-        "deploy_mode": "builtin",
-        "deploy_target": "make_call",
-        "default_epochs": 80,
-        "default_batch": 8,
-        "default_imgsz": 640,
-        "default_pretrained": "yolo26s.pt",
-        "recommended_labeled": 120,
-    },
     "custom": {
         "id": "custom",
         "title": "自定义",
@@ -143,19 +130,8 @@ DEPLOY_GATE = {
 }
 
 # ---------- 部署目标（内置） ----------
-DEPLOY_TARGETS: Dict[str, Dict[str, Any]] = {
-    "make_call": {
-        "model_filename": "make_call.pt",
-        "onnx_filename": "make_call.onnx",
-        "config_updates": {
-            "make_call_model_path": "models/make_call.onnx",
-            "make_call_use_dedicated": "true",
-        },
-        "required_classes": ["make_call"],
-        "single_class_index": 0,
-        "export_onnx": True,
-    },
-}
+# 打电话 builtin 目标已下线；自训请用「自定义」或其它专模模板部署到 models/specialists/
+DEPLOY_TARGETS: Dict[str, Dict[str, Any]] = {}
 
 
 def _label_file_nonempty(path: Path) -> bool:

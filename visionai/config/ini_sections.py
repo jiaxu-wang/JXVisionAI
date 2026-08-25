@@ -129,6 +129,8 @@ _SECTION_LOCAL_TO_CANONICAL: Dict[str, Dict[str, str]] = {
         "fallback_direct_rtsp": "zlm_fallback_direct_rtsp",
         "public_host": "zlm_public_host",
         "rtc_port": "zlm_rtc_port",
+        "pull_host": "zlm_pull_host",
+        "pull_rtsp_port": "zlm_pull_rtsp_port",
         "zlm_enabled": "zlm_enabled",
         "zlm_api_base": "zlm_api_base",
         "zlm_secret": "zlm_secret",
@@ -140,6 +142,8 @@ _SECTION_LOCAL_TO_CANONICAL: Dict[str, Dict[str, str]] = {
         "zlm_fallback_direct_rtsp": "zlm_fallback_direct_rtsp",
         "zlm_public_host": "zlm_public_host",
         "zlm_rtc_port": "zlm_rtc_port",
+        "zlm_pull_host": "zlm_pull_host",
+        "zlm_pull_rtsp_port": "zlm_pull_rtsp_port",
     },
 }
 
@@ -157,6 +161,7 @@ CANONICAL_WRITE: Dict[str, Tuple[str, str]] = {
     "log_retention_days": ("basic", "log_retention_days"),
     "auto_refresh_interval": ("basic", "auto_refresh_interval"),
     "detection_retention_days": ("basic", "detection_retention_days"),
+    "timezone": ("basic", "timezone"),
     "inference_device": ("basic", "inference_device"),
     "yolo_device": ("basic", "yolo_device"),
     "onnx_provider": ("basic", "onnx_provider"),
@@ -219,6 +224,11 @@ _MODELS_KEYS = (
     "face_recognition_min_duration_sec",
     "face_library_dir",
     "face_recognition_max_faces_per_frame",
+    "plate_det_model_path",
+    "plate_det_conf",
+    "plate_recognition_min_duration_sec",
+    "plate_recognition_ocr_min_conf",
+    "plate_recognition_max_plates_per_frame",
     "make_call_model_path",
     "make_call_model_conf",
     "make_call_score_threshold",
@@ -257,6 +267,8 @@ for _k, _file_key in (
     ("zlm_fallback_direct_rtsp", "fallback_direct_rtsp"),
     ("zlm_public_host", "public_host"),
     ("zlm_rtc_port", "rtc_port"),
+    ("zlm_pull_host", "pull_host"),
+    ("zlm_pull_rtsp_port", "pull_rtsp_port"),
 ):
     CANONICAL_WRITE[_k] = ("zlm", _file_key)
 

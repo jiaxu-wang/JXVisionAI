@@ -1,0 +1,37 @@
+{
+  "key": "plate",
+  "kind": "scene",
+  "name_zh": "车牌检测",
+  "name_en": "license_plate",
+  "model_path": "models/specialists/plate/model.onnx",
+  "classes": [
+    "blue",
+    "green",
+    "yellow"
+  ],
+  "conf": 0.35,
+  "score_threshold": 0.35,
+  "min_duration_sec": 1.0,
+  "max_persons": 8,
+  "needs_persons": false,
+  "class_ids": [
+    0,
+    1,
+    2
+  ],
+  "positive_class_ids": [
+    0
+  ],
+  "subject_class_ids": [
+    0
+  ],
+  "comply_class_ids": [
+    1
+  ],
+  "created_at": 1785470076.134776,
+  "updated_at": 1785470076.134776,
+  "source_project_id": null,
+  "test_metrics": null,
+  "source": "specialist",
+  "origin": "imported"
+}

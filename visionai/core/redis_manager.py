@@ -114,7 +114,9 @@ class RedisManager:
         
         try:
             if timestamp is None:
-                timestamp = datetime.now()
+                from visionai.utils.timeutil import app_now
+
+                timestamp = app_now()
             
             # 获取流ID
             stream_id = self.get_stream_id_by_name(stream_name)
@@ -170,10 +172,13 @@ class RedisManager:
         if not ts:
             return None
         try:
+            from visionai.utils.timeutil import app_tz
+
             dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-            if dt.tzinfo is not None:
-                dt = dt.astimezone().replace(tzinfo=None)
-            return dt
+            if dt.tzinfo is None:
+                # 旧数据无时区：按应用时区理解（修复前容器 UTC 写入的仍会偏，无法自动纠正）
+                dt = dt.replace(tzinfo=app_tz())
+            return dt.astimezone(app_tz()).replace(tzinfo=None)
         except ValueError:
             return None
 
@@ -679,6 +684,53 @@ class RedisManager:
             return n > 0
         except Exception as e:  # noqa: BLE001
             logger.error("删除人员 %s 失败: %s", person_id, e)
+            return False
+
+    def _plate_library_hash_key(self) -> str:
+        return f"{REDIS_KEY_PREFIX}plate_library:plates"
+
+    def get_all_plates(self) -> dict[str, dict]:
+        """返回 {plate_no: meta_dict}。"""
+        if not self.is_connected():
+            return {}
+        try:
+            raw = self._redis_client.hgetall(self._plate_library_hash_key())
+            out: dict[str, dict] = {}
+            for plate_no, data_str in (raw or {}).items():
+                try:
+                    out[str(plate_no)] = json.loads(data_str)
+                except json.JSONDecodeError:
+                    pass
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.error("读取车牌库 Redis 失败: %s", e)
+            return {}
+
+    def save_plate(self, plate_no: str, meta: dict) -> bool:
+        if not self.is_connected():
+            logger.warning("Redis未连接，无法保存车牌库")
+            return False
+        try:
+            self._redis_client.hset(
+                self._plate_library_hash_key(),
+                str(plate_no),
+                json.dumps(meta, ensure_ascii=False),
+            )
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.error("保存车牌 %s 失败: %s", plate_no, e)
+            return False
+
+    def delete_plate(self, plate_no: str) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            n = self._redis_client.hdel(
+                self._plate_library_hash_key(), str(plate_no)
+            )
+            return n > 0
+        except Exception as e:  # noqa: BLE001
+            logger.error("删除车牌 %s 失败: %s", plate_no, e)
             return False
 
 

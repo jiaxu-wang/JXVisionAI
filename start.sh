@@ -4,19 +4,23 @@ echo "========================================="
 echo "          JXVisionAI 启动脚本"
 echo "========================================="
 
+# 模式不能以 - 开头（部分 pgrep 会当成选项）；[p]ython 避免匹配到 pgrep 自己
+_pgrep_mod() {
+    pgrep -f "[p]ython.* -m $1( |$)" 2>/dev/null || true
+}
 _visionai_api_pids() {
-    ps -eo pid=,args= | awk '
-      $2 == "python3" && $3 == "-m" && ($4 == "visionai.api" || $4 == "visionai") { print $1 }
-    '
+    _pgrep_mod 'visionai.api'
+    _pgrep_mod 'visionai'
 }
 _visionai_worker_pids() {
-    ps -eo pid=,args= | awk '
-      $2 == "python3" && $3 == "-m" && ($4 == "visionai.worker" || $4 == "visionai.workers.alert_worker") { print $1 }
-    '
+    _pgrep_mod 'visionai.worker'
+    _pgrep_mod 'visionai.workers.alert_worker'
+    _pgrep_mod 'visionai.sip'
 }
 
-if [ ! -d "env" ]; then
-    echo "错误: 虚拟环境 'env' 不存在！"
+_PY="$(cd "$(dirname "$0")" && pwd)/env/bin/python"
+if [ ! -x "$_PY" ]; then
+    echo "错误: 虚拟环境 python 不存在: $_PY"
     echo "请先执行: python3 -m venv env && ./env/bin/pip install -r requirements.txt"
     exit 1
 fi
@@ -27,7 +31,8 @@ if [ -n "$(_visionai_api_pids)$(_visionai_worker_pids)" ]; then
 fi
 
 echo "正在启动 JXVisionAI 服务..."
-source env/bin/activate
+# 不用 source activate：bash 会哈希到系统 /usr/bin/python3，导致找不到 cv2/redis
+echo "使用解释器: $_PY"
 
 if [ "${FORCE_PIP_INSTALL:-0}" = "1" ]; then
     echo "正在同步 Python 依赖（FORCE_PIP_INSTALL=1）..."
@@ -48,26 +53,49 @@ else
     export NO_PROXY="$_PROXY_BYPASS"
 fi
 export no_proxy="$NO_PROXY"
-export S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-http://127.0.0.1:9000}"
+export S3_ENDPOINT_URL="${S3_ENDPOINT_URL:-http://127.0.0.1:19000}"
 export OBJECT_STORAGE_ENABLED="${OBJECT_STORAGE_ENABLED:-true}"
 
 mkdir -p "$LOG_DIR" ./logs ./snapshots
 
-# 可选拉起 compose 依赖（redis/minio/zlm）
+# 国标 PS/RTP 收流口（默认 10000-10200）
+if [ "$(id -u)" = "0" ] && [ -f scripts/open_gb_rtp_ports.sh ]; then
+  echo "放行 ZLM 国标 RTP 端口..."
+  bash scripts/open_gb_rtp_ports.sh || echo "警告: 防火墙放行失败（可手动 sudo bash scripts/open_gb_rtp_ports.sh）"
+fi
+
+# 可选拉起 compose 依赖（redis/minio）；ZLM 用 host 网络，国标 RTP 才能从摄像头打到本机
 if [ "${START_COMPOSE_DEPS:-1}" = "1" ] && command -v docker >/dev/null 2>&1; then
   if [ -f docker-compose.yaml ] || [ -f docker-compose.yml ]; then
-    echo "确保 Redis/MinIO/ZLM 容器运行（START_COMPOSE_DEPS=1）..."
-    docker compose up -d redis minio zlmediakit 2>/dev/null || docker-compose up -d redis minio zlmediakit 2>/dev/null || true
+    echo "确保 Redis/MinIO 容器运行（START_COMPOSE_DEPS=1）..."
+    docker compose up -d redis minio 2>/dev/null || docker-compose up -d redis minio 2>/dev/null || true
+  fi
+  _ZLM_MODE="$(docker inspect visionai-zlm --format '{{.HostConfig.NetworkMode}}' 2>/dev/null || true)"
+  _ZLM_HOST_INI="$(cd "$(dirname "$0")" && pwd)/config/zlm/config.host.ini"
+  if [ "$_ZLM_MODE" != "host" ]; then
+    echo "以 host 网络启动 ZLM（国标收流口 10000 绑在宿主机）..."
+    docker rm -f visionai-zlm >/dev/null 2>&1 || true
+    if [ -f "$_ZLM_HOST_INI" ]; then
+      docker run -d --name visionai-zlm --network host --restart unless-stopped \
+        -v "$_ZLM_HOST_INI:/opt/media/conf/config.ini:ro" \
+        -v "$(cd "$(dirname "$0")" && pwd)/logs/zlm:/opt/media/bin/log" \
+        zlmediakit/zlmediakit:master >/dev/null
+    else
+      echo "警告: 缺少 $_ZLM_HOST_INI，回退 compose 映射 ZLM"
+      docker compose up -d zlmediakit 2>/dev/null || docker-compose up -d zlmediakit 2>/dev/null || true
+    fi
+  else
+    docker start visionai-zlm >/dev/null 2>&1 || true
   fi
 fi
 
 _INFER_BACKEND="$(
   PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target" \
-  ./env/bin/python -c "from visionai.config.settings import INFER_BACKEND; print(INFER_BACKEND)" 2>/dev/null || echo python
+  "$_PY" -c "from visionai.config.settings import INFER_BACKEND; print(INFER_BACKEND)" 2>/dev/null || echo python
 )"
 _INFER_DEVICE="$(
   PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target" \
-  ./env/bin/python -c "
+  "$_PY" -c "
 from visionai.config.settings import INFER_DEVICE, INFERENCE_DEVICE
 d=(INFER_DEVICE or INFERENCE_DEVICE or 'cpu').strip().lower()
 print('cuda' if d in ('gpu','cuda','0') else 'cpu')
@@ -98,19 +126,21 @@ export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target"
 export WORKER_ID="${WORKER_ID:-$(hostname)-$$}"
 
 echo "启动 alert_worker..."
-nohup python3 -m visionai.workers.alert_worker > ./logs/alert_worker.log 2>&1 &
+nohup "$_PY" -m visionai.workers.alert_worker > ./logs/alert_worker.log 2>&1 &
 echo "启动 stream worker..."
-nohup python3 -m visionai.worker > ./logs/worker.log 2>&1 &
+nohup "$_PY" -m visionai.worker > ./logs/worker.log 2>&1 &
+echo "启动 SIP..."
+nohup "$_PY" -m visionai.sip > ./logs/sip.log 2>&1 &
 echo "启动 API..."
-nohup python3 -m visionai.api > ./logs/visionai.log 2>&1 &
+nohup "$_PY" -m visionai.api > ./logs/visionai.log 2>&1 &
 
 sleep 2
 
 if [ -n "$(_visionai_api_pids)" ]; then
-    echo "✅ JXVisionAI 已启动（api + worker + alert_worker）"
-    echo "📋 Web: http://0.0.0.0:5000"
+    echo "✅ JXVisionAI 已启动（api + worker + alert_worker + sip）"
+    echo "📋 Web: http://0.0.0.0:5000  （compose 部署请用 :15000）"
     echo "🩺 healthz: http://127.0.0.1:5000/healthz"
-    echo "📝 日志: ./logs/visionai.log ./logs/worker.log ./logs/alert_worker.log"
+    echo "📝 日志: ./logs/visionai.log ./logs/worker.log ./logs/alert_worker.log ./logs/sip.log"
     echo "🔧 停止: ./stop.sh"
 else
     echo "❌ API 启动失败，请查看 ./logs/visionai.log"

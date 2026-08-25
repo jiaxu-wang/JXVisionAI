@@ -8,8 +8,8 @@
 
 | 文档 | 说明 |
 |------|------|
-| [getting-started.md](getting-started.md) | 安装、**YOLO26 各档下载与切换**、启动 |
-| [architecture.md](architecture.md) | 多进程模型、流水线、Redis 状态、ZLM、存储 |
+| [getting-started.md](getting-started.md) | **整栈 Compose** / 宿主机安装、YOLO26 下载与切换 |
+| [architecture.md](architecture.md) | Compose 三服务、流水线、能力一览、Redis / ZLM / 存储 |
 | [configuration.md](configuration.md) | `config.ini` 分节、infer / zlm、环境变量 |
 | [user-guide.md](user-guide.md) | Web 管理端、状态/ZLM、加人脸、加流 |
 | [detection.md](detection.md) | 检测类型、专模、训练管线概要 |
@@ -17,5 +17,6 @@
 | [ha.md](ha.md) | 多 worker 流租约 HA 演练 |
 | [api.md](api.md) | HTTP API |
 | [operations.md](operations.md) | 日志、排障、性能注意 |
+| [talk-onvif.md](talk-onvif.md) | ONVIF 语音对讲（Backchannel）探测与使用 |
 
 返回：[../README.md](../README.md)

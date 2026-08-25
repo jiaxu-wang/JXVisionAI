@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from visionai.config.ini_sections import preferred_ini_key, preferred_section
 
-# type: text | int | float | bool | password | readonly
+# type: text | int | float | bool | password | timezone | readonly
 
 _PATH_HINT = "相对项目根；也可用绝对路径"
 
@@ -95,8 +95,11 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
     ConfigUnit(
         id="security",
         title="基础与安全",
-        description="[basic] 检测、推理设备与日志等通用项（登录密钥请改 config.ini / VISIONAI_SECRET）",
+        description="[basic] 时区、检测、推理设备与日志等（登录密钥请改 config.ini / VISIONAI_SECRET）",
         fields=(
+            _f("timezone", "应用时区", "timezone",
+               comment="IANA 时区；影响告警落库与历史页展示。保存后须重启服务生效",
+               section="basic"),
             _f("detection_interval", "检测间隔（秒）", "int",
                comment="数值越小越常跑 YOLO+行为层",
                section="basic"),
@@ -132,12 +135,10 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
     ConfigUnit(
         id="dedicated_models",
         title="内置专模路径",
-        description="[models] YOLO 主模型、打电话专模与人脸识别权重",
+        description="[models] YOLO 主模型与人脸识别权重",
         fields=(
             _f("yolo_model", "YOLO 主模型", "text",
                comment=_path_comment("本项目用 YOLO26，默认 models/yolo26s.pt"), relative_path=True),
-            _f("make_call_model_path", "打电话 make_call.onnx", "text",
-               comment=_path_comment(), relative_path=True),
             _f("face_recog_det_model_path", "人脸识别-检测 det_10g.onnx", "text",
                comment=_path_comment("buffalo_l"), relative_path=True),
             _f("face_recog_embed_model_path", "人脸识别-特征 w600k_r50.onnx", "text",
@@ -157,23 +158,21 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
             _f("face_recognition_threshold", "人脸相似度阈值", "float"),
             _f("face_recognition_min_duration_sec", "人脸持续秒数", "float"),
             _f("face_recog_genderage_enabled", "性别年龄全局开关", "bool"),
+            _f("plate_recognition_min_duration_sec", "车牌识别持续秒数", "float"),
+            _f("plate_recognition_ocr_min_conf", "车牌 OCR 最低置信度", "float"),
         ),
     ),
     ConfigUnit(
         id="phone",
-        title="打电话 / 玩手机",
-        description="[models] make_call.onnx 专模 + 姿态模型",
+        title="玩手机（姿态）",
+        description="[models] 人+手机框重叠后用姿态区分玩手机；打电话请用训练实验室自训专模",
         fields=(
-            _f("make_call_use_dedicated", "使用 make_call 专模", "bool"),
-            _f("make_call_require_person_overlap", "打电话需人物重叠", "bool"),
-            _f("make_call_model_conf", "打电话专模置信度", "float"),
-            _f("make_call_score_threshold", "打电话告警阈值", "float"),
-            _f("make_call_min_duration_sec", "打电话持续秒数", "float"),
             _f("pose_model", "姿态模型路径", "text",
                comment=_path_comment(), relative_path=True),
-            _f("pose_for_phone_enabled", "姿态区分打电话/玩手机", "bool"),
+            _f("pose_for_phone_enabled", "启用姿态辅助玩手机判定", "bool"),
             _f("phone_pose_kp_min_conf", "关键点最低置信", "float"),
-            _f("phone_call_head_ratio", "贴头判定比例", "float"),
+            _f("phone_call_head_ratio", "贴头判定比例", "float",
+               comment="姿态链路内部仍使用；打电话专模已下线"),
             _f("phone_play_wrist_ratio", "贴腕判定比例", "float"),
             _f("phone_vertical_boundary", "竖直分界", "float"),
         ),
@@ -221,7 +220,7 @@ CONFIG_UNITS: Tuple[ConfigUnit, ...] = (
     ConfigUnit(
         id="smtp",
         title="告警邮件",
-        description="[email] 全局 SMTP；每路收件人在事件监控配置",
+        description="[email] 全局 SMTP；每路收件人在「检测配置」页配置",
         fields=(
             _f("smtp_alert_enabled", "启用邮件告警", "bool",
                section="email", ini_key="alert_enabled"),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote, urljoin
 
 import requests
@@ -82,6 +82,8 @@ class ZlmClient:
         app: str = "live",
         rtsp_port: int = 554,
         http_port: int = 80,
+        pull_host: str = "",
+        pull_rtsp_port: int = 0,
         timeout: float = 8.0,
     ) -> None:
         self.api_base = (api_base or "http://127.0.0.1:80").rstrip("/") + "/"
@@ -90,6 +92,8 @@ class ZlmClient:
         self.app = app or "live"
         self.rtsp_port = int(rtsp_port or 554)
         self.http_port = int(http_port or 80)
+        self.pull_host = (pull_host or "").strip() or "127.0.0.1"
+        self.pull_rtsp_port = int(pull_rtsp_port or 0) or self.rtsp_port
         self.timeout = float(timeout)
         self._key_by_stream: Dict[str, str] = {}
 
@@ -136,13 +140,16 @@ class ZlmClient:
         p = self.probe()
         return bool(p.get("alive") and p.get("auth_ok"))
 
-    def local_rtsp_url(self, stream: str, host: str = "127.0.0.1") -> str:
-        return f"rtsp://{host}:{self.rtsp_port}/{self.app}/{stream}"
+    def local_rtsp_url(self, stream: str, host: str = "") -> str:
+        """worker 回源地址（compose 内用 zlmediakit:554；宿主机常用 127.0.0.1:8554）。"""
+        h = (host or "").strip() or self.pull_host
+        port = self.pull_rtsp_port
+        return f"rtsp://{h}:{port}/{self.app}/{stream}"
 
-    def play_urls(self, stream: str, host: str = "127.0.0.1") -> Dict[str, str]:
+    def play_urls(self, stream: str, host: str = "127.0.0.1", app: str = "") -> Dict[str, str]:
         """浏览器可播地址（相对本机/内网 host）。"""
         h = host or "127.0.0.1"
-        app = self.app
+        app = (app or self.app).strip() or self.app
         return {
             "rtsp": f"rtsp://{h}:{self.rtsp_port}/{app}/{stream}",
             "http_flv": f"http://{h}:{self.http_port}/{app}/{stream}.live.flv",
@@ -246,6 +253,7 @@ class ZlmClient:
         public_host: str = "",
         rtc_port: int = 8000,
         prefer_tcp: bool = True,
+        app: str = "",
     ) -> Dict[str, Any]:
         """浏览器 WebRTC play：将 offer SDP POST 到 ZLM，返回 answer SDP。"""
         stream = stream_key_for_id(stream_id)
@@ -255,8 +263,9 @@ class ZlmClient:
 
         host = (public_host or "").strip() or "127.0.0.1"
         port = int(rtc_port)
+        play_app = (app or "").strip() or self.app
         params: Dict[str, Any] = {
-            "app": self.app,
+            "app": play_app,
             "stream": stream,
             "type": "play",
             # WSL2/Docker 下 UDP 映射常失败，优先 TCP ICE
@@ -302,6 +311,222 @@ class ZlmClient:
             "play": self.play_urls(stream, host=host),
         }
 
+    def is_rtp_online(self, stream: str) -> bool:
+        data = self._get(
+            "/index/api/isMediaOnline",
+            {
+                "vhost": self.vhost,
+                "app": "rtp",
+                "stream": stream,
+                "schema": "rtsp",
+            },
+        )
+        if int(data.get("code", -1)) != 0:
+            return False
+        return bool(data.get("online"))
+
+    def list_rtp_media(self) -> List[Dict[str, Any]]:
+        data = self._get("/index/api/getMediaList", {"app": "rtp", "vhost": self.vhost})
+        raw = data.get("data")
+        if not isinstance(raw, list):
+            return []
+        return [x for x in raw if isinstance(x, dict)]
+
+    def rtp_bytes_speed(self, stream: str) -> int:
+        name = str(stream or "").strip()
+        if not name:
+            return 0
+        speed = 0
+        for item in self.list_rtp_media():
+            sid = str(item.get("stream") or "")
+            if sid != name and sid.upper() != name.upper():
+                continue
+            try:
+                speed = max(speed, int(item.get("bytesSpeed") or 0))
+            except (TypeError, ValueError):
+                continue
+        return speed
+
+    def rtp_is_live(self, stream: str) -> bool:
+        """isMediaOnline 对无推流的僵尸源也会为 true，必须看码率。"""
+        return self.rtp_bytes_speed(stream) > 0
+
+    def close_rtp_stream(self, stream: str) -> Dict[str, Any]:
+        name = str(stream or "").strip()
+        if not name:
+            return {"success": False, "message": "empty stream"}
+        data = self._get(
+            "/index/api/close_streams",
+            {
+                "vhost": self.vhost,
+                "app": "rtp",
+                "stream": name,
+                "force": 1,
+            },
+        )
+        ok = int(data.get("code", -1)) == 0
+        logger.info("ZLM close rtp/%s ok=%s msg=%s", name, ok, data.get("msg") or "")
+        return {"success": ok, "stream": name, "raw": data}
+
+    def rtp_online_name(self, *candidates: str, live_only: bool = False) -> str:
+        """默认 rtp_proxy 口收流时，流名常是 SSRC 十六进制，不是 openRtp 的 stream_id。"""
+        wanted = {str(x).strip() for x in candidates if str(x).strip()}
+        wanted_u = {x.upper() for x in wanted}
+        if live_only:
+            for name in [str(x).strip() for x in candidates if str(x).strip()]:
+                if self.rtp_is_live(name):
+                    return name
+            return ""
+        for name in wanted:
+            if self.is_rtp_online(name):
+                return name
+        for item in self.list_rtp_media():
+            sid = str(item.get("stream") or "")
+            if sid in wanted or sid.upper() in wanted_u:
+                return sid
+        return ""
+
+    def rtp_live_name(self, *candidates: str) -> str:
+        return self.rtp_online_name(*candidates, live_only=True)
+
+    def rtp_rtsp_url(self, stream: str, host: str = "") -> str:
+        h = (host or "").strip() or self.pull_host
+        port = self.pull_rtsp_port
+        return f"rtsp://{h}:{port}/rtp/{stream}"
+
+    def list_rtp_server(self) -> List[Dict[str, Any]]:
+        data = self._get("/index/api/listRtpServer")
+        if int(data.get("code", -1)) != 0:
+            return []
+        raw = data.get("data")
+        if isinstance(raw, list):
+            return [x for x in raw if isinstance(x, dict)]
+        return []
+
+    def used_rtp_ports(self) -> Set[int]:
+        used: Set[int] = set()
+        for item in self.list_rtp_server():
+            try:
+                used.add(int(item.get("port")))
+            except (TypeError, ValueError):
+                continue
+        return used
+
+    def open_rtp_mux(
+        self,
+        stream: str,
+        mux_port: int = 10000,
+        *,
+        tcp_mode: int = 2,
+    ) -> Dict[str, Any]:
+        """挂到 rtp_proxy 默认口（启动时已在听），避免再占 10001 却 bind 失败。"""
+        port = max(1, min(65535, int(mux_port)))
+        opened = self.open_rtp_server(stream, port=port, tcp_mode=int(tcp_mode))
+        if opened.get("success"):
+            opened["port"] = port
+            opened["mux"] = True
+            return opened
+        # 默认口已被 rtp_proxy 占用时，仍视为可收流
+        msg = str(opened.get("message") or "")
+        if "already" in msg.lower() or "bind" in msg.lower() or "in use" in msg.lower():
+            return {
+                "success": True,
+                "stream": stream,
+                "port": port,
+                "tcp_mode": int(tcp_mode),
+                "mux": True,
+                "reused": True,
+                "message": msg,
+            }
+        return opened
+
+    def open_rtp_in_range(
+        self,
+        stream: str,
+        port_min: int,
+        port_max: int,
+        *,
+        tcp_mode: int = 0,
+        ssrc: str = "",
+        reuse: bool = False,
+    ) -> Dict[str, Any]:
+        """每路一个端口。点播不要复用可能已失效的旧口。"""
+        lo = max(1, min(65535, int(port_min)))
+        hi = max(1, min(65535, int(port_max)))
+        if hi < lo:
+            lo, hi = hi, lo
+        if reuse:
+            for item in self.list_rtp_server():
+                sid = str(item.get("stream_id") or item.get("stream") or "")
+                if sid != stream:
+                    continue
+                try:
+                    return {
+                        "success": True,
+                        "stream": stream,
+                        "port": int(item.get("port")),
+                        "tcp_mode": int(tcp_mode),
+                        "reused": True,
+                    }
+                except (TypeError, ValueError):
+                    break
+        used = self.used_rtp_ports()
+        last = "媒体端口范围内无空闲端口"
+        for port in range(lo, hi + 1):
+            # 10000 是 rtp_proxy 默认口，打上去会按 SSRC 十六进制命名（如 127A3981）
+            if port == 10000 or port in used:
+                continue
+            opened = self.open_rtp_server(stream, port=port, tcp_mode=tcp_mode, ssrc=ssrc)
+            if opened.get("success"):
+                opened["tcp_mode"] = int(tcp_mode)
+                return opened
+            last = str(opened.get("message") or last)
+        return {"success": False, "message": last, "stream": stream}
+
+    def open_rtp_server(
+        self,
+        stream: str,
+        *,
+        port: int = 10000,
+        tcp_mode: int = 0,
+        ssrc: str = "",
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "port": int(port),
+            "tcp_mode": int(tcp_mode),
+            "stream_id": stream,
+        }
+        if ssrc:
+            params["ssrc"] = ssrc
+        data = self._get("/index/api/openRtpServer", params)
+        code = int(data.get("code", -1))
+        # -300 already exists: reuse
+        if code not in (0, -300):
+            return {
+                "success": False,
+                "message": data.get("msg") or f"openRtpServer code={code}",
+                "stream": stream,
+                "raw": data,
+            }
+        got_port = port
+        if isinstance(data.get("data"), dict) and data["data"].get("port"):
+            try:
+                got_port = int(data["data"]["port"])
+            except (TypeError, ValueError):
+                pass
+        return {
+            "success": True,
+            "stream": stream,
+            "port": got_port,
+            "tcp_mode": int(tcp_mode),
+            "raw": data,
+        }
+
+    def close_rtp_server(self, stream: str) -> Dict[str, Any]:
+        data = self._get("/index/api/closeRtpServer", {"stream_id": stream})
+        ok = int(data.get("code", -1)) == 0
+        return {"success": ok, "stream": stream, "raw": data}
+
     def remove_proxy(self, stream_id: str) -> Dict[str, Any]:
         stream = stream_key_for_id(stream_id)
         key = self._key_by_stream.get(stream) or f"{self.vhost}/{self.app}/{stream}"
@@ -322,6 +547,8 @@ def get_zlm_client() -> Optional[ZlmClient]:
             ZLM_APP,
             ZLM_ENABLED,
             ZLM_HTTP_PORT,
+            ZLM_PULL_HOST,
+            ZLM_PULL_RTSP_PORT,
             ZLM_RTSP_PORT,
             ZLM_SECRET,
             ZLM_VHOST,
@@ -338,5 +565,7 @@ def get_zlm_client() -> Optional[ZlmClient]:
             app=ZLM_APP,
             rtsp_port=ZLM_RTSP_PORT,
             http_port=ZLM_HTTP_PORT,
+            pull_host=ZLM_PULL_HOST,
+            pull_rtsp_port=ZLM_PULL_RTSP_PORT,
         )
     return _client

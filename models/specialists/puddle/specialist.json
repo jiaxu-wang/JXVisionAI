@@ -1,0 +1,33 @@
+{
+  "key": "puddle",
+  "kind": "scene",
+  "name_zh": "道路积水",
+  "name_en": "puddle",
+  "model_path": "models/specialists/puddle/model.onnx",
+  "classes": [
+    "puddle"
+  ],
+  "conf": 0.35,
+  "score_threshold": 0.35,
+  "min_duration_sec": 1.0,
+  "max_persons": 8,
+  "needs_persons": false,
+  "class_ids": [
+    0
+  ],
+  "positive_class_ids": [
+    0
+  ],
+  "subject_class_ids": [
+    0
+  ],
+  "comply_class_ids": [
+    1
+  ],
+  "created_at": 1785465304.543045,
+  "updated_at": 1785465304.543045,
+  "source_project_id": null,
+  "test_metrics": null,
+  "source": "specialist",
+  "origin": "imported"
+}

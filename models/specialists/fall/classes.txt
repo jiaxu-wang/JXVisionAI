@@ -1,0 +1,2 @@
+0: stand
+1: fall

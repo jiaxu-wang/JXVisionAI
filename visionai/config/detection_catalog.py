@@ -193,28 +193,25 @@ CALL_KEY = "call"
 PHONE_PLAY_KEY = "phone_play"
 GATHER_KEY = "gather"
 FACE_RECOG_KEY = "face_recognition"
+PLATE_RECOG_KEY = "plate_recognition"
 
-# 内置扩展（非专模）
+# 内置扩展（非专模）。打电话能力已下线；历史告警文案仍保留 CALL_KEY 标签。
 EXTENSION_KEYS: Tuple[str, ...] = (
-    CALL_KEY,
     PHONE_PLAY_KEY,
     GATHER_KEY,
     FACE_RECOG_KEY,
+    PLATE_RECOG_KEY,
 )
 
 EXTENSION_LABELS_ZH: Dict[str, str] = {
-    CALL_KEY: "打电话",
+    CALL_KEY: "打电话",  # 仅兼容历史告警文案，不再作为检测类型
     PHONE_PLAY_KEY: "玩手机",
     GATHER_KEY: "人员聚集",
     FACE_RECOG_KEY: "人脸识别",
+    PLATE_RECOG_KEY: "车牌识别",
 }
 
 EXTENSION_CATALOG_META: List[Dict[str, str]] = [
-    {
-        "key": CALL_KEY,
-        "name_en": "calling (pose / make_call.onnx)",
-        "name_zh": "打电话",
-    },
     {
         "key": PHONE_PLAY_KEY,
         "name_en": "playing with phone (YOLO+COCO overlap + pose)",
@@ -229,6 +226,11 @@ EXTENSION_CATALOG_META: List[Dict[str, str]] = [
         "key": FACE_RECOG_KEY,
         "name_en": "face recognition (library match / stranger alert)",
         "name_zh": EXTENSION_LABELS_ZH[FACE_RECOG_KEY],
+    },
+    {
+        "key": PLATE_RECOG_KEY,
+        "name_en": "license plate OCR + library (known / unknown)",
+        "name_zh": EXTENSION_LABELS_ZH[PLATE_RECOG_KEY],
     },
 ]
 
@@ -257,8 +259,8 @@ def all_extension_keys() -> Tuple[str, ...]:
 
 
 def person_behavior_keys() -> Tuple[str, ...]:
-    """人物关联行为：打电话专模 + person_event/violation 专模。"""
-    keys: List[str] = [CALL_KEY]
+    """人物关联行为：person_event / violation 专模。"""
+    keys: List[str] = []
     try:
         from visionai.config.specialists import list_specialists
 
@@ -290,6 +292,13 @@ def default_detections_dict() -> Dict[str, bool]:
     return d
 
 
+def any_detection_enabled(detections: Optional[Dict[str, Any]]) -> bool:
+    """是否勾选了至少一项检测类型（与流级 enabled 暂停开关无关）。"""
+    if not detections:
+        return False
+    return any(bool(v) for v in detections.values())
+
+
 def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
     """合并旧版配置键与新版「字符串类别 id」键，缺省全部为 False。"""
     out = default_detections_dict()
@@ -300,6 +309,9 @@ def normalize_detections(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
         if v is None:
             continue
         key = str(k)
+        # 内置 call 已下线；专模键（含将来自训的 phone_call）走 allowed_ext
+        if key == CALL_KEY:
+            continue
         if key in allowed_ext:
             out[key] = bool(v)
         elif key in out and key.isdigit():

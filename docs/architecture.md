@@ -8,18 +8,47 @@ JXVisionAI：多路 RTSP 视频智能分析。主检为 **Ultralytics YOLO26**�
 
 | 能力 | 说明 |
 |------|------|
-| 多路 RTSP | 每路独立线程；读帧失败自动重连；离线流周期性探测恢复 |
+| 多路接入 | RTSP直连、ONVIF 发现、国标 28181（独立 SIP 进程注册 + ZLM 收 PS；通道「接入分析」写入 streamlist）；每路独立线程拉流 |
 | COCO 80 类 | 按流单独开关（人物、手机、车辆等） |
-| 内置扩展 | 打电话、玩手机、人员聚集、人脸识别 |
+| 内置扩展 | 玩手机、人员聚集、人脸识别、车牌识别 |
 | 训练专模 / 导入专模 | 部署或导入到 `models/specialists/<key>/`，出现在检测类型列表，可删 |
-| 打电话 / 玩手机 | 人与手机框重叠后，可用 **YOLO26-pose** 区分贴耳与把玩 |
+| 玩手机 | 人与手机框重叠后，可用 **YOLO26-pose** 辅助判定把玩（贴耳打电话能力已下线，需自训专模） |
 | 人脸识别 | buffalo_l（SCRFD + ArcFace）；可选性别年龄；库在 Redis，照片在 MinIO |
+| 车牌识别 | 专模 `plate` 检框 + RapidOCR 读号 + Redis 车牌库（known / unknown） |
 | 人员聚集 | 单帧人数 ≥ 阈值，可选持续时长防抖 |
 | 告警 | Redis 记录 + 可选 SMTP / Webhook；截图本地或 MinIO/S3 |
-| Web | 状态、事件监控、历史、设置、人脸库、预览；`/training` 训练实验室（自训 + 导入） |
-| 可选 C++ 主检 | `visionai-inferd`（ORT），`[infer] backend=cpp` 时由 `start.sh` 拉起 |
+| Web | 状态概览、设备接入（RTSP直连/ONVIF/国标 Tab）、检测配置、历史、设置、人脸库/车牌库、预览；ONVIF 对讲；`/training` 训练实验室 |
+| 语音对讲 | ONVIF RTSP Audio Backchannel（探测 + 浏览器采麦 G.711 回传）；GB28181 对讲未实现 |
+| 可选 C++ 主检 | `visionai-inferd`（ORT），`[infer] backend=cpp` 时由宿主机 `start.sh` 或自定义编排拉起 |
 
-流配置只在 **Redis**（Web「事件监控」）。改 `config.ini` / 主模型 / 设备后需 **重启**。专模部署一般热加载。
+流配置在 **Redis**（`access_method` + 拉流 `url` + 检测/告警策略）。国标分三组：SIP 信令 / 媒体收流 / 设备账号（`gb28181/platform`、`gb28181/devices`），互不回退。改 `config.ini` / 主模型 / 拉流地址后需 **重启**；检测策略一般热加载。 SIP 监听变更需重启 `visionai-sip`。
+
+> **打电话**：内置 `call` / `make_call` 与默认 `phone_call` 专模已移除。需要时在训练实验室用「自定义」自训或导入 YOLO 专模后上线。
+
+---
+
+## 两种部署形态
+
+| 形态 | 说明 | 管理端 |
+|------|------|--------|
+| **整栈 Docker（推荐）** | `docker compose up -d`：Redis + MinIO + ZLM + `visionai-api` / `visionai-worker` / `visionai-alert` / `visionai-sip` | <http://IP:15000> |
+| **宿主机多进程** | compose 只起依赖；`./start.sh` 起 API / worker / alert / sip | <http://IP:5000> |
+
+当前仓库 `docker-compose.yaml` 已包含应用服务（同镜像 `visionai:latest`，`command` 分别为 `api` / `worker` / `alert` / `sip`），挂载 `./config`、`./models`、`./visionai`、`./snapshots`、`./logs`。
+
+宿主机端口（避开 EasyAIoT）：
+
+| 用途 | 宿主机端口 |
+|------|------------|
+| Web / API | **15000** → 容器 5000 |
+| Redis | **16379** → 6379 |
+| MinIO API / 控制台 | **19000** / **19001** |
+| ZLM HTTP | **18080** → 80 |
+| ZLM RTSP | **18554** → 554 |
+| ZLM RTMP | **11935** → 1935 |
+| ZLM WebRTC | **18000** → 8000（tcp/udp） |
+| 国标 SIP | **15060** → 5060（tcp/udp） |
+| 国标 PS/RTP | **10000** → 10000（udp） |
 
 ---
 
@@ -32,17 +61,14 @@ flowchart LR
     Cam[摄像机 / NVR<br/>RTSP]
   end
 
-  subgraph host [本机 ./start.sh]
-    API["visionai.api<br/>:5000"]
-    Worker["visionai.worker<br/>拉流 + 检测"]
-    AlertW["alert_worker<br/>邮件 / Webhook"]
-    Inferd["visionai-inferd<br/>可选 cpp 主检"]
-  end
-
   subgraph compose [docker compose]
-    Redis[(Redis)]
-    MinIO[(MinIO / S3)]
-    ZLM[ZLMediaKit<br/>:8080 / :8554]
+    API["visionai-api<br/>:15000→5000"]
+    Worker["visionai-worker<br/>拉流 + 检测"]
+    AlertW["visionai-alert<br/>邮件 / Webhook"]
+    Sip["visionai-sip<br/>:15060→5060"]
+    Redis[(Redis<br/>:16379)]
+    MinIO[(MinIO<br/>:19000)]
+    ZLM[ZLMediaKit<br/>:18080 / :18554]
   end
 
   Browser -->|HTTP / WS| API
@@ -51,9 +77,11 @@ flowchart LR
   Worker <-->|配置 · 心跳 · 入队| Redis
   Worker -->|截图上传| MinIO
   Cam -->|RTSP| ZLM
-  ZLM -->|本地 RTSP| Worker
+  Cam -->|SIP REGISTER/INVITE| Sip
+  Cam -->|PS RTP :10000| ZLM
+  Sip <-->|账号 · runtime| Redis
+  ZLM -->|compose 网内 RTSP| Worker
   Cam -.->|fallback 直连| Worker
-  Worker -->|backend=cpp| Inferd
   AlertW -->|消费队列| Redis
   AlertW -->|SMTP / HTTP| Ext[外部告警通道]
 ```
@@ -68,28 +96,46 @@ flowchart LR
 
 ## 进程模型
 
+### 整栈 Compose
+
+```text
+docker compose up -d
+  ├─ redis / minio / zlmediakit
+  ├─ visionai-api      # Flask，宿主机 :15000
+  ├─ visionai-worker   # 拉流 + 检测（WORKER_ID=compose-worker-1）
+  ├─ visionai-alert    # 异步告警队列消费
+  └─ visionai-sip      # 国标 SIP :15060
+```
+
+改配置或主模型后：
+
+```bash
+docker compose restart visionai-api visionai-worker visionai-alert
+```
+
+### 宿主机 `./start.sh`（开发 / 对照）
+
 ```text
 ./start.sh
   ├─ docker compose：Redis / MinIO /（可选）ZLMediaKit
   ├─（可选）visionai-inferd     # [infer] backend=cpp
-  ├─ python -m visionai.workers.alert_worker   # 异步告警队列消费
-  ├─ python -m visionai.worker                 # 拉流 + 检测
+  ├─ python -m visionai.workers.alert_worker
+  ├─ python -m visionai.sip                    # 国标信令 :5060
+  ├─ python -m visionai.worker
   └─ python -m visionai.api                    # Flask :5000
 ```
 
 ```mermaid
 flowchart TB
-  Start["./start.sh"] --> Deps["compose: Redis / MinIO / ZLM"]
-  Start --> OptInfer["可选 visionai-inferd"]
-  Start --> AW["alert_worker"]
-  Start --> W["visionai.worker"]
-  Start --> A["visionai.api :5000"]
+  Start["docker compose up -d<br/>或 ./start.sh"] --> Deps["Redis / MinIO / ZLM"]
+  Start --> AW["alert / visionai-alert"]
+  Start --> W["worker / visionai-worker"]
+  Start --> A["api / visionai-api"]
 
   W -->|写| RS["Redis<br/>stream_runtime_status"]
   A -->|读| RS
   W -->|推送| AQ["Redis alert_queue"]
   AW -->|消费| AQ
-  W -.->|UDS| OptInfer
 ```
 
 主检后端：
@@ -99,22 +145,26 @@ flowchart TB
 | `python`（默认） | 每路 Ultralytics 加载 `yolo_model`（.pt） |
 | `cpp` | 帧送 `visionai-inferd`（ORT session 池并行）；行为/画框/告警仍在 Python |
 
-媒体面：`[zlm] enabled=true` 时由 ZLMediaKit `addStreamProxy` 拉摄像机，检测从本机 `rtsp://127.0.0.1:8554/live/<stream_id>` 取流；`fallback_direct_rtsp=true`（默认）时代理失败回退直连源站 RTSP。
+媒体面：`[zlm] enabled=true` 时由 ZLMediaKit `addStreamProxy` 拉摄像机。  
+- **Compose 网内**：worker 常用 `ZLM_PULL_HOST=zlmediakit`、容器内 RTSP `:554`  
+- **浏览器 / 宿主机**：HTTP `18080`、RTSP `18554`、WebRTC `18000`（见 `config.ini` `[zlm]`）  
+`fallback_direct_rtsp=true`（默认）时代理失败回退直连源站 RTSP。
 
 多节点：设 `STREAM_LEASE_ENABLED=true`，见 [ha.md](ha.md)。
 
 ### 进程职责与状态共享
 
-| 进程 | 职责 |
-|------|------|
-| `visionai.api` | Flask 管理端、预览、配置读写；**不拉流** |
-| `visionai.worker` | 每路 RTSP 线程：读帧 → 主检 → 行为 → 截图 → 入队告警；写流在线状态 |
-| `alert_worker` | 消费 Redis `alert_queue`，发邮件 / Webhook |
+| 进程 / 容器 | 职责 |
+|-------------|------|
+| `visionai-api` / `visionai.api` | Flask 管理端、预览、配置读写；**不拉流** |
+| `visionai-worker` / `visionai.worker` | 每路 RTSP 线程：读帧 → 主检 → 行为 → 截图 → 入队告警；写流在线状态 |
+| `visionai-alert` / `alert_worker` | 消费 Redis `alert_queue`，发邮件 / Webhook |
 | `visionai-inferd` | 可选；`backend=cpp` 时提供 ORT 主检 |
+| `visionai-sip` / `visionai.sip` | 国标 REGISTER / 心跳 / Catalog / Invite；写 `gb28181/runtime` |
 
-流「在线/离线」由 **worker** 写入 Redis Hash `{key_prefix}stream_runtime_status`（JSON：`status` + `updated_at`），API 跨进程读取。超过约 **180s** 未刷新的「在线」按离线展示。勿再理解为仅 API 进程内存。
+流「在线/离线」由 **worker** 写入 Redis Hash `{key_prefix}stream_runtime_status`（JSON：`status` + `updated_at`），API 跨进程读取。超过约 **180s** 未刷新的「在线」按离线展示。
 
-遗留入口 `python -m visionai`（`__main__.py`）仍可单进程同跑 Web + 拉流，**生产请用 `./start.sh` 多进程**。
+遗留入口 `python -m visionai`（`__main__.py`）仍可单进程同跑 Web + 拉流，**生产请用 Compose 三服务或 `./start.sh`**。
 
 ---
 
@@ -130,7 +180,7 @@ flowchart TB
     ZLM[ZLMediaKit 代理]
     Cam[摄像机 RTSP]
   end
-  subgraph worker [visionai.worker 每路线程]
+  subgraph worker [worker 每路线程]
     SH[StreamHandler]
     Det[主检 YOLO26<br/>python 或 inferd]
     Beh[行为插件]
@@ -148,7 +198,7 @@ flowchart TB
   Redis_cfg --> SH
   Ini --> Det
   Cam --> ZLM
-  ZLM -->|本地 RTSP| SH
+  ZLM -->|本地 / 网内 RTSP| SH
   Cam -->|fallback_direct_rtsp| SH
   SH -->|detection_interval| Det
   Det --> Beh --> Draw --> Snap
@@ -178,11 +228,13 @@ flowchart LR
 
 | 类型 | 键 / 位置 | 说明 |
 |------|-----------|------|
-| 打电话 | `call` | 可选 `make_call.onnx`，否则 COCO+姿态 |
-| 玩手机 | `phone_play` | 主检融合逻辑 |
+| 玩手机 | `phone_play` | COCO person+cellphone 重叠 + 可选姿态 |
 | 人员聚集 | `gather` | 人数 + 时长 |
 | 人脸识别 | `face_recognition` | `models/buffalo_l/` + Redis 库 |
-| 专模 | `models/specialists/<key>/` | 自训或导入；吸烟/安全帽/眼镜等非硬编码 |
+| 车牌识别 | `plate_recognition` | `models/specialists/plate/` + RapidOCR + Redis 车牌库 |
+| 专模 | `models/specialists/<key>/` | 自训或导入；如跌倒、口罩、积水、吸烟等 |
+
+仓库内常见专模目录示例（以实际 `models/specialists/` 为准）：`facemask`、`fall`、`plate`、`puddle`。
 
 ---
 
@@ -199,7 +251,7 @@ flowchart LR
 | `yolo26l.pt` | ~51 MB | 更高 | 精度优先 |
 | `yolo26x.pt` | ~114 MB | 最高 | 单路或高算力 |
 
-切换：改 `[models] yolo_model`，然后 `./stop.sh && ./start.sh`。  
+切换：改 `[models] yolo_model`，然后重启应用（Compose：`docker compose restart visionai-api visionai-worker visionai-alert`；宿主机：`./stop.sh && ./start.sh`）。  
 对比精度时建议固定 `conf_threshold`、同一路流与场景，只改模型档位。  
 `backend=cpp` 时还需把对应权重导出到 `models/repo/primary/<version>/model.onnx`（见 [getting-started.md](getting-started.md)）。
 
@@ -217,22 +269,24 @@ flowchart TB
     AQ["alert_queue"]
     DET["{stream_id}<br/>检测记录 TTL"]
     FACE["face_library:persons"]
+    PLATE["plate_library:plates"]
     LEASE["stream_lease:*<br/>可选 HA"]
   end
   subgraph objects [对象存储 / 本地]
     Snap["snapshots/ 或<br/>visionai/snapshots/"]
     FacePic["face_library 照片"]
   end
-  API[visionai.api] --> SL
+  API[visionai-api] --> SL
   API --> ST
   API --> DET
   API --> FACE
-  W[visionai.worker] --> SL
+  API --> PLATE
+  W[visionai-worker] --> SL
   W --> ST
   W --> AQ
   W --> DET
   W --> Snap
-  AW[alert_worker] --> AQ
+  AW[visionai-alert] --> AQ
   API --> FacePic
 ```
 
@@ -245,10 +299,9 @@ flowchart TB
 | 检测记录 | Redis Hash `{prefix}{stream_id}` + TTL（`detection_retention_days`） |
 | 截图 | `snapshots/` 或 S3（`visionai/snapshots/`） |
 | 人脸库 | Redis `face_library:persons` + MinIO 照片 |
+| 车牌库 | Redis `plate_library:plates` |
 | 专模 | `models/specialists/<key>/` |
 | 日志 | `logs/visionai.log`、`worker.log`、`alert_worker.log`（及 `inferd.log`） |
-
-Compose 依赖：**Redis + MinIO + ZLMediaKit**；应用进程由本机 `./start.sh` 拉起（compose 内 `visionai` 服务块默认注释）。
 
 ---
 
@@ -260,9 +313,9 @@ native/inferd/      # 可选 C++ 推理守护进程（[infer] backend=cpp）
 config/             # config.example.ini、config.ini、zlm/config.ini
 models/             # YOLO26*.pt、buffalo_l、specialists、repo/
 docs/               # 本目录：架构与使用说明
-scripts/            # 工具脚本（含 download_yolo26.sh）
-start.sh / stop.sh  # 多进程启停（不停止 Redis/MinIO/ZLM 容器）
-docker-compose.yaml # Redis + MinIO + zlmediakit
+scripts/            # 工具脚本（含 download_yolo26.sh、compose_up.sh）
+start.sh / stop.sh  # 宿主机多进程启停（不停止 Redis/MinIO/ZLM 容器）
+docker-compose.yaml # Redis + MinIO + ZLM + api/worker/alert
 ```
 
 更细的操作步骤见 [getting-started.md](getting-started.md)、[configuration.md](configuration.md)、[user-guide.md](user-guide.md)。

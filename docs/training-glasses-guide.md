@@ -29,13 +29,13 @@ cd /home/wjx/code/python/JXVisionAI
 # 确认预训练权重（YOLO26）
 ls -lh models/yolo26s.pt
 
-# Redis + 应用
-docker compose up -d redis   # 已运行可跳过
-./stop.sh 2>/dev/null; ./start.sh
+# 整栈（推荐）或仅依赖 + 宿主机进程
+docker compose up -d --build
+# 或：docker compose up -d redis && ./stop.sh 2>/dev/null; ./start.sh
 ```
 
-- 管理端：`http://服务器IP:5000`
-- 登录密钥：`config.ini` 中 `visionai_secret`
+- 管理端：Compose `http://服务器IP:15000`；宿主机 `./start.sh` 则为 `:5000`
+- 登录密钥：`VISIONAI_SECRET` / `config.ini` 中 `visionai_secret`
 - 至少一路可用 RTSP（事件监控中已配置，或训练页直接填 URL）
 
 ---

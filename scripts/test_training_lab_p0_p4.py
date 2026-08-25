@@ -91,13 +91,11 @@ def test_specialist_template_contract():
 
     assert TRAINING_TEMPLATES["no_glasses"]["deploy_mode"] == "specialist"
     assert TRAINING_TEMPLATES["smoking"]["deploy_mode"] == "specialist"
-    assert TRAINING_TEMPLATES["make_call"]["deploy_mode"] == "builtin"
-    assert TRAINING_TEMPLATES["make_call"]["deploy_target"] == "make_call"
+    assert "make_call" not in TRAINING_TEMPLATES
     assert TRAINING_TEMPLATES["custom"]["deploy_mode"] == "specialist"
-    assert list(DEPLOY_TARGETS.keys()) == ["make_call"]
-    assert DEPLOY_TARGETS["make_call"]["required_classes"] == ["make_call"]
+    assert DEPLOY_TARGETS == {}
     assert TRAINING_TEMPLATES["smoking"]["default_pretrained"] == "yolo26s.pt"
-    print("specialist templates + make_call DEPLOY_TARGETS: OK")
+    print("specialist templates (no make_call): OK")
 
 
 def test_builtin_catalog_no_blist():
@@ -190,8 +188,9 @@ def _sample_weights_path() -> Path | None:
 
 
 def test_deploy_gate_blocks_without_metrics():
-    from visionai.web.training_lab_core import deploy_weights_to_production
+    from visionai.web.training_lab_core import DEPLOY_TARGETS, deploy_weights_to_production
 
+    assert DEPLOY_TARGETS == {}
     src = _sample_weights_path()
     if src is None:
         print("deploy gate: SKIP (无可用 .pt 权重)")
@@ -209,11 +208,12 @@ def test_deploy_gate_blocks_without_metrics():
             force=False,
         )
         assert not result.get("success"), result
-        print("deploy gate blocks without test metrics: OK")
+        assert "未知部署目标" in (result.get("message") or "")
+        print("deploy gate blocks removed builtin target: OK")
 
 
 def test_deploy_with_good_metrics():
-    from visionai.web.training_lab_core import deploy_weights_to_production
+    from visionai.config.specialists import delete_specialist, deploy_specialist
 
     src = _sample_weights_path()
     if src is None:
@@ -223,20 +223,23 @@ def test_deploy_with_good_metrics():
         fake = Path(td) / "best.pt"
         shutil.copy2(src, fake)
         metrics = {"ok": True, "map50": 0.55, "precision": 0.5, "recall": 0.5, "split": "test"}
-        result = deploy_weights_to_production(
+        result = deploy_specialist(
             REPO,
+            key="tmp_smoke_deploy",
             weights_path=fake,
-            target="make_call",
-            backup=True,
-            patch_config=False,
+            kind="person_event",
+            name_zh="临时测试",
+            classes=["event"],
+            positive_class_ids=[0],
             test_metrics=metrics,
-            force=False,
+            origin="test",
         )
-        if not result.get("success") and "类别" in (result.get("message") or ""):
-            print("deploy good metrics: SKIP (权重类别与 make_call 契约不符)")
+        if not result.get("success"):
+            print(f"deploy good metrics: SKIP ({result.get('message')})")
             return
         assert result.get("success"), result
-        print("deploy with good test metrics: OK")
+        delete_specialist("tmp_smoke_deploy", REPO)
+        print("deploy specialist with good test metrics: OK")
 
 
 def test_p3_snapshot_list_import():

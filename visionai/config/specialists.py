@@ -37,6 +37,7 @@ _BUILTIN_RESERVED = frozenset(
         "phone_play",
         "gather",
         "face_recognition",
+        "plate_recognition",
         "person",
         "cell_phone",
     }

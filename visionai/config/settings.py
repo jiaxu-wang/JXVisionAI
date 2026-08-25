@@ -189,6 +189,22 @@ FACE_RECOGNITION_MAX_FACES_PER_FRAME = max(
     1, _cfg_int("FACE_RECOGNITION_MAX_FACES_PER_FRAME", 5)
 )
 
+# 车牌识别：检测框（专模 plate）+ OCR 读号 + 车牌库比对
+PLATE_DET_MODEL_PATH = _cfg_path(
+    "PLATE_DET_MODEL_PATH",
+    os.path.join(PROJECT_ROOT, "models", "specialists", "plate", "model.onnx"),
+)
+PLATE_DET_CONF = max(0.05, min(0.99, _cfg_float("PLATE_DET_CONF", DEDICATED_DEFAULT_CONF)))
+PLATE_RECOGNITION_MIN_DURATION_SEC = max(
+    0.0, _cfg_float("PLATE_RECOGNITION_MIN_DURATION_SEC", 1.0)
+)
+PLATE_RECOGNITION_OCR_MIN_CONF = max(
+    0.05, min(0.99, _cfg_float("PLATE_RECOGNITION_OCR_MIN_CONF", 0.35))
+)
+PLATE_RECOGNITION_MAX_PLATES_PER_FRAME = max(
+    1, _cfg_int("PLATE_RECOGNITION_MAX_PLATES_PER_FRAME", 5)
+)
+
 MAKE_CALL_MODEL_PATH = _cfg_path("MAKE_CALL_MODEL_PATH", _models_default("make_call.onnx"))
 MAKE_CALL_MODEL_CONF = max(
     0.05, min(0.99, _cfg_float("MAKE_CALL_MODEL_CONF", DEDICATED_DEFAULT_CONF))
@@ -237,6 +253,13 @@ ZLM_FALLBACK_DIRECT_RTSP = _cfg_bool("ZLM_FALLBACK_DIRECT_RTSP", True)
 ZLM_PUBLIC_HOST = _cfg_str("ZLM_PUBLIC_HOST", "127.0.0.1").strip() or "127.0.0.1"
 # WebRTC ICE 端口（须与 config/zlm/config.ini [rtc] port 及 docker 映射一致）
 ZLM_RTC_PORT = max(1, min(65535, _cfg_int("ZLM_RTC_PORT", 8000)))
+# worker 容器内经 compose 网络拉 ZLM 本地 RTSP：主机名 + 容器内端口（如 zlmediakit:554）
+# 空则 local_rtsp 仍用 127.0.0.1 + ZLM_RTSP_PORT（宿主机 ./start.sh 场景）
+ZLM_PULL_HOST = _cfg_str("ZLM_PULL_HOST", "").strip()
+_zlm_pull_port = _cfg_int("ZLM_PULL_RTSP_PORT", 0)
+ZLM_PULL_RTSP_PORT = (
+    max(1, min(65535, _zlm_pull_port)) if _zlm_pull_port > 0 else ZLM_RTSP_PORT
+)
 
 # 告警异步队列
 ALERT_QUEUE_ENABLED = _cfg_bool("ALERT_QUEUE_ENABLED", True)
@@ -265,6 +288,34 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_RETENTION_DAYS = max(1, _cfg_int("LOG_RETENTION_DAYS", 3))
 LOG_DIR = _cfg_path("LOG_DIR", "./logs")
 
+# 应用时区（IANA）：告警落库与管理端展示；改后需重启
+# 优先级：VISIONAI_TIMEZONE > TIMEZONE > config.ini [basic] timezone > TZ > Asia/Shanghai
+def _resolve_app_timezone() -> str:
+    for env_k in ("VISIONAI_TIMEZONE", "TIMEZONE"):
+        v = os.environ.get(env_k)
+        if v and str(v).strip():
+            return str(v).strip()
+    ini_tz = _INI.get("timezone")
+    if ini_tz and str(ini_tz).strip():
+        return str(ini_tz).strip()
+    v = os.environ.get("TZ")
+    if v and str(v).strip():
+        return str(v).strip()
+    return "Asia/Shanghai"
+
+
+APP_TIMEZONE = _resolve_app_timezone()
+try:
+    from zoneinfo import ZoneInfo
+
+    ZoneInfo(APP_TIMEZONE)  # 校验 IANA 名
+except Exception:  # noqa: BLE001
+    warnings.warn(
+        f"无效时区 {APP_TIMEZONE!r}，已回退 UTC；请改 [basic] timezone 或 VISIONAI_TIMEZONE",
+        stacklevel=1,
+    )
+    APP_TIMEZONE = "UTC"
+
 # Redis
 REDIS_HOST = _cfg_str("REDIS_HOST", "192.168.2.159")
 REDIS_PORT = _cfg_int("REDIS_PORT", 16379)
@@ -280,9 +331,9 @@ AUTO_REFRESH_INTERVAL = _cfg_int("AUTO_REFRESH_INTERVAL", 20)
 
 # 检测框标签字号（[preview]）：>0 固定像素；0=按帧短边×ratio 再夹在 min~max
 LABEL_FONT_PX = max(0, _cfg_int("LABEL_FONT_PX", 0))
-LABEL_FONT_MIN_PX = max(8, _cfg_int("LABEL_FONT_MIN_PX", 36))
-LABEL_FONT_MAX_PX = max(LABEL_FONT_MIN_PX, _cfg_int("LABEL_FONT_MAX_PX", 72))
-LABEL_FONT_RATIO = max(0.01, min(0.2, _cfg_float("LABEL_FONT_RATIO", 0.05)))
+LABEL_FONT_MIN_PX = max(12, _cfg_int("LABEL_FONT_MIN_PX", 40))
+LABEL_FONT_MAX_PX = max(LABEL_FONT_MIN_PX, _cfg_int("LABEL_FONT_MAX_PX", 96))
+LABEL_FONT_RATIO = max(0.01, min(0.2, _cfg_float("LABEL_FONT_RATIO", 0.055)))
 
 # 告警外发邮件（全局 SMTP；每路收件人与是否发信在 Redis：alert_emails、alert_email_enabled）
 # Webhook：每路 alert_webhook_urls、alert_webhook_enabled（仅 Redis，见 visionai/utils/alert_webhook.py）

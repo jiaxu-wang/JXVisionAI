@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`、`status`；状态来自 Redis） |
+| `GET` | `/api/streams` | 流列表（含 `detections`、`face_recognition_config`、`plate_recognition_config`、`status`；状态来自 Redis） |
 | `POST` | `/api/streams` | 保存流配置到 Redis |
 | `GET` | `/api/stream-status` | 各流在线状态（Redis `{prefix}stream_runtime_status`，worker 心跳） |
 | `POST` | `/api/onvif/discover` | 局域网 WS-Discovery（body: `timeout_sec?`） |
@@ -33,6 +33,17 @@
 
 ---
 
+## 车牌库
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/plate-library` | 车牌库管理页面 |
+| `GET/POST` | `/api/plate-library` | 列表 / 录入（JSON：`plate_no`、`name`、`note`） |
+| `GET/PUT/DELETE` | `/api/plate-library/<plate_no>` | 查询 / 更新 / 删除 |
+| `POST` | `/api/plate-library/reload` | 重新加载索引 |
+
+---
+
 ## 系统与预览
 
 | 方法 | 路径 | 说明 |
@@ -45,7 +56,7 @@
 | `POST` | `/api/zlm/webrtc/play` | **流预览**：ZLM WebRTC play；body `{stream_id,sdp}`，返回 answer `sdp` |
 | `GET/PUT` | `/api/system/config` | 读取/保存 `config.ini` |
 | `GET` | `/api/config` | 运行时配置摘要（含 `preview.zlm_webrtc_enabled`） |
-| `POST` | `/api/restart` | 重启服务（依赖 `start.sh` 布局） |
+| `POST` | `/api/restart` | 重启服务（宿主机依赖 `start.sh` 布局；Compose 部署请用 `docker compose restart …`） |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
 ---
@@ -58,7 +69,7 @@
 | `POST` | `/api/training/specialists/inspect` | **multipart** 上传权重预检类别（字段 `file`；不落盘为专模） |
 | `POST` | `/api/training/specialists/import` | **multipart** 导入现成专模（见下表） |
 | `DELETE` | `/api/training/specialists/<key>` | 删除专模目录并从流配置中移除该检测键 |
-| `POST` | `/api/training/projects/<pid>/deploy` | 训练项目 **一键部署**（专模 → `models/specialists/<key>/`；`make_call` 走内置路径） |
+| `POST` | `/api/training/projects/<pid>/deploy` | 训练项目 **一键部署**（专模 → `models/specialists/<key>/`） |
 
 ### 导入现成专模 `POST /api/training/specialists/import`
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from typing import Optional, Sequence, Tuple
 
@@ -11,39 +12,35 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 优先中文字体；WSL 可回退到 Windows Fonts。DejaVu 无中文，仅作最后兜底。
+_PKG_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BUNDLED_FONT = os.path.join(_PKG_DIR, "assets", "fonts", "wqy-microhei.ttc")
+
+# 优先：包内字体 → 系统 / Windows（WSL）CJK → Latin 兜底
 _FONT_CANDIDATES = (
-    # Linux 常见 CJK
+    _BUNDLED_FONT,
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-    "/usr/share/fonts/truetype/arphic/ukai.ttc",
     "/usr/share/fonts/truetype/arphic/uming.ttc",
     "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-    # WSL / 本机 Windows 中文字体
     "/mnt/c/Windows/Fonts/msyhbd.ttc",
     "/mnt/c/Windows/Fonts/msyh.ttc",
     "/mnt/c/Windows/Fonts/simhei.ttf",
     "/mnt/c/Windows/Fonts/simsun.ttc",
-    "/mnt/c/Windows/Fonts/Dengb.ttf",
-    "/mnt/c/Windows/Fonts/Deng.ttf",
-    "/mnt/c/Windows/Fonts/NotoSansSC-VF.ttf",
-    # 无中文：仅兜底英文/数字
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 )
 
 _CJK_PROBE = "中"
 
-# 全帧统一字号默认值（可被 config [preview] 覆盖，见 settings.LABEL_FONT_*）
-_DEFAULT_LABEL_RATIO = 0.05
-_DEFAULT_MIN_FONT_PX = 36
-_DEFAULT_MAX_FONT_PX = 72
-_ABS_MIN_FONT_PX = 8
-_ABS_MAX_FONT_PX = 128
+_DEFAULT_LABEL_RATIO = 0.055
+_DEFAULT_MIN_FONT_PX = 40
+_DEFAULT_MAX_FONT_PX = 96
+_ABS_MIN_FONT_PX = 12
+_ABS_MAX_FONT_PX = 160
 
 _warned_no_cjk = False
 
@@ -77,11 +74,7 @@ def _clamp_font_px(px: int) -> int:
 
 
 def label_font_px(frame: Optional[np.ndarray]) -> int:
-    """本帧所有标注共用的像素字高（只看整帧分辨率 / 配置，不看框大小）。
-
-    - ``label_font_px > 0``：固定字号
-    - 否则：短边 × ratio，再夹在 min~max
-    """
+    """本帧所有标注共用的像素字高（只看整帧分辨率 / 配置，不看框大小）。"""
     lo, hi, ratio, fixed = _font_limits()
     if fixed > 0:
         return _clamp_font_px(fixed)
@@ -93,7 +86,6 @@ def label_font_px(frame: Optional[np.ndarray]) -> int:
 
 
 def _font_supports_cjk(font) -> bool:
-    """粗判字体是否能画出中文（避免 DejaVu 等显示成方块）。"""
     try:
         from PIL import Image, ImageDraw
 
@@ -105,7 +97,29 @@ def _font_supports_cjk(font) -> bool:
         return False
 
 
-@lru_cache(maxsize=16)
+def _try_truetype(path: str, size: int):
+    from PIL import ImageFont
+
+    last_err = None
+    # .ttc 需指定 face index；部分字体 index=0 即 CJK
+    for index in (0, 1):
+        try:
+            return ImageFont.truetype(path, size=size, index=index)
+        except OSError as e:
+            last_err = e
+            continue
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            break
+    try:
+        return ImageFont.truetype(path, size=size)
+    except Exception:  # noqa: BLE001
+        if last_err:
+            logger.debug("load font %s failed: %s", path, last_err)
+        return None
+
+
+@lru_cache(maxsize=32)
 def _load_font(size: int):
     global _warned_no_cjk
     try:
@@ -115,9 +129,10 @@ def _load_font(size: int):
 
     latin_fallback = None
     for path in _FONT_CANDIDATES:
-        try:
-            font = ImageFont.truetype(path, size=size)
-        except OSError:
+        if not path or not os.path.isfile(path):
+            continue
+        font = _try_truetype(path, size)
+        if font is None:
             continue
         if _font_supports_cjk(font):
             logger.debug("frame_draw: using CJK font %s size=%s", path, size)
@@ -129,9 +144,8 @@ def _load_font(size: int):
         if not _warned_no_cjk:
             _warned_no_cjk = True
             logger.warning(
-                "未找到中文字体，姓名等中文标签将显示为方块。"
-                "请安装 fonts-wqy-microhei / fonts-noto-cjk，"
-                "或在 WSL 下确保可访问 /mnt/c/Windows/Fonts/msyh.ttc"
+                "未找到中文字体，中文标签将乱码/方块。"
+                "镜像请装 fonts-wqy-microhei，或确保 visionai/assets/fonts/wqy-microhei.ttc 存在"
             )
         return latin_fallback
 
@@ -142,9 +156,7 @@ def _load_font(size: int):
 
 
 def label_font_scale(frame: Optional[np.ndarray], *, base: float = 0.0) -> float:
-    """兼容旧调用；实际绘制以 label_font_px 为准，不再用 OpenCV fontScale。"""
     del base
-    # 返回值仅占位；draw/put_text 内部一律用像素字高
     return label_font_px(frame) / 22.0
 
 
@@ -160,7 +172,7 @@ def put_text(
     font_px: Optional[int] = None,
 ) -> None:
     """绘制文字：中英文同一套 PIL 字体与字号，字号与检测框无关。"""
-    del font_scale, thickness  # 废弃参数，避免各处传入导致不一致
+    del font_scale, thickness
     if frame is None or frame.size == 0 or not text:
         return
 
@@ -171,8 +183,7 @@ def put_text(
     try:
         from PIL import Image, ImageDraw
     except ImportError:
-        # 极端回退：仍用固定 scale，不用框尺寸
-        scale = px / 22.0
+        scale = max(0.6, px / 22.0)
         thick = 3 if px >= 48 else 2
         y = max(y_anchor, px + 8)
         cv2.putText(
@@ -190,7 +201,6 @@ def put_text(
     if font is None:
         return
 
-    # org 约定为「文字底边附近」；转成 PIL 顶边
     ty = max(0, y_anchor - px)
     tx = max(0, x)
     color_rgb = (int(color_bgr[2]), int(color_bgr[1]), int(color_bgr[0]))
@@ -202,7 +212,7 @@ def put_text(
     try:
         bbox = draw.textbbox((tx, ty), text, font=font)
     except Exception:  # noqa: BLE001
-        bbox = (tx, ty, tx + px * len(text), ty + px)
+        bbox = (tx, ty, tx + px * max(1, len(text)), ty + px)
 
     if with_bg:
         pad = max(4, px // 8)
@@ -236,11 +246,9 @@ def draw_labeled_box(
     px = int(font_px) if font_px is not None else label_font_px(frame)
     px = _clamp_font_px(px)
     x1, y1, x2, y2 = map(int, box[:4])
-    # 线宽也固定按字号，不按框大小
     box_thick = 3 if px >= 48 else 2
     cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, box_thick)
 
-    # 优先框上方；贴顶则放到框内顶部 —— 只改位置，不改字号
     baseline_y = y1 - 8
     if baseline_y < px + 6:
         baseline_y = min(y1 + px + 10, frame.shape[0] - 4)

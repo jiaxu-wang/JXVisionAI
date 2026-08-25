@@ -11,6 +11,7 @@
 | **历史告警** | 分页查看检测记录与截图 |
 | **系统设置** | 在线编辑 `config.ini` 各分节（basic / redis / minio / email / models / infer / zlm / preview） |
 | **人脸库管理** | 录入人员、查看照片 |
+| **车牌库管理** | 录入车牌号、名称与备注 |
 | **训练实验室** | **自训专模**（标注→训→门禁→部署）与 **导入现成专模**（上传社区 YOLO 权重）；上线后均可在检测类型目录勾选 |
 
 ### 流在线状态与 ZLM
@@ -27,7 +28,7 @@
 2. 点击 **检测类型配置**，勾选需要的检测项（内置项 + 已部署/导入的 **专模**；如「人脸识别」、「未戴眼镜」等）
 3. 配置 **邮件告警** / **Webhook**（可选）
 4. 点击 **保存配置**
-5. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径，点击 **重启服务** 或执行 `./stop.sh && ./start.sh`；**专模**（自训部署或导入）一般热加载，无需重启
+5. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径：Compose 执行 `docker compose restart visionai-api visionai-worker visionai-alert`；宿主机执行 `./stop.sh && ./start.sh`（或管理端「重启服务」）。**专模**（自训部署或导入）一般热加载，无需重启
 
 ### ONVIF 发现（推荐局域网摄像头）
 
@@ -40,6 +41,17 @@
 5. 之后预览与检测与手填 RTSP 相同
 
 注意：海康/大华等需在摄像机 Web 端开启 ONVIF；探测「正常」要求鉴权成功、具备 Media 能力且能拿到 `rtsp://` URI。
+
+### 国标 28181
+
+1. 确认 `visionai-sip` 已启动（Compose 服务或 `./start.sh`）
+2. **设备接入 → 国标 28181**：分别填写「SIP 信令」与「媒体收流」（两组不要混用 IP）
+3. 新建 SIP 账号并配置**视频通道编码 ID**
+4. 点「复制参数」，按设备国标页逐项填写（服务器 ID/域/地址/端口、用户名/认证 ID/密码、通道编码）
+5. 「刷新在线状态」应为在线后，在设备行点 **接入分析**（多通道则进通道列表逐路接入）
+6. 跳到「检测配置」后勾选检测类型并保存。已接入且检测开启时，worker 会自动 Invite 点播并保持拉流（断流会重试）。
+
+SIP 监听变更后需重启 `visionai-sip`。WSL2 桥接网络下摄像机往往访问不到容器，请用宿主机可达 IP，或 host/mirrored 网络。
 
 ---
 
@@ -145,5 +157,38 @@ python scripts/test_face_recognition.py --image /path/to/test.jpg
 | 自己是库内人员却显示陌生人 | 重新录入照片；站近镜头；检查阈值是否过高 |
 | 多人画面只标一人 | 已修复：现绘制所有检出人脸；告警仍按持续时长过滤 |
 | 有检测但无邮件 | 检查该流是否勾选「启用邮件告警」及全局 `smtp_*` 配置 |
+
+---
+
+## 车牌识别
+
+检测用专模权重 `models/specialists/plate/`，读号用 **RapidOCR**，名单在 Redis 车牌库。与仅颜色三类的专模「车牌检测」(`plate`) 不同：完整读号+比对请勾选内置扩展 **「车牌识别」**（`plate_recognition`）。
+
+### 存储
+
+| 数据 | Redis 键 | 说明 |
+|------|----------|------|
+| 车牌记录 | Hash `{prefix}plate_library:plates`，field=规范化车牌号 | JSON：`plate_no`、`name`、`note`、时间戳 |
+
+### 使用流程
+
+```
+1. 确认 models/specialists/plate/model.onnx（或 .pt）存在
+2. 安装 rapidocr_onnxruntime（requirements.txt；Docker 镜像构建时会尝试预热 OCR 模型）
+3. 车牌库管理 → 录入车牌号（可填车主名称/备注）
+4. 事件监控 → 检测类型配置 → 开启「车牌识别」
+5. 勾选触发：库内车牌（known）/ 陌生车牌（unknown）
+6. 保存配置；车辆经过后在历史告警查看「车牌识别: 库内/…」或「陌生车牌/…」
+```
+
+### 按流配置 `plate_recognition_config`
+
+| 字段 | 说明 |
+|------|------|
+| `trigger_types` | `["known"]` / `["unknown"]` / `["known","unknown"]` |
+| `ocr_min_conf` | OCR 最低置信度，空则用全局 `plate_recognition_ocr_min_conf`（0.35） |
+| `min_duration_sec` | 持续秒数才告警，空则用全局默认 1.0 |
+
+夜间、倾斜或脏污车牌会降准；可适当提高持续秒数或 OCR 阈值防抖。
 
 更多排障见 [operations.md](operations.md)。

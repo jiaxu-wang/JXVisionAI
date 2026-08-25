@@ -108,6 +108,7 @@ def process_alert_job(job: Dict[str, Any]) -> None:
     from visionai.core.redis_manager import redis_manager
     from visionai.utils.alert_email import notify_alert_by_email
     from visionai.utils.alert_webhook import notify_alert_by_webhooks
+    from visionai.utils.timeutil import app_now, app_tz
 
     stream_name = str(job.get("stream_name") or "")
     stream_id = str(job.get("stream_id") or "").strip()
@@ -115,14 +116,18 @@ def process_alert_job(job: Dict[str, Any]) -> None:
     image_path = str(job.get("image_path") or "")
     ts_raw = job.get("timestamp")
     if isinstance(ts_raw, (int, float)):
-        now = datetime.fromtimestamp(float(ts_raw))
+        now = datetime.fromtimestamp(float(ts_raw), tz=app_tz())
     elif isinstance(ts_raw, str) and ts_raw:
         try:
-            now = datetime.fromisoformat(ts_raw)
+            now = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=app_tz())
+            else:
+                now = now.astimezone(app_tz())
         except ValueError:
-            now = datetime.now()
+            now = app_now()
     else:
-        now = datetime.now()
+        now = app_now()
     extra = job.get("extra")
     alert_emails = list(job.get("alert_emails") or [])
     alert_email_enabled = bool(job.get("alert_email_enabled"))

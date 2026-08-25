@@ -1,0 +1,32 @@
+{
+  "key": "facemask",
+  "kind": "violation",
+  "name_zh": "口罩检测",
+  "name_en": "face_mask",
+  "model_path": "models/specialists/facemask/model.onnx",
+  "classes": [
+    "face",
+    "face_mask"
+  ],
+  "conf": 0.35,
+  "score_threshold": 0.35,
+  "min_duration_sec": 1.0,
+  "max_persons": 8,
+  "needs_persons": true,
+  "class_ids": null,
+  "positive_class_ids": [
+    0
+  ],
+  "subject_class_ids": [
+    0
+  ],
+  "comply_class_ids": [
+    1
+  ],
+  "created_at": 1785465381.9909718,
+  "updated_at": 1785465381.9909718,
+  "source_project_id": null,
+  "test_metrics": null,
+  "source": "specialist",
+  "origin": "imported"
+}
