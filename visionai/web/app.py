@@ -358,6 +358,40 @@ def api_zlm_webrtc_play():
     return jsonify(result)
 
 
+@app.route("/api/zlm/webrtc/push", methods=["POST"])
+@login_required
+def api_zlm_webrtc_push():
+    """浏览器麦克风推到 ZLM（国标喊话）。"""
+    from visionai.config.settings import (
+        ZLM_ENABLED,
+        ZLM_PUBLIC_HOST,
+        ZLM_RTC_PORT,
+    )
+    from visionai.core.zlm_client import get_zlm_client
+
+    if not ZLM_ENABLED:
+        return jsonify({"success": False, "message": "ZLM 未启用"}), 400
+    body = request.get_json(silent=True) or {}
+    stream_id = str(body.get("stream_id") or body.get("stream") or "").strip()
+    offer_sdp = str(body.get("sdp") or "").strip()
+    app = str(body.get("app") or gb28181_store.BROADCAST_APP).strip() or gb28181_store.BROADCAST_APP
+    if not stream_id or not offer_sdp:
+        return jsonify({"success": False, "message": "缺少 stream 或 sdp"}), 400
+    zlm = get_zlm_client()
+    if not zlm or not zlm.alive():
+        return jsonify({"success": False, "message": "ZLM 不可用或鉴权失败"}), 503
+    result = zlm.webrtc_push(
+        stream_id,
+        offer_sdp,
+        public_host=ZLM_PUBLIC_HOST,
+        rtc_port=ZLM_RTC_PORT,
+        app=app,
+    )
+    if not result.get("success"):
+        return jsonify(result), 502
+    return jsonify(result)
+
+
 @app.route('/')
 @login_required
 def index():
@@ -1281,6 +1315,71 @@ def gb28181_ptz(device_id: str, channel_id: str):
             "ptz_cmd": result.get("ptz_cmd") or "",
             "channel_id": channel_id,
             "sip_user": device.get("sip_user") or device_id,
+        }
+    )
+
+
+@app.route("/api/gb28181/devices/<device_id>/channels/<channel_id>/broadcast", methods=["POST"])
+@login_required
+def gb28181_broadcast_start(device_id: str, channel_id: str):
+    """国标喊话：SIP Broadcast Notify，设备随后 INVITE 收音频。"""
+    device, channel_id, err = _gb_require_channel(device_id, channel_id)
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    app = str(data.get("app") or gb28181_store.BROADCAST_APP).strip() or gb28181_store.BROADCAST_APP
+    stream = str(data.get("stream") or "").strip() or gb28181_store.broadcast_stream_id(
+        device_id, channel_id
+    )
+    audio_ch = gb28181_store.resolve_audio_out_channel(device, channel_id)
+    from visionai.core.sip import cmd as sip_cmd
+
+    try:
+        rid = sip_cmd.enqueue_cmd(
+            "broadcast",
+            device_id=device_id,
+            channel_id=channel_id,
+            app=app,
+            stream=stream,
+        )
+        result = sip_cmd.wait_result(rid, timeout_sec=12.0)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+    if not result.get("ok"):
+        return jsonify({"success": False, "message": result.get("message") or "Broadcast 失败"}), 502
+    return jsonify(
+        {
+            "success": True,
+            "app": result.get("app") or app,
+            "stream": result.get("stream") or stream,
+            "audio_channel_id": result.get("audio_channel_id") or audio_ch,
+            "message": result.get("message") or "Broadcast 已发送",
+        }
+    )
+
+
+@app.route("/api/gb28181/devices/<device_id>/channels/<channel_id>/broadcast/stop", methods=["POST"])
+@login_required
+def gb28181_broadcast_stop(device_id: str, channel_id: str):
+    """停止国标喊话：BYE + stopSendRtp。"""
+    device, channel_id, err = _gb_require_channel(device_id, channel_id)
+    if err:
+        return err
+    from visionai.core.sip import cmd as sip_cmd
+
+    try:
+        rid = sip_cmd.enqueue_cmd(
+            "broadcast_stop",
+            device_id=device_id,
+            channel_id=channel_id,
+        )
+        result = sip_cmd.wait_result(rid, timeout_sec=8.0)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+    return jsonify(
+        {
+            "success": bool(result.get("ok")),
+            "message": result.get("message") or "已停止广播",
         }
     )
 

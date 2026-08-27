@@ -199,6 +199,9 @@
             align-items: center;
             gap: 10px;
         }
+        #streamPreviewTalkBtn.is-talking {
+            background: #c62828;
+        }
         .config-modal-close {
             border: none;
             background: none;
@@ -1997,6 +2000,7 @@
             <div class="config-modal-header">
                 <h3 id="streamPreviewTitle">流预览</h3>
                 <div class="stream-preview-header-actions">
+                    <button type="button" class="btn-save" id="streamPreviewTalkBtn" hidden>麦克风</button>
                     <button type="button" class="btn-save" id="streamPreviewSnapshotBtn">截图保存</button>
                     <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" aria-label="关闭">&times;</button>
                 </div>
@@ -2170,6 +2174,10 @@
         let streamPreviewApp = '';
         let streamPreviewName = '';
         let gbPreviewSession = null;
+        let gbTalkPc = null;
+        let gbTalkMic = null;
+        let gbTalkActive = false;
+        let gbTalkBusy = false;
         let gbPtzRepeatTimer = null;
         let gbPtzActiveAction = '';
         let gbPtzKeysDown = {};
@@ -2289,13 +2297,13 @@
             detectionPlateRecogDraft.min_duration_sec = dur ? parseFloat(dur) : null;
         }
 
-        function waitIceGatheringComplete(pc) {
+        function waitIceGatheringComplete(pc, timeoutMs) {
             return new Promise(function (resolve) {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
                     return;
                 }
-                var t = setTimeout(function () { resolve(); }, 2500);
+                var t = setTimeout(function () { resolve(); }, timeoutMs || 2500);
                 pc.addEventListener('icegatheringstatechange', function onIce() {
                     if (pc.iceGatheringState === 'complete') {
                         clearTimeout(t);
@@ -2446,6 +2454,7 @@
             streamPreviewApp = opts.app || '';
             streamPreviewName = streamName || '';
             gbPreviewSession = opts.gbPreview || null;
+            setGbTalkBtnVisible(!!gbPreviewSession);
             setGbPtzPadVisible(!!gbPreviewSession);
             rebuildStreamPreview();
             modal.classList.add('show');
@@ -2503,6 +2512,121 @@
             } catch (e) {
                 fail();
             }
+        }
+
+        function gbTalkStreamId(sess) {
+            if (!sess || !sess.device_id || !sess.channel_id) return '';
+            return String(sess.device_id) + '_' + String(sess.channel_id);
+        }
+
+        function setGbTalkBtnVisible(on) {
+            const btn = document.getElementById('streamPreviewTalkBtn');
+            if (!btn) return;
+            if (on) btn.removeAttribute('hidden');
+            else btn.setAttribute('hidden', '');
+            if (!on) stopGbTalk(true);
+        }
+
+        function setGbTalkBtnState(active) {
+            const btn = document.getElementById('streamPreviewTalkBtn');
+            if (!btn) return;
+            btn.classList.toggle('is-talking', !!active);
+            btn.textContent = active ? '停止喊话' : '麦克风';
+        }
+
+        function stopGbTalkPush() {
+            if (gbTalkPc) {
+                try { gbTalkPc.close(); } catch (e) { /* ignore */ }
+                gbTalkPc = null;
+            }
+            if (gbTalkMic) {
+                gbTalkMic.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { /* ignore */ } });
+                gbTalkMic = null;
+            }
+        }
+
+        function stopGbTalk(silent) {
+            const sess = gbPreviewSession;
+            const was = gbTalkActive;
+            gbTalkActive = false;
+            gbTalkBusy = false;
+            setGbTalkBtnState(false);
+            stopGbTalkPush();
+            if (!was || !sess || !sess.device_id || !sess.channel_id) {
+                return Promise.resolve();
+            }
+            return fetch('/api/gb28181/devices/' + encodeURIComponent(sess.device_id) +
+                '/channels/' + encodeURIComponent(sess.channel_id) + '/broadcast/stop', { method: 'POST' })
+                .catch(function () {})
+                .then(function () {
+                    if (!silent) showMessage('已停止喊话', 'success');
+                });
+        }
+
+        async function startGbTalk() {
+            const sess = gbPreviewSession;
+            if (!sess || !sess.device_id || !sess.channel_id) {
+                showMessage('仅国标预览可喊话', 'error');
+                return;
+            }
+            if (gbTalkBusy) return;
+            gbTalkBusy = true;
+            setGbTalkBtnState(true);
+            const streamId = gbTalkStreamId(sess) + '_' + Date.now();
+            try {
+                gbTalkMic = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1
+                    },
+                    video: false
+                });
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                gbTalkPc = pc;
+                gbTalkMic.getAudioTracks().forEach(function (t) { pc.addTrack(t, gbTalkMic); });
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await waitIceGatheringComplete(pc, 400);
+                const r = await fetch('/api/zlm/webrtc/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        app: 'broadcast',
+                        stream: streamId,
+                        stream_id: streamId,
+                        sdp: pc.localDescription.sdp,
+                        type: 'offer'
+                    })
+                });
+                const j = await fetchJsonOrThrow(r);
+                if (!j.success || !j.sdp) throw new Error(j.message || 'ZLM 推流协商失败');
+                await pc.setRemoteDescription({ type: 'answer', sdp: j.sdp });
+                const br = await fetch('/api/gb28181/devices/' + encodeURIComponent(sess.device_id) +
+                    '/channels/' + encodeURIComponent(sess.channel_id) + '/broadcast', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ app: 'broadcast', stream: streamId })
+                    });
+                const bj = await fetchJsonOrThrow(br);
+                if (!bj.success) throw new Error(bj.message || 'Broadcast 失败');
+                gbTalkActive = true;
+                gbTalkBusy = false;
+                showMessage('麦克风已开，可对着喊话', 'success');
+            } catch (e) {
+                gbTalkBusy = false;
+                gbTalkActive = false;
+                setGbTalkBtnState(false);
+                stopGbTalkPush();
+                showMessage('喊话失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function toggleGbTalk() {
+            if (gbTalkActive || gbTalkBusy) await stopGbTalk(false);
+            else await startGbTalk();
         }
 
         function gbPtzSpeed() {
@@ -2641,6 +2765,8 @@
         function closeStreamPreview() {
             gbPtzHoldStop();
             if (gbPreviewSession) gbPtzSend('stop', true);
+            stopGbTalk(true);
+            setGbTalkBtnVisible(false);
             setGbPtzPadVisible(false);
             stopStreamPreviewPipeline();
             streamPreviewStreamId = null;
@@ -2658,6 +2784,8 @@
             try {
                 gbPtzHoldStop();
                 if (gbPreviewSession) gbPtzSend('stop', true);
+                stopGbTalk(true);
+                setGbTalkBtnVisible(false);
                 setGbPtzPadVisible(false);
             } catch (err) { /* ignore */ }
             try {
@@ -4931,6 +5059,7 @@
                 if (!ch) return;
                 const cid = String(ch.channel_id || '').trim();
                 if (!cid || seen[cid]) return;
+                if (cid.length >= 13 && cid.substring(10, 13) === '137') return;
                 seen[cid] = true;
                 const alias = String(ch.alias || ch.name || '').trim() || cid;
                 let index = parseInt(ch.index, 10);
@@ -5943,6 +6072,7 @@
         
         document.getElementById('streamPreviewCloseBtn')?.addEventListener('click', closeStreamPreview);
         document.getElementById('streamPreviewSnapshotBtn')?.addEventListener('click', captureStreamPreview);
+        document.getElementById('streamPreviewTalkBtn')?.addEventListener('click', toggleGbTalk);
         (function bindGbPtzPad() {
             const pad = document.getElementById('gbPtzPad');
             if (!pad) return;

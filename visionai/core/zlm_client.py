@@ -256,6 +256,48 @@ class ZlmClient:
         app: str = "",
     ) -> Dict[str, Any]:
         """浏览器 WebRTC play：将 offer SDP POST 到 ZLM，返回 answer SDP。"""
+        return self.webrtc_negotiate(
+            stream_id,
+            offer_sdp,
+            kind="play",
+            public_host=public_host,
+            rtc_port=rtc_port,
+            prefer_tcp=prefer_tcp,
+            app=app,
+        )
+
+    def webrtc_push(
+        self,
+        stream_id: str,
+        offer_sdp: str,
+        *,
+        public_host: str = "",
+        rtc_port: int = 8000,
+        prefer_tcp: bool = True,
+        app: str = "",
+    ) -> Dict[str, Any]:
+        """浏览器 WebRTC 推流（喊话）：type=push。"""
+        return self.webrtc_negotiate(
+            stream_id,
+            offer_sdp,
+            kind="push",
+            public_host=public_host,
+            rtc_port=rtc_port,
+            prefer_tcp=prefer_tcp,
+            app=app or "broadcast",
+        )
+
+    def webrtc_negotiate(
+        self,
+        stream_id: str,
+        offer_sdp: str,
+        *,
+        kind: str = "play",
+        public_host: str = "",
+        rtc_port: int = 8000,
+        prefer_tcp: bool = True,
+        app: str = "",
+    ) -> Dict[str, Any]:
         stream = stream_key_for_id(stream_id)
         sdp = (offer_sdp or "").strip()
         if not sdp:
@@ -264,11 +306,11 @@ class ZlmClient:
         host = (public_host or "").strip() or "127.0.0.1"
         port = int(rtc_port)
         play_app = (app or "").strip() or self.app
+        webrtc_type = "push" if str(kind).lower() == "push" else "play"
         params: Dict[str, Any] = {
             "app": play_app,
             "stream": stream,
-            "type": "play",
-            # WSL2/Docker 下 UDP 映射常失败，优先 TCP ICE
+            "type": webrtc_type,
             "preferred_tcp": 1 if prefer_tcp else 0,
             "cand_udp": f"{host}:{port}",
             "cand_tcp": f"{host}:{port}",
@@ -288,7 +330,7 @@ class ZlmClient:
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            logger.warning("ZLM webrtc play failed: %s", e)
+            logger.warning("ZLM webrtc %s failed: %s", webrtc_type, e)
             return {"success": False, "message": str(e), "stream": stream}
 
         if not isinstance(data, dict):
@@ -308,7 +350,8 @@ class ZlmClient:
             "stream": stream,
             "sdp": answer,
             "type": "answer",
-            "play": self.play_urls(stream, host=host),
+            "app": play_app,
+            "play": self.play_urls(stream, host=host, app=play_app),
         }
 
     def is_rtp_online(self, stream: str) -> bool:
@@ -526,6 +569,133 @@ class ZlmClient:
         data = self._get("/index/api/closeRtpServer", {"stream_id": stream})
         ok = int(data.get("code", -1)) == 0
         return {"success": ok, "stream": stream, "raw": data}
+
+    def is_app_online(self, stream: str, app: str, schema: str = "") -> bool:
+        name = str(stream or "").strip()
+        use_app = (app or "").strip() or self.app
+        if not name:
+            return False
+        schemas = (str(schema).strip(),) if str(schema or "").strip() else ("rtsp", "rtc", "rtmp")
+        for item in schemas:
+            if not item:
+                continue
+            data = self._get(
+                "/index/api/isMediaOnline",
+                {
+                    "vhost": self.vhost,
+                    "app": use_app,
+                    "stream": name,
+                    "schema": item,
+                },
+            )
+            if int(data.get("code", -1)) == 0 and data.get("online"):
+                return True
+        return False
+
+    def close_app_stream(self, stream: str, app: str) -> Dict[str, Any]:
+        name = str(stream or "").strip()
+        use_app = (app or "").strip() or self.app
+        if not name:
+            return {"success": False, "message": "empty stream"}
+        data = self._get(
+            "/index/api/close_streams",
+            {
+                "vhost": self.vhost,
+                "app": use_app,
+                "stream": name,
+                "force": 1,
+            },
+        )
+        ok = int(data.get("code", -1)) == 0
+        return {"success": ok, "stream": name, "app": use_app, "raw": data}
+
+    def start_send_rtp(
+        self,
+        *,
+        app: str,
+        stream: str,
+        ssrc: str,
+        pt: str = "8",
+        dst_url: str = "",
+        dst_port: int = 0,
+        use_ps: bool = False,
+        only_audio: bool = True,
+        is_udp: bool = True,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "vhost": self.vhost,
+            "app": app,
+            "stream": stream,
+            "ssrc": ssrc,
+            "pt": str(pt),
+            "use_ps": 1 if use_ps else 0,
+            "only_audio": 1 if only_audio else 0,
+            "is_udp": 1 if is_udp else 0,
+        }
+        if dst_url:
+            params["dst_url"] = dst_url
+        if dst_port:
+            params["dst_port"] = int(dst_port)
+        data = self._get("/index/api/startSendRtp", params)
+        return self._send_rtp_result(data, stream)
+
+    def start_send_rtp_passive(
+        self,
+        *,
+        app: str,
+        stream: str,
+        ssrc: str,
+        pt: str = "8",
+        use_ps: bool = False,
+        only_audio: bool = True,
+    ) -> Dict[str, Any]:
+        data = self._get(
+            "/index/api/startSendRtpPassive",
+            {
+                "vhost": self.vhost,
+                "app": app,
+                "stream": stream,
+                "ssrc": ssrc,
+                "pt": str(pt),
+                "use_ps": 1 if use_ps else 0,
+                "only_audio": 1 if only_audio else 0,
+            },
+        )
+        return self._send_rtp_result(data, stream)
+
+    def stop_send_rtp(self, *, app: str, stream: str, ssrc: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "vhost": self.vhost,
+            "app": app,
+            "stream": stream,
+        }
+        if ssrc:
+            params["ssrc"] = ssrc
+        data = self._get("/index/api/stopSendRtp", params)
+        ok = int(data.get("code", -1)) == 0
+        return {"success": ok, "message": data.get("msg") or "", "raw": data}
+
+    def _send_rtp_result(self, data: Dict[str, Any], stream: str) -> Dict[str, Any]:
+        code = int(data.get("code", -1))
+        local_port = 0
+        payload = data.get("data") if isinstance(data.get("data"), dict) else data
+        try:
+            local_port = int((payload or {}).get("local_port") or data.get("local_port") or 0)
+        except (TypeError, ValueError):
+            local_port = 0
+        if code != 0 or not local_port:
+            return {
+                "success": False,
+                "message": data.get("msg") or f"startSendRtp code={code}",
+                "stream": stream,
+                "raw": data,
+            }
+        return {
+            "success": True,
+            "stream": stream,
+            "local_port": local_port,
+            "raw": data,
+        }
 
     def remove_proxy(self, stream_id: str) -> Dict[str, Any]:
         stream = stream_key_for_id(stream_id)

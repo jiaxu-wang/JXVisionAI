@@ -304,6 +304,63 @@ def save_platform(redis_manager, data: Dict[str, Any]) -> Dict[str, Any]:
 # 海康等前端校验：视频通道第 11–13 位须为 131/132；137 为语音输出通道，填到「视频通道」会报错
 _TYPE_IPC = "132"  # 网络球机 / 设备 SIP 用户
 _TYPE_CHANNEL = "131"  # 视频通道（网络摄像机通道）
+_TYPE_VOICE = "137"  # 语音输出 / 广播喇叭
+BROADCAST_APP = "broadcast"
+
+
+def gb_channel_type(channel_id: str) -> str:
+    digits = "".join(ch for ch in str(channel_id or "") if ch.isdigit())
+    if len(digits) >= 13:
+        return digits[10:13]
+    return ""
+
+
+def is_voice_output_id(channel_id: str) -> bool:
+    return gb_channel_type(channel_id) == _TYPE_VOICE
+
+
+def derive_voice_channel_id(video_channel_id: str) -> str:
+    cid = (video_channel_id or "").strip()
+    digits = "".join(ch for ch in cid if ch.isdigit())
+    if len(digits) != 20:
+        return ""
+    if digits[10:13] in (_TYPE_CHANNEL, _TYPE_IPC, "130"):
+        return digits[:10] + _TYPE_VOICE + digits[13:]
+    return ""
+
+
+def resolve_audio_out_channel(device: Optional[Dict[str, Any]], video_channel_id: str = "") -> str:
+    """广播 TargetID 首选：视频通道（海康 IPC Catalog 往往没有独立 137）。"""
+    cands = broadcast_target_candidates(device, video_channel_id)
+    return cands[0] if cands else ""
+
+
+def broadcast_target_candidates(
+    device: Optional[Dict[str, Any]], video_channel_id: str = ""
+) -> List[str]:
+    """Broadcast TargetID 尝试顺序：视频通道 → 设备编码 → Catalog 137。
+
+    海康 IPC 对不存在的推导 137 会回 Result=ERROR 且不再 INVITE。
+    """
+    d = device if isinstance(device, dict) else {}
+    out: List[str] = []
+
+    def add(cid: str) -> None:
+        cid = (cid or "").strip()
+        if cid and cid not in out:
+            out.append(cid)
+
+    add(video_channel_id)
+    add(str(d.get("sip_user") or d.get("device_id") or ""))
+    stored = str(d.get("audio_out_channel_id") or "").strip()
+    if stored and is_voice_output_id(stored):
+        add(stored)
+    add(derive_voice_channel_id(video_channel_id))
+    return out
+
+
+def broadcast_stream_id(device_id: str, channel_id: str) -> str:
+    return f"{device_id}_{channel_id}".replace(" ", "")
 
 
 def domain_center_code(platform: Dict[str, Any]) -> str:
@@ -396,7 +453,7 @@ def normalize_channel(
     if not isinstance(ch, dict):
         return None
     cid = str(ch.get("channel_id") or "").strip()
-    if not cid:
+    if not cid or is_voice_output_id(cid):
         return None
     st = str(ch.get("status") or default_status).strip().lower()
     if st not in ("online", "offline", "unknown"):
@@ -499,6 +556,7 @@ def normalize_device(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "updated_at": str(d.get("updated_at") or ""),
         "status_note": str(d.get("status_note") or "")[:300],
         "remark": str(d.get("remark") or "")[:200],
+        "audio_out_channel_id": str(d.get("audio_out_channel_id") or "")[:32],
     }
 
 
@@ -547,6 +605,8 @@ def find_device_for_channel(redis_manager, channel_or_user: str) -> Optional[Dic
         for ch in normalize_channels(d.get("channels") or []):
             if str(ch.get("channel_id") or "") == key:
                 return d
+        if str(d.get("audio_out_channel_id") or "") == key:
+            return d
     return None
 
 
@@ -602,6 +662,8 @@ def upsert_device(redis_manager, device: Dict[str, Any]) -> Dict[str, Any]:
         row["password"] = prev.get("password") or ""
     if prev and "remark" not in data:
         row["remark"] = prev.get("remark") or ""
+    if prev and "audio_out_channel_id" not in data:
+        row["audio_out_channel_id"] = prev.get("audio_out_channel_id") or ""
     row["device_id"] = row["sip_user"]
     row["source"] = "provisioned"
     row["updated_at"] = _now_str()
@@ -1080,17 +1142,25 @@ def merge_catalog_channels(
     prev = get_device(redis_manager, device_id)
     if not prev:
         return None
-    local = list(prev.get("channels") or [])
+    voice_id = str(prev.get("audio_out_channel_id") or "").strip()
+    local = [
+        c
+        for c in list(prev.get("channels") or [])
+        if isinstance(c, dict) and not is_voice_output_id(str(c.get("channel_id") or ""))
+    ]
     by_id = {
         str(c.get("channel_id") or "").strip(): c
         for c in local
-        if isinstance(c, dict) and str(c.get("channel_id") or "").strip()
+        if str(c.get("channel_id") or "").strip()
     }
     for it in items:
         if not isinstance(it, dict):
             continue
         cid = str(it.get("channel_id") or it.get("DeviceID") or "").strip()
         if not cid or cid == (prev.get("sip_user") or device_id):
+            continue
+        if is_voice_output_id(cid):
+            voice_id = cid
             continue
         name = str(it.get("name") or it.get("Name") or "").strip()
         st = str(it.get("status") or it.get("Status") or "offline").strip().lower()
@@ -1124,7 +1194,13 @@ def merge_catalog_channels(
                 }
             )
             by_id[cid] = local[-1]
-    return replace_channels(redis_manager, device_id, local)
+    row = replace_channels(redis_manager, device_id, local)
+    if voice_id:
+        return upsert_device(
+            redis_manager,
+            {**row, "audio_out_channel_id": voice_id, "auto_allocate": False},
+        )
+    return row
 
 
 def rtp_stream_id(device_id: str, channel_id: str) -> str:

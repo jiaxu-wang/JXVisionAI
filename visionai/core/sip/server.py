@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from visionai.core import gb28181_store as store
 from visionai.core.redis_manager import redis_manager
+from visionai.core.sip import broadcast as bc
 from visionai.core.sip import catalog as cat
 from visionai.core.sip import ptz as ptzcmd
 from visionai.core.sip.cmd import blpop_cmd, reply_cmd
@@ -83,6 +84,8 @@ class SipStack:
         self._cseq = 20
         self._sn = 1
         self._stopping = False
+        self._broadcasts: Dict[str, Dict[str, Any]] = {}
+        self._broadcast_waiters: Dict[str, asyncio.Future] = {}
 
     def platform(self) -> Dict[str, Any]:
         return store.get_platform(redis_manager)
@@ -213,6 +216,13 @@ class SipStack:
                     result = await self.query_catalog(str(cmd.get("device_id") or ""))
                 elif op == "ptz":
                     result = await self.ptz_control(cmd)
+                elif op == "broadcast":
+                    result = await self.start_broadcast(cmd)
+                elif op == "broadcast_stop":
+                    result = await self.stop_broadcast(
+                        str(cmd.get("device_id") or ""),
+                        str(cmd.get("channel_id") or ""),
+                    )
                 else:
                     result = {"ok": False, "message": f"unknown op {op}"}
             except Exception as e:  # noqa: BLE001
@@ -319,10 +329,10 @@ class SipStack:
         if method == "ACK":
             return None
         if method in ("BYE", "CANCEL"):
+            await self._on_bye(msg)
             return self._reply(msg, 200, "OK", peer)
         if method == "INVITE" and msg.status is None:
-            # 设备主动 Invite 不处理
-            return self._reply(msg, 488, "Not Acceptable Here", peer)
+            return await self._on_invite(msg, peer)
         return self._reply(msg, 200, "OK", peer) if msg.status is None else None
 
     def _on_register(
@@ -429,6 +439,35 @@ class SipStack:
                 store.merge_catalog_channels(redis_manager, owner, items)
                 logger.info("Catalog merged %s items=%d", owner, len(items))
             return self._reply(msg, 200, "OK", peer)
+        if cmd == "broadcast":
+            info = bc.parse_broadcast_response(body)
+            owner = sess.sip_user if sess else sip_user
+            audio_ch = str(info.get("device_id") or "").strip()
+            result = str(info.get("result") or "").strip()
+            ok = result.upper() == "OK"
+            waiter = self._broadcast_waiters.get(owner or "")
+            if waiter and not waiter.done():
+                waiter.set_result(info)
+            if ok and owner and audio_ch:
+                pending = self._broadcasts.get(owner)
+                if pending:
+                    pending["audio_channel_id"] = audio_ch
+                device = store.get_device(redis_manager, owner)
+                if device and store.is_voice_output_id(audio_ch):
+                    try:
+                        store.upsert_device(
+                            redis_manager,
+                            {**device, "audio_out_channel_id": audio_ch, "auto_allocate": False},
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("save audio_out_channel failed %s", owner)
+            logger.info(
+                "Broadcast response %s ch=%s result=%s",
+                owner,
+                audio_ch,
+                result or "(empty)",
+            )
+            return self._reply(msg, 200, "OK", peer)
         return self._reply(msg, 200, "OK", peer)
 
     def _reply(
@@ -438,6 +477,8 @@ class SipStack:
         reason: str,
         peer: Tuple[str, int],
         extra: Optional[Dict[str, str]] = None,
+        body: str = "",
+        content_type: str = "",
     ) -> bytes:
         resp = SipMessage(start_line=f"SIP/2.0 {code} {reason}")
         via = req.via()
@@ -456,6 +497,10 @@ class SipStack:
         resp.set("User-Agent", "JXVisionAI-SIP")
         for k, v in (extra or {}).items():
             resp.set(k, v)
+        if body:
+            resp.body = body
+            if content_type:
+                resp.set("Content-Type", content_type)
         return resp.encode()
 
     async def _send_to_device(self, sess: DeviceSession, data: bytes) -> None:
@@ -759,6 +804,324 @@ class SipStack:
             hex_cmd,
         )
         return {"ok": True, "ptz_cmd": hex_cmd, "channel_id": channel_id}
+
+    def _zlm(self) -> Any:
+        try:
+            from visionai.core.zlm_client import get_zlm_client
+
+            return get_zlm_client()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _broadcast_for(self, device_id: str) -> Optional[Dict[str, Any]]:
+        if not device_id:
+            return None
+        hit = self._broadcasts.get(device_id)
+        if hit:
+            return hit
+        for item in self._broadcasts.values():
+            if device_id in (
+                str(item.get("device_id") or ""),
+                str(item.get("audio_channel_id") or ""),
+                str(item.get("video_channel_id") or ""),
+            ):
+                return item
+        return None
+
+    async def start_broadcast(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        device_id = str(spec.get("device_id") or "").strip()
+        video_ch = str(spec.get("channel_id") or "").strip()
+        app = str(spec.get("app") or store.BROADCAST_APP).strip() or store.BROADCAST_APP
+        stream = str(spec.get("stream") or "").strip()
+        if not device_id or not video_ch:
+            return {"ok": False, "message": "缺少设备或通道"}
+        sess = self._session_for(device_id)
+        if not sess:
+            return {
+                "ok": False,
+                "message": "设备未在 SIP 注册：请等摄像机心跳或重新 REGISTER 后再试",
+            }
+        device = store.get_device(redis_manager, device_id)
+        targets = store.broadcast_target_candidates(device, video_ch)
+        if not targets:
+            return {"ok": False, "message": "未找到广播目标通道"}
+        if not stream:
+            stream = store.broadcast_stream_id(device_id, video_ch)
+        existing = self._broadcasts.get(sess.sip_user)
+        if existing:
+            await self.stop_broadcast(device_id, video_ch)
+            await asyncio.sleep(0.2)
+        # rtc 在线即可 Notify；rtsp 转封装在 INVITE 的 startSendRtp 重试里等，避免先卡 2 秒
+        if not await self._wait_app_stream(app, stream, 1.2):
+            return {"ok": False, "message": "麦克风音频尚未到达 ZLM，请再开一次麦克风"}
+        plat = self.platform()
+        server_id = str(plat.get("server_id") or "")
+        last_err = ""
+        accepted = ""
+        for audio_ch in targets:
+            self._sn += 1
+            body = bc.notify_xml(server_id, audio_ch, self._sn)
+            req = self._build_request(
+                "MESSAGE",
+                plat,
+                sess,
+                f"sip:{audio_ch}@{sess.contact_ip}:{sess.contact_port}",
+                to_user=audio_ch,
+                body=body,
+                content_type="Application/MANSCDP+xml",
+            )
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future = loop.create_future()
+            self._broadcast_waiters[sess.sip_user] = fut
+            await self._send_to_device(sess, req.encode())
+            logger.info(
+                "Broadcast notify %s target=%s stream=%s/%s",
+                sess.sip_user,
+                audio_ch,
+                app,
+                stream,
+            )
+            try:
+                info = await asyncio.wait_for(fut, 3.0)
+            except asyncio.TimeoutError:
+                info = {"result": "TIMEOUT", "device_id": audio_ch}
+            if self._broadcast_waiters.get(sess.sip_user) is fut:
+                self._broadcast_waiters.pop(sess.sip_user, None)
+            result = str((info or {}).get("result") or "").strip().upper()
+            if result == "OK":
+                accepted = str((info or {}).get("device_id") or audio_ch).strip() or audio_ch
+                break
+            last_err = result or "无应答"
+            logger.warning(
+                "Broadcast rejected %s target=%s result=%s, try next",
+                sess.sip_user,
+                audio_ch,
+                last_err,
+            )
+        if not accepted:
+            return {
+                "ok": False,
+                "message": f"摄像机拒绝广播（{last_err or '无应答'}）。可先确认预览已出图，目标通道是否为视频编码而非虚构 137",
+            }
+        self._broadcasts[sess.sip_user] = {
+            "device_id": sess.sip_user,
+            "video_channel_id": video_ch,
+            "audio_channel_id": accepted,
+            "app": app,
+            "stream": stream,
+            "ssrc": "",
+            "tcp": True,
+        }
+        return {
+            "ok": True,
+            "message": "Broadcast 已接受，等待设备 INVITE",
+            "audio_channel_id": accepted,
+            "app": app,
+            "stream": stream,
+        }
+
+    async def stop_broadcast(self, device_id: str, channel_id: str = "") -> Dict[str, Any]:
+        sess = self._session_for(device_id)
+        key = (sess.sip_user if sess else device_id).strip()
+        info = self._broadcast_for(key) or self._broadcast_for(channel_id)
+        if info:
+            key = str(info.get("device_id") or key)
+        self._stop_send_rtp(info)
+        if sess and info:
+            audio_ch = str(info.get("audio_channel_id") or channel_id or "")
+            plat = self.platform()
+            bye_uri = str(
+                info.get("invite_uri")
+                or f"sip:{audio_ch}@{sess.contact_ip}:{sess.contact_port}"
+            )
+            req = self._build_request(
+                "BYE",
+                plat,
+                sess,
+                bye_uri,
+                to_user=audio_ch,
+            )
+            if info.get("call_id"):
+                req.set("Call-ID", str(info["call_id"]))
+            if info.get("to"):
+                req.set("From", str(info["to"]))
+            if info.get("from"):
+                req.set("To", str(info["from"]))
+            try:
+                await self._send_to_device(sess, req.encode())
+            except Exception:  # noqa: BLE001
+                logger.exception("broadcast BYE failed %s", key)
+        self._broadcasts.pop(key, None)
+        return {"ok": True, "message": "已停止广播"}
+
+    def _stop_send_rtp(self, info: Optional[Dict[str, Any]]) -> None:
+        if not info:
+            return
+        zlm = self._zlm()
+        if not zlm:
+            return
+        try:
+            zlm.stop_send_rtp(
+                app=str(info.get("app") or store.BROADCAST_APP),
+                stream=str(info.get("stream") or ""),
+                ssrc=str(info.get("ssrc") or ""),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("stopSendRtp failed")
+
+    async def _wait_app_stream(self, app: str, stream: str, seconds: float = 5.0) -> bool:
+        zlm = self._zlm()
+        if not zlm or not stream:
+            return False
+        deadline = time.time() + max(0.2, float(seconds))
+        while time.time() < deadline:
+            if zlm.is_app_online(stream, app, "rtc") or zlm.is_app_online(stream, app, "rtsp"):
+                return True
+            await asyncio.sleep(0.05)
+        return zlm.is_app_online(stream, app)
+
+    async def _start_send_rtp_retry(
+        self,
+        *,
+        use_tcp: bool,
+        app: str,
+        stream: str,
+        ssrc: str,
+        pt: str,
+        use_ps: bool,
+        dst: str = "",
+        dst_port: int = 0,
+    ) -> Dict[str, Any]:
+        zlm = self._zlm()
+        last: Dict[str, Any] = {"success": False, "message": "ZLM 不可用"}
+        if zlm is None:
+            return last
+        for i in range(40):
+            if use_tcp:
+                last = zlm.start_send_rtp_passive(
+                    app=app, stream=stream, ssrc=ssrc, pt=pt, use_ps=use_ps, only_audio=True
+                )
+            else:
+                last = zlm.start_send_rtp(
+                    app=app,
+                    stream=stream,
+                    ssrc=ssrc,
+                    pt=pt,
+                    dst_url=dst,
+                    dst_port=dst_port,
+                    use_ps=use_ps,
+                    only_audio=True,
+                    is_udp=True,
+                )
+            if last.get("success"):
+                if i:
+                    logger.info("startSendRtp ok after retry %s %s/%s", i, app, stream)
+                return last
+            logger.warning("startSendRtp retry %s %s/%s: %s", i, app, stream, last.get("message"))
+            await asyncio.sleep(0.05)
+        return last
+
+    async def _on_bye(self, msg: SipMessage) -> None:
+        call_id = msg.call_id()
+        if not call_id:
+            return
+        for key, info in list(self._broadcasts.items()):
+            if str(info.get("call_id") or "") == call_id:
+                self._stop_send_rtp(info)
+                self._broadcasts.pop(key, None)
+                logger.info("broadcast BYE from device %s", key)
+                return
+
+    async def _on_invite(self, msg: SipMessage, peer: Tuple[str, int]) -> bytes:
+        from_user = sip_uri_user(msg.from_header())
+        to_user = sip_uri_user(msg.to_header())
+        device = store.find_device_for_channel(redis_manager, from_user) or store.find_device_for_channel(
+            redis_manager, to_user
+        )
+        sip_user = str((device or {}).get("sip_user") or from_user or "")
+        pending = self._broadcast_for(sip_user) or self._broadcast_for(from_user)
+        if not pending:
+            logger.info("inbound INVITE ignored from=%s (no broadcast)", from_user)
+            return self._reply(msg, 488, "Not Acceptable Here", peer)
+        offer = bc.parse_audio_offer(msg.body or "")
+        if not offer.get("port") and not (msg.body or "").strip():
+            return self._reply(msg, 400, "Bad Request", peer)
+        audio_ch = from_user
+        if audio_ch == sip_user:
+            audio_ch = str(pending.get("audio_channel_id") or audio_ch)
+        pending["audio_channel_id"] = audio_ch or pending.get("audio_channel_id")
+        pt, rtpmap, use_ps = bc.pick_payload(offer)
+        ssrc = str(offer.get("ssrc") or "").strip()
+        if not ssrc:
+            ssrc = _ssrc_for(audio_ch or pending.get("video_channel_id") or sip_user)
+        pending["ssrc"] = ssrc
+        use_tcp = bool(offer.get("tcp")) or str(offer.get("setup") or "") in ("active", "actpass", "passive")
+        pending["tcp"] = use_tcp
+        zlm = self._zlm()
+        if zlm is None:
+            return self._reply(msg, 503, "Service Unavailable", peer)
+        app = str(pending.get("app") or store.BROADCAST_APP)
+        stream = str(pending.get("stream") or "")
+        dst = str(offer.get("connection") or peer[0])
+        dst_port = int(offer.get("port") or 0)
+        sent = await self._start_send_rtp_retry(
+            use_tcp=use_tcp,
+            app=app,
+            stream=stream,
+            ssrc=ssrc,
+            pt=pt,
+            use_ps=use_ps,
+            dst=dst,
+            dst_port=dst_port,
+        )
+        if not sent.get("success"):
+            logger.warning("startSendRtp failed %s: %s", sip_user, sent.get("message"))
+            return self._reply(msg, 488, "Not Acceptable Here", peer)
+        plat = self.platform()
+        media_ip = str(plat.get("media_ip") or plat.get("public_host") or "")
+        local_port = int(sent.get("local_port") or 0)
+        sdp = bc.answer_sdp(
+            server_id=str(plat.get("server_id") or ""),
+            media_ip=media_ip,
+            port=local_port,
+            ssrc=ssrc,
+            rtpmap=rtpmap,
+            tcp=use_tcp,
+        )
+        sess = self._session_for(sip_user)
+        public_host = str(plat.get("public_host") or (sess.contact_ip if sess else media_ip))
+        public_port = int(plat.get("public_port") or plat.get("bind_port") or 15060)
+        server_id = str(plat.get("server_id") or "")
+        extra = {"Contact": f"<sip:{server_id}@{public_host}:{public_port}>"}
+        raw = self._reply(
+            msg,
+            200,
+            "OK",
+            peer,
+            extra=extra,
+            body=sdp,
+            content_type="Application/SDP",
+        )
+        # 记下带 tag 的 To，停止时 BYE 要互换 From/To
+        parsed = parse_sip(raw)
+        pending["call_id"] = msg.call_id()
+        pending["from"] = msg.from_header()
+        pending["to"] = parsed.to_header() if parsed else msg.to_header()
+        pending["invite_uri"] = (
+            f"sip:{audio_ch}@{(sess.contact_ip if sess else peer[0])}:"
+            f"{(sess.contact_port if sess else peer[1])}"
+        )
+        logger.info(
+            "broadcast INVITE 200 %s audio=%s tcp=%s pt=%s port=%s stream=%s/%s",
+            sip_user,
+            audio_ch,
+            use_tcp,
+            pt,
+            local_port,
+            app,
+            stream,
+        )
+        return raw
 
     async def invite_play(
         self, device_id: str, channel_id: str, *, force: bool = False

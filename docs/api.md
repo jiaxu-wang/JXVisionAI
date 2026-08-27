@@ -56,6 +56,7 @@
 | `GET` | `/api/zlm/status` | ZLM：`alive` / `reachable` / `auth_ok`、`message`、各流代理与播放地址 |
 | `POST` | `/api/zlm/ensure-proxy` | 建立/复用拉流代理，返回 `play`（hls/webrtc/…） |
 | `POST` | `/api/zlm/webrtc/play` | **流预览**：ZLM WebRTC play；body `{stream_id,sdp}`，返回 answer `sdp` |
+| `POST` | `/api/zlm/webrtc/push` | **喊话推流**：ZLM WebRTC push；body `{app,stream,sdp}` |
 | `GET/PUT` | `/api/system/config` | 读取/保存 `config.ini` |
 | `GET` | `/api/config` | 运行时配置摘要（含 `preview.zlm_webrtc_enabled`） |
 | `POST` | `/api/restart` | 重启服务（宿主机依赖 `start.sh` 布局；Compose 部署请用 `docker compose restart …`） |
@@ -112,5 +113,7 @@
 | `PATCH` / `DELETE` | `/api/gb28181/devices/<device_id>/channels/<channel_id>` | 改别名等 / 删通道 |
 | `POST` | `…/channels/<channel_id>/preview` | 点播预览（不写入检测配置；已接入分析则复用） |
 | `POST` | `…/channels/<channel_id>/ptz` | **云台**：body `{action, speed?}`；`action` 为方向/变倍/聚焦/光圈/`stop`；`visionai-sip` 发 DeviceControl |
+| `POST` | `…/channels/<channel_id>/broadcast` | **喊话开始**：body `{app?, stream?}`；先 WebRTC push 再 Broadcast Notify |
+| `POST` | `…/channels/<channel_id>/broadcast/stop` | **喊话停止**：BYE + stopSendRtp |
 | `POST` | `…/channels/<channel_id>/bye` | 结束点播（已接入分析的通道通常不 BYE） |
 | `POST` | `…/channels/<channel_id>/monitor` | **接入分析**：Invite + 写入 streamlist（`analyze: true`） |

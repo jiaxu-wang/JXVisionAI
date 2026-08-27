@@ -1,6 +1,6 @@
 # ONVIF 语音对讲（Audio Backchannel）
 
-JXVisionAI 支持通过 **ONVIF RTSP Audio Backchannel** 将浏览器麦克风音频回传到摄像机喇叭。国标 GB/T 28181 对讲尚未实现。
+JXVisionAI 支持通过 **ONVIF RTSP Audio Backchannel** 将浏览器麦克风音频回传到摄像机喇叭。国标喊话见 [gb28181.md](gb28181.md#喊话广播)。
 
 ## 能力探测（类似 ODM）
 
