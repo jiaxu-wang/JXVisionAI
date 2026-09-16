@@ -149,6 +149,39 @@ def list_image_stems(project_dir: Path) -> List[str]:
     return sorted(stems)
 
 
+def _negatives_path(project_dir: Path) -> Path:
+    return project_dir / "negatives.json"
+
+
+def list_negative_stems(project_dir: Path) -> List[str]:
+    """人工研判为「误报」的负样本（背景图）：图片存在且记录于 negatives.json。"""
+    path = _negatives_path(project_dir)
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    if not isinstance(raw, list):
+        return []
+    have = set(list_image_stems(project_dir))
+    return sorted({str(s) for s in raw if str(s) in have})
+
+
+def _add_negative_stems(project_dir: Path, stems: List[str]) -> None:
+    path = _negatives_path(project_dir)
+    existing: List[str] = []
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                existing = [str(s) for s in raw]
+        except Exception:  # noqa: BLE001
+            existing = []
+    merged = sorted(set(existing) | {s for s in stems if s})
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def list_reviewed_stems(project_dir: Path) -> List[str]:
     """人工确认后的标注（labels/），才可进入训练。"""
     lbl_dir = project_dir / "labels"
@@ -182,6 +215,8 @@ def sample_label_status(project_dir: Path, stem: str) -> str:
         return "reviewed"
     if _label_file_nonempty(project_dir / "labels_draft" / f"{stem}.txt"):
         return "draft"
+    if stem in set(list_negative_stems(project_dir)):
+        return "negative"
     return "unlabeled"
 
 
@@ -227,7 +262,13 @@ def approve_draft_labels(
 
 
 def _estimate_split_counts(
-    n: int, *, val_ratio: float, test_ratio: float
+    n: int,
+    *,
+    val_ratio: float,
+    test_ratio: float,
+    min_val: Optional[int] = None,
+    min_test: Optional[int] = None,
+    min_train: Optional[int] = None,
 ) -> Tuple[int, int, int]:
     """返回 (n_train, n_val, n_test)；保证互斥；尽量满足门禁最小 val/test。"""
     if n <= 0:
@@ -237,9 +278,12 @@ def _estimate_split_counts(
     if n == 2:
         return 1, 1, 0
 
-    min_val = int(TRAIN_GATE_HARD.get("min_val_images") or 1)
-    min_test = int(TRAIN_GATE_HARD.get("min_test_images") or 1)
-    min_train = int(TRAIN_GATE_HARD.get("min_train_images") or 1)
+    if min_val is None:
+        min_val = int(TRAIN_GATE_HARD.get("min_val_images") or 1)
+    if min_test is None:
+        min_test = int(TRAIN_GATE_HARD.get("min_test_images") or 1)
+    if min_train is None:
+        min_train = int(TRAIN_GATE_HARD.get("min_train_images") or 1)
 
     n_test = max(min_test, int(round(n * test_ratio)))
     n_val = max(min_val, int(round(n * val_ratio)))
@@ -260,6 +304,13 @@ def _estimate_split_counts(
     return n_train, n_val, n_test
 
 
+# 校准项目（微调已部署专模）的放宽拆分下限：小样本即可校准
+CALIB_SPLIT_MIN = {"min_train": 1, "min_val": 1, "min_test": 1}
+# 校准项目开训下限：已审核（准确回流）样本数（低于建议值仅提示，由用户决断）
+CALIB_MIN_REVIEWED = 3
+CALIB_RECOMMENDED_REVIEWED = 8
+
+
 def materialize_yolo_split(
     project_dir: Path,
     meta: Dict[str, Any],
@@ -268,6 +319,7 @@ def materialize_yolo_split(
     test_ratio: float = SPLIT_TEST_RATIO,
     seed: int = SPLIT_SEED,
     reviewed_only: bool = True,
+    calib: bool = False,
 ) -> Path:
     """将已审核标注拆到 train/val/test（互斥），返回 data.yaml。"""
     stems = list_reviewed_stems(project_dir) if reviewed_only else list_labeled_stems(project_dir)
@@ -295,7 +347,19 @@ def materialize_yolo_split(
     shuffled = stems[:]
     rnd.shuffle(shuffled)
     n = len(shuffled)
-    n_train, n_val, n_test = _estimate_split_counts(n, val_ratio=val_ratio, test_ratio=test_ratio)
+    if calib:
+        n_train, n_val, n_test = _estimate_split_counts(
+            n,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            min_val=CALIB_SPLIT_MIN["min_val"],
+            min_test=CALIB_SPLIT_MIN["min_test"],
+            min_train=CALIB_SPLIT_MIN["min_train"],
+        )
+    else:
+        n_train, n_val, n_test = _estimate_split_counts(
+            n, val_ratio=val_ratio, test_ratio=test_ratio
+        )
     if n_val < 1 or n_test < 1:
         raise ValueError(
             f"已审核样本 {n} 张不足以划分独立 val/test（需要更多已审核图）"
@@ -331,6 +395,21 @@ def materialize_yolo_split(
     _copy(train_stems, "train")
     _copy(val_stems, "val")
     _copy(test_stems, "test")
+
+    # 误报回流的负样本（背景图，空标注）只进 train，抑制误报；不进 val/test 以免干扰指标
+    neg_stems = [s for s in list_negative_stems(project_dir) if s not in s_train | s_val | s_test]
+    for stem in neg_stems:
+        src_i = None
+        for ext in (".jpg", ".jpeg", ".png"):
+            cand = project_dir / "images" / f"{stem}{ext}"
+            if cand.is_file():
+                src_i = cand
+                break
+        if src_i is None:
+            continue
+        ext = src_i.suffix.lower()
+        shutil.copy2(src_i, staging / "images" / "train" / f"{stem}{ext}")
+        (staging / "labels" / "train" / f"{stem}.txt").write_text("", encoding="utf-8")
 
     root_abs = staging.resolve()
     yaml_path = staging / "data.yaml"
@@ -921,12 +1000,23 @@ def import_snapshots_to_project(
     project_dir: Path,
     snapshot_paths: List[str],
     save_dir: Path,
+    verdicts: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """从 snapshots 复制图片到项目 images/。"""
+    """从 snapshots 复制图片到项目 images/。
+
+    verdicts: {path: "tp"|"fp"} —— 人工研判结论。
+      - "fp"（误报）：同时写入空 labels/<stem>.txt 并记入 negatives.json，作为负样本参与训练；
+      - "tp"（准确）/未标：仅导入图片，等待预标注/人工标注。
+    """
     img_dir = project_dir / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
+    lbl_dir = project_dir / "labels"
+    lbl_dir.mkdir(parents=True, exist_ok=True)
     save_resolved = save_dir.resolve()
+    verdicts = verdicts or {}
     imported: List[str] = []
+    negatives: List[str] = []
+    positive_names: List[str] = []
     skipped: List[str] = []
     for raw in snapshot_paths:
         p = Path(raw).resolve()
@@ -942,7 +1032,87 @@ def import_snapshots_to_project(
         name = f"snap_{int(__import__('time').time())}_{uuid.uuid4().hex[:6]}{ext}"
         shutil.copy2(p, img_dir / name)
         imported.append(name)
-    return {"imported": imported, "skipped": skipped, "count": len(imported)}
+        if verdicts.get(raw) == "fp" or verdicts.get(str(p)) == "fp":
+            stem = Path(name).stem
+            (lbl_dir / f"{stem}.txt").write_text("", encoding="utf-8")
+            negatives.append(stem)
+        else:
+            positive_names.append(name)
+    if negatives:
+        _add_negative_stems(project_dir, negatives)
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "count": len(imported),
+        "negative_count": len(negatives),
+        "positive_count": len(positive_names),
+        "positive_names": positive_names,
+    }
+
+
+def autolabel_images_with_weights(
+    project_dir: Path,
+    image_names: List[str],
+    *,
+    weights_path: str,
+    conf: float = 0.25,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """回流校准：对研判为「准确」的回流图，用专模当前权重直接写出正式标注（labels/）。
+
+    前提是用户已人工确认这些告警准确，因此跳过草稿审核环节。
+    """
+    from ultralytics import YOLO
+
+    wp = Path(weights_path)
+    if not wp.is_file():
+        return {"success": False, "message": "专模权重不存在，无法自动标注"}
+
+    meta_path = project_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    n_class = len(meta.get("classes") or [])
+    if n_class < 1:
+        return {"success": False, "message": "项目无类别"}
+
+    img_dir = project_dir / "images"
+    lbl_dir = project_dir / "labels"
+    lbl_dir.mkdir(exist_ok=True)
+    reviewed_stems = set(list_reviewed_stems(project_dir))
+
+    model = YOLO(str(wp))
+    dev = device if device else detect_train_device()
+    processed = 0
+    written = 0
+    for name in image_names:
+        ip = img_dir / name
+        if not ip.is_file():
+            continue
+        stem = ip.stem
+        if stem in reviewed_stems:
+            continue
+        processed += 1
+        results = model.predict(source=str(ip), conf=conf, device=dev, verbose=False)
+        lines: List[str] = []
+        if results and results[0].boxes is not None:
+            for box in results[0].boxes:
+                ci = int(box.cls[0])
+                if not (0 <= ci < n_class):
+                    continue
+                xywhn = box.xywhn[0].tolist()
+                lines.append(
+                    f"{ci} {xywhn[0]:.6f} {xywhn[1]:.6f} {xywhn[2]:.6f} {xywhn[3]:.6f}"
+                )
+        if not lines:
+            continue
+        (lbl_dir / f"{stem}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        written += 1
+
+    return {
+        "success": True,
+        "processed": processed,
+        "written": written,
+        "message": f"准确样本自动标注 {written}/{processed} 张（未检出的需到「新项目」人工补标）",
+    }
 
 
 def prelabel_project_images(

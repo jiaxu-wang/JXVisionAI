@@ -23,9 +23,16 @@
     validateRunning: false,
     lastUploadedValidateFile: null,
     snapItems: [],
-    snapSelected: new Set(),
+    snapVerdicts: {},
     sampleFiles: [],
     templates: [],
+    projects: [],
+    specialists: [],
+    calibProjectId: null,
+    calibKey: null,
+    calibSpecialist: null,
+    calibJobPoll: null,
+    calibLastJobId: null,
   };
 
   const HANDLE = 8;
@@ -165,6 +172,7 @@
     }
     if (state.projectId === p.id) {
       state.projectId = null;
+      syncDelProjectButton();
       state.projectClasses = [];
       $('current-project-label').textContent = '';
       fillClassPicker();
@@ -189,39 +197,69 @@
   async function loadProjects() {
     const r = await api('/api/training/projects');
     const list = await r.json();
+    state.projects = list;
     const ul = $('project-list');
-    ul.innerHTML = '';
+    if (ul) {
+      ul.innerHTML = '';
+      list.forEach((p) => {
+        const li = document.createElement('li');
+        li.dataset.id = p.id;
+        if (p.id === state.projectId) li.classList.add('active');
+
+        const inner = document.createElement('div');
+        inner.className = 'tl-project-inner';
+
+        const body = document.createElement('div');
+        body.className = 'tl-project-body';
+        body.innerHTML =
+          '<strong>' +
+          esc(p.title) +
+          '</strong><br><span class="tl-muted">' +
+          esc(p.labeled_count + '/' + p.image_count + ' 已标注') +
+          '</span>';
+        body.addEventListener('click', () => selectProject(p.id));
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tl-project-del';
+        btn.setAttribute('aria-label', '删除项目');
+        btn.setAttribute('title', '删除项目');
+        btn.textContent = '\u2715';
+        btn.addEventListener('click', (ev) => deleteProjectEntry(p, ev));
+
+        inner.appendChild(body);
+        inner.appendChild(btn);
+        li.appendChild(inner);
+        ul.appendChild(li);
+      });
+    }
+    renderProjectSelect();
+  }
+
+  function renderProjectSelect() {
+    const sel = $('project-select');
+    if (!sel) return;
+    const list = state.projects || [];
+    sel.innerHTML = '';
+    if (!list.length) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = '— 暂无项目，请新建 —';
+      sel.appendChild(o);
+      sel.value = '';
+      return;
+    }
     list.forEach((p) => {
-      const li = document.createElement('li');
-      li.dataset.id = p.id;
-      if (p.id === state.projectId) li.classList.add('active');
-
-      const inner = document.createElement('div');
-      inner.className = 'tl-project-inner';
-
-      const body = document.createElement('div');
-      body.className = 'tl-project-body';
-      body.innerHTML =
-        '<strong>' +
-        esc(p.title) +
-        '</strong><br><span class="tl-muted">' +
-        esc(p.labeled_count + '/' + p.image_count + ' 已标注') +
-        '</span>';
-      body.addEventListener('click', () => selectProject(p.id));
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'tl-project-del';
-      btn.setAttribute('aria-label', '删除项目');
-      btn.setAttribute('title', '删除项目');
-      btn.textContent = '\u2715';
-      btn.addEventListener('click', (ev) => deleteProjectEntry(p, ev));
-
-      inner.appendChild(body);
-      inner.appendChild(btn);
-      li.appendChild(inner);
-      ul.appendChild(li);
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.title + '（' + p.labeled_count + '/' + p.image_count + '）';
+      sel.appendChild(o);
     });
+    if (state.projectId && list.some(function (p) { return p.id === state.projectId; })) {
+      sel.value = state.projectId;
+    } else {
+      sel.value = '';
+    }
   }
 
   async function loadStreams() {
@@ -256,8 +294,6 @@
       'btn-prelabel',
       'btn-approve-all',
       'btn-refresh-health',
-      'btn-snap-list',
-      'btn-snap-import',
       'btn-threshold-suggest',
     ];
     ids.forEach(function (id) {
@@ -336,9 +372,11 @@
 
   async function loadSpecialists() {
     var ul = $('specialist-list');
-    if (!ul) return;
     var r = await api('/api/training/specialists');
     var items = await r.json();
+    state.specialists = items || [];
+    resolveCalibSpecialist();
+    if (!ul) return;
     ul.innerHTML = '';
     if (!items.length) {
       var empty = document.createElement('li');
@@ -440,9 +478,12 @@
     }
 
     state.projectId = id;
+    syncDelProjectButton();
     document.querySelectorAll('#project-list li').forEach(function (li) {
       li.classList.toggle('active', li.dataset.id === id);
     });
+    const projectSelect = $('project-select');
+    if (projectSelect) projectSelect.value = id || '';
     var r = await api('/api/training/projects');
     var list = await r.json();
     var p = list.find(function (x) {
@@ -452,6 +493,7 @@
     state.deployTarget = (p && p.deploy_target) || null;
     state.deployMode = (p && p.deploy_mode) || null;
     state.templateId = (p && p.template_id) || null;
+    state.calibKey = (p && p.calib_specialist_key) || null;
     $('current-project-label').textContent = p
       ? '\u00b7 ' +
         p.title +
@@ -550,7 +592,21 @@
 
       const status = row.status || (row.labeled ? 'reviewed' : 'unlabeled');
       const dotClass =
-        status === 'reviewed' ? 'ok' : status === 'draft' ? 'draft' : '';
+        status === 'reviewed'
+          ? 'ok'
+          : status === 'draft'
+            ? 'draft'
+            : status === 'negative'
+              ? 'neg'
+              : '';
+      const statusText =
+        status === 'reviewed'
+          ? '已审核'
+          : status === 'draft'
+            ? '草稿待审'
+            : status === 'negative'
+              ? '负样本（误报回流，直接计入训练）'
+              : '未标注';
 
       const body = document.createElement('div');
       body.className = 'tl-sample-body';
@@ -558,7 +614,7 @@
         '<span class="tl-dot ' +
         dotClass +
         '" title="' +
-        (status === 'reviewed' ? '已审核' : status === 'draft' ? '草稿待审' : '未标注') +
+        statusText +
         '"></span><span class="tl-fname" title="' +
         esc(row.filename) +
         '">' +
@@ -1303,7 +1359,13 @@
     if (specialist) {
       var t = getCurrentTemplate();
       var sd = (t && t.specialist_defaults) || {};
-      var key = window.prompt('专模键名（小写 a-z 开头，如 smoking）', sd.key_suggestion || 'custom_model');
+      var keyDefault = state.calibKey || sd.key_suggestion || 'custom_model';
+      var key = window.prompt(
+        state.calibKey
+          ? '专模键名（校准项目将同名覆盖线上专模 ' + state.calibKey + '）'
+          : '专模键名（小写 a-z 开头，如 smoking）',
+        keyDefault
+      );
       if (!key || !key.trim()) return;
       var nameZh = window.prompt('中文显示名', sd.name_zh || key.trim());
       if (nameZh === null) return;
@@ -1318,11 +1380,12 @@
       if (sd.comply_class_ids) body.comply_class_ids = sd.comply_class_ids;
       if (sd.class_ids) body.class_ids = sd.class_ids;
       if (sd.needs_persons !== undefined) body.needs_persons = sd.needs_persons;
+      var overwrite = state.calibKey && body.key === state.calibKey;
       if (
         !window.confirm(
-          '部署专模到 models/specialists/' +
-            body.key +
-            '？插件将热加载，可在管理平台检测类型中勾选。继续？'
+          (overwrite
+            ? '将覆盖线上专模 ' + body.key + '（旧权重自动备份），插件热加载后立即生效。继续？'
+            : '部署专模到 models/specialists/' + body.key + '？插件将热加载，可在管理平台检测类型中勾选。继续？')
         )
       ) {
         return;
@@ -1387,55 +1450,526 @@
     });
   }
 
-  function renderSnapList() {
-    var ul = $('snap-list');
-    if (!ul) return;
-    ul.innerHTML = '';
+  // ---- 回流校准：选流+检测类型 → 加载告警截图 → 人工研判 → 导入 → 重训 → 覆盖部署 ----
+  function getCalibSpecialist() {
+    return state.calibSpecialist || null;
+  }
+
+  function calibVerdictOf(it) {
+    return state.snapVerdicts[it.path] || '';
+  }
+
+  function calibCounts() {
+    var tp = 0;
+    var fp = 0;
     state.snapItems.forEach(function (it) {
-      var li = document.createElement('li');
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = state.snapSelected.has(it.path);
-      cb.addEventListener('change', function () {
-        if (cb.checked) state.snapSelected.add(it.path);
-        else state.snapSelected.delete(it.path);
+      var v = calibVerdictOf(it);
+      if (v === 'tp') tp += 1;
+      else if (v === 'fp') fp += 1;
+    });
+    return { tp: tp, fp: fp, unjudged: state.snapItems.length - tp - fp };
+  }
+
+  function updateCalibSummary() {
+    var c = calibCounts();
+    var el = $('calib-summary');
+    if (el) {
+      el.textContent = state.snapItems.length
+        ? '准确 ' + c.tp + ' · 误报 ' + c.fp + ' · 未研判 ' + c.unjudged
+        : '';
+    }
+    var btn = $('btn-calib-import');
+    if (btn) btn.disabled = !getCalibSpecialist() || !(c.tp + c.fp);
+  }
+
+  function setSnapVerdict(path, verdict) {
+    if (state.snapVerdicts[path] === verdict) {
+      delete state.snapVerdicts[path];
+    } else {
+      state.snapVerdicts[path] = verdict;
+    }
+    renderSnapGrid();
+  }
+
+  function renderSnapGrid() {
+    var grid = $('calib-snap-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    state.snapItems.forEach(function (it) {
+      var card = document.createElement('div');
+      card.className = 'tl-snap-card';
+
+      var img = document.createElement('img');
+      img.className = 'tl-snap-thumb';
+      img.loading = 'lazy';
+      img.alt = '';
+      img.src = '/api/training/snapshots/image?path=' + encodeURIComponent(it.path);
+      img.title = '点击放大预览';
+      img.addEventListener('click', function () {
+        openImgPreview(img.src);
       });
-      var span = document.createElement('span');
-      span.textContent = it.relative || it.filename;
-      li.appendChild(cb);
-      li.appendChild(span);
-      ul.appendChild(li);
+
+      var name = document.createElement('div');
+      name.className = 'tl-snap-name';
+      name.title = it.relative || it.filename;
+      name.textContent = it.relative || it.filename;
+
+      var ops = document.createElement('div');
+      ops.className = 'tl-snap-ops';
+      var v = calibVerdictOf(it);
+      var btnTp = document.createElement('button');
+      btnTp.type = 'button';
+      btnTp.className = 'tl-verdict tl-verdict-tp' + (v === 'tp' ? ' on' : '');
+      btnTp.textContent = '准确';
+      btnTp.addEventListener('click', function () { setSnapVerdict(it.path, 'tp'); });
+      var btnFp = document.createElement('button');
+      btnFp.type = 'button';
+      btnFp.className = 'tl-verdict tl-verdict-fp' + (v === 'fp' ? ' on' : '');
+      btnFp.textContent = '误报';
+      btnFp.addEventListener('click', function () { setSnapVerdict(it.path, 'fp'); });
+      ops.appendChild(btnTp);
+      ops.appendChild(btnFp);
+
+      card.appendChild(img);
+      card.appendChild(name);
+      card.appendChild(ops);
+      grid.appendChild(card);
+    });
+    updateCalibSummary();
+  }
+
+  function openImgPreview(src) {
+    var m = $('modal-img-preview');
+    var img = $('img-preview-full');
+    if (!m || !img) return;
+    img.src = src;
+    m.classList.remove('tl-hidden');
+  }
+
+  if ($('modal-img-preview')) {
+    $('modal-img-preview').addEventListener('click', function () {
+      this.classList.add('tl-hidden');
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !$('modal-img-preview').classList.contains('tl-hidden')) {
+        $('modal-img-preview').classList.add('tl-hidden');
+        e.stopPropagation();
+      }
     });
   }
 
-  $('btn-snap-list').addEventListener('click', async function () {
-    if (!state.projectId) return;
-    var stream = ($('snap-stream') && $('snap-stream').value.trim()) || '';
-    var det = ($('snap-det-type') && $('snap-det-type').value.trim()) || '';
-    var q = '?limit=50' + (stream ? '&stream=' + encodeURIComponent(stream) : '');
-    if (det) q += '&detection_type=' + encodeURIComponent(det);
-    var r = await api('/api/training/snapshots' + q);
-    state.snapItems = await r.json();
-    state.snapSelected = new Set();
-    renderSnapList();
-  });
+  // 仅「已部署专模」对应的告警类型支持回流校准（内置行为/COCO/识别实例标签不可训练）
+  function findSpecialistForType(type) {
+    var t = (type || '').trim();
+    if (!t) return null;
+    var tl = t.toLowerCase();
+    return (
+      (state.specialists || []).find(function (s) {
+        return (
+          (s.key || '').toLowerCase() === tl ||
+          (s.name_zh || '').trim() === t ||
+          (s.name_en || '').toLowerCase() === tl
+        );
+      }) || null
+    );
+  }
 
-  $('btn-snap-import').addEventListener('click', async function () {
-    if (!state.projectId) return;
-    var paths = Array.from(state.snapSelected);
-    if (!paths.length) {
-      alert('请先勾选快照');
+  async function loadCalibAlertTypes() {
+    var sel = $('calib-det-type');
+    if (!sel) return;
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">— 检测类型（仅支持专模）—</option>';
+    try {
+      var r = await api('/api/detections?limit=500');
+      var j = await r.json();
+      var rows = (j && j.data) || [];
+      var counts = {};
+      rows.forEach(function (d) {
+        (d.detection_types || []).forEach(function (t) {
+          counts[t] = (counts[t] || 0) + 1;
+        });
+      });
+      var trainable = Object.keys(counts)
+        .filter(function (t) { return !!findSpecialistForType(t); })
+        .sort(function (a, b) { return counts[b] - counts[a]; });
+      trainable.forEach(function (t) {
+        var o = document.createElement('option');
+        o.value = t;
+        o.textContent = t + '（' + counts[t] + ' 条）';
+        sel.appendChild(o);
+      });
+      if (!trainable.length) {
+        var eo = document.createElement('option');
+        eo.value = '';
+        eo.textContent = (state.specialists || []).length
+          ? '— 已部署专模暂无告警记录 —'
+          : '— 尚无已部署专模 —';
+        sel.appendChild(eo);
+      }
+      if (prev && counts[prev] && findSpecialistForType(prev)) sel.value = prev;
+    } catch (e) { /* ignore */ }
+    resolveCalibSpecialist();
+  }
+
+  function resolveCalibSpecialist() {
+    var type = ($('calib-det-type') && $('calib-det-type').value) || '';
+    state.calibSpecialist = type ? findSpecialistForType(type) : null;
+    resolveCalibTargetProject();
+  }
+
+  function resolveCalibTargetProject() {
+    var sp = getCalibSpecialist();
+    var type = ($('calib-det-type') && $('calib-det-type').value) || '';
+    var spName = $('calib-sp-name');
+    var target = $('calib-target-project');
+    var newBtn = $('btn-calib-new-project');
+    var loadBtn = $('btn-calib-load');
+    state.calibProjectId = null;
+    if (loadBtn) loadBtn.disabled = !type;
+    if (!type) {
+      if (spName) spName.textContent = '—';
+      if (target) target.textContent = '—';
+      if (newBtn) newBtn.classList.add('tl-hidden');
+      updateCalibSummary();
       return;
     }
-    var r = await api('/api/training/projects/' + state.projectId + '/import-snapshots', {
+    if (!sp) {
+      if (spName) spName.textContent = '无（该告警类型不是专模，暂不支持校准）';
+      if (target) target.textContent = '—';
+      if (newBtn) newBtn.classList.add('tl-hidden');
+      updateCalibSummary();
+      return;
+    }
+    if (spName) spName.textContent = (sp.name_zh || sp.key) + '（' + sp.key + '）';
+    var pid = sp.source_project_id || '';
+    var proj = pid && (state.projects || []).find(function (p) { return p.id === pid; });
+    var projFromKey = !proj && (state.projects || []).find(function (p) {
+      return p.calib_specialist_key === sp.key;
+    });
+    if (proj || projFromKey) {
+      var found = proj || projFromKey;
+      state.calibProjectId = found.id;
+      if (target) {
+        target.textContent = found.title + (proj ? '（原训练项目）' : '（已有校准项目）');
+      }
+      if (newBtn) newBtn.classList.add('tl-hidden');
+    } else {
+      if (target) target.textContent = '导入时将自动创建校准项目（也可点右侧按钮自定义名称先建）';
+      if (newBtn) newBtn.classList.remove('tl-hidden');
+    }
+    updateCalibSummary();
+    syncCalibTrainBlock();
+  }
+
+  async function ensureCalibProject() {
+    if (state.calibProjectId) return state.calibProjectId;
+    var sp = getCalibSpecialist();
+    if (!sp) return null;
+    var title = (sp.name_zh || sp.key) + '-校准-' + Math.floor(Date.now() / 1000);
+    var r = await api('/api/training/projects', {
       method: 'POST',
-      body: JSON.stringify({ paths: paths }),
+      body: JSON.stringify({
+        title: title,
+        classes: sp.classes || [],
+        template_id: 'custom',
+        calib_specialist_key: sp.key,
+      }),
     });
     var j = await r.json();
-    alert('已导入 ' + (j.count || 0) + ' 张');
-    await loadSamples();
-    await refreshDatasetHealth();
-  });
+    if (!j.success) {
+      alert(j.message || '创建校准项目失败');
+      return null;
+    }
+    await loadProjects();
+    state.calibProjectId = j.project.id;
+    var target = $('calib-target-project');
+    if (target) target.textContent = j.project.title + '（自动创建）';
+    var newBtn = $('btn-calib-new-project');
+    if (newBtn) newBtn.classList.add('tl-hidden');
+    syncCalibTrainBlock();
+    return state.calibProjectId;
+  }
+
+  if ($('calib-det-type')) {
+    $('calib-det-type').addEventListener('change', function () {
+      state.snapItems = [];
+      state.snapVerdicts = {};
+      renderSnapGrid();
+      resolveCalibSpecialist();
+    });
+  }
+
+  if ($('btn-calib-new-project')) {
+    $('btn-calib-new-project').addEventListener('click', async function () {
+      var sp = getCalibSpecialist();
+      if (!sp) return;
+      var defaultName =
+        (sp.name_zh || sp.key) + '-校准-' + Math.floor(Date.now() / 1000);
+      var title = window.prompt('校准项目名称（可自定义）', defaultName);
+      if (title === null) return;
+      title = title.trim() || defaultName;
+      var r = await api('/api/training/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: title,
+          classes: sp.classes || [],
+          template_id: 'custom',
+          calib_specialist_key: sp.key,
+        }),
+      });
+      var j = await r.json();
+      if (!j.success) {
+        alert(j.message || '创建校准项目失败');
+        return;
+      }
+      await loadProjects();
+      state.calibProjectId = j.project.id;
+      var target = $('calib-target-project');
+      if (target) target.textContent = j.project.title + '（新建）';
+      $('btn-calib-new-project').classList.add('tl-hidden');
+      updateCalibSummary();
+      syncCalibTrainBlock();
+    });
+  }
+
+  if ($('btn-calib-load')) {
+    $('btn-calib-load').addEventListener('click', async function () {
+      var detType = ($('calib-det-type') && $('calib-det-type').value) || '';
+      if (!detType) return;
+      var q = '?limit=200&detection_type=' + encodeURIComponent(detType);
+      var status = $('calib-status');
+      if (status) status.textContent = '加载中…';
+      var r = await api('/api/detections' + q);
+      var j = await r.json().catch(function () { return {}; });
+      var rows = (j && j.data) || [];
+      var skippedRemote = 0;
+      state.snapItems = [];
+      rows.forEach(function (d) {
+        var ip = (d.image_path || '').trim();
+        if (!ip) {
+          skippedRemote += 1;
+          return;
+        }
+        var ts = (d.timestamp || '').replace('T', ' ').substring(0, 19);
+        state.snapItems.push({
+          path: ip,
+          relative: (d.stream_name || '') + ' ' + ts,
+          filename: ip.split(/[/\\]/).pop(),
+        });
+      });
+      state.snapVerdicts = {};
+      renderSnapGrid();
+      if (status) {
+        status.textContent = state.snapItems.length
+          ? (skippedRemote ? skippedRemote + ' 条记录截图不在本地（对象存储），已跳过' : '')
+          : '该类型暂无可用的本地告警截图';
+      }
+    });
+  }
+
+  if ($('btn-calib-import')) {
+    $('btn-calib-import').addEventListener('click', async function () {
+      var sp = getCalibSpecialist();
+      if (!sp) return;
+      var pid = state.calibProjectId || (await ensureCalibProject());
+      if (!pid) return;
+      var judged = state.snapItems.filter(function (it) { return calibVerdictOf(it); });
+      if (!judged.length) {
+        alert('请先逐张研判：标记「准确」或「误报」');
+        return;
+      }
+      var verdicts = {};
+      judged.forEach(function (it) { verdicts[it.path] = calibVerdictOf(it); });
+      var r = await api('/api/training/projects/' + pid + '/import-snapshots', {
+        method: 'POST',
+        body: JSON.stringify({
+          paths: judged.map(function (it) { return it.path; }),
+          verdicts: verdicts,
+          specialist_key: sp.key,
+        }),
+      });
+      var j = await r.json();
+      var msg =
+        '已导入 ' + (j.count || 0) + ' 张（负样本 ' + (j.negative_count || 0) +
+        ' · 准确 ' + (j.positive_count || 0) + '）';
+      if (j.autolabel) {
+        msg += j.autolabel.success
+          ? '；准确样本已用专模当前权重自动标注 ' + (j.autolabel.written || 0) + ' 张'
+          : '；自动标注失败：' + (j.autolabel.message || '');
+      }
+      var status = $('calib-status');
+      if (status) status.textContent = msg + '，可直接开始校准训练';
+      state.snapItems = [];
+      state.snapVerdicts = {};
+      renderSnapGrid();
+      await refreshCalibProjectStats();
+    });
+  }
+
+  // ---- 校准训练与部署（页内闭环，不跳转） ----
+  function syncCalibTrainBlock() {
+    var block = $('calib-train-block');
+    if (!block) return;
+    var sp = getCalibSpecialist();
+    var show = !!(state.calibProjectId && sp);
+    block.classList.toggle('tl-hidden', !show);
+    if (show) {
+      var pre = $('calib-pretrained');
+      if (pre && !pre.value.trim()) {
+        pre.value = (sp.weights_exists && sp.model_path) ? sp.model_path : 'yolo26s.pt';
+      }
+      refreshCalibProjectStats().catch(function () {});
+    }
+  }
+
+  async function refreshCalibProjectStats() {
+    var el = $('calib-project-stats');
+    if (!el || !state.calibProjectId) return;
+    var r = await api('/api/training/projects/' + state.calibProjectId + '/dataset-health');
+    var h = await r.json().catch(function () { return {}; });
+    el.textContent =
+      '校准项目：已审核 ' + (h.labeled_images || 0) +
+      ' 张 · 负样本 ' + (h.negative_count || 0) +
+      ' 张 · 草稿 ' + (h.draft_images || 0) +
+      ' 张（开训至少需已审核 ≥ 3 张，建议 ≥ 8 张）';
+    var sp = getCalibSpecialist();
+    var preHint = $('calib-pretrained-hint');
+    if (preHint) {
+      preHint.textContent = (sp && sp.weights_exists)
+        ? '将在专模当前权重上微调'
+        : '专模权重未下载，将从 yolo26s.pt 起训（可执行 scripts/download_weapon_specialists.py）';
+    }
+    var trainBtn = $('btn-calib-train');
+    if (trainBtn) trainBtn.disabled = (h.labeled_images || 0) < 3;
+  }
+
+  function pollCalibJob(jobId) {
+    return api('/api/training/jobs/' + jobId).then(async function (r) {
+      if (!r.ok) return;
+      var j = await r.json();
+      $('calib-job-status').textContent =
+        j.status === 'completed' ? '已完成' : j.status === 'failed' ? '失败' : '运行中…';
+      if (j.status === 'completed') {
+        var em = $('calib-job-metrics');
+        if (em && j.test_evaluation) {
+          em.classList.remove('tl-hidden');
+          em.innerHTML = j.test_evaluation.ok
+            ? 'Test mAP@0.5: <b>' + Number(j.test_evaluation.map50).toFixed(4) +
+              '</b> · P: ' + Number(j.test_evaluation.precision).toFixed(4) +
+              ' · R: ' + Number(j.test_evaluation.recall).toFixed(4) +
+              (j.deploy_ready
+                ? '<br><span class="tl-gate-ok">已达上线门禁，可覆盖部署</span>'
+                : '<br><span class="tl-gate-bad">未达上线门禁：' +
+                  esc((j.deploy_gate_errors || []).join('；')) + '</span>')
+            : '测试集评估失败: ' + esc(j.test_evaluation.error || '');
+        }
+        if (j.deploy_ready) $('btn-calib-deploy').classList.remove('tl-hidden');
+        else $('btn-calib-deploy').classList.add('tl-hidden');
+        clearInterval(state.calibJobPoll);
+        state.calibJobPoll = null;
+      }
+      if (j.status === 'failed') {
+        $('calib-job-status').textContent += j.error ? ' — ' + j.error : '';
+        clearInterval(state.calibJobPoll);
+        state.calibJobPoll = null;
+      }
+    }).catch(function () {});
+  }
+
+  if ($('btn-calib-train')) {
+    $('btn-calib-train').addEventListener('click', async function () {
+      var pid = state.calibProjectId;
+      var sp = getCalibSpecialist();
+      if (!pid || !sp) return;
+      // 样本规模提示：由用户自行决断是否继续
+      try {
+        var hr = await api('/api/training/projects/' + pid + '/dataset-health');
+        var hh = await hr.json();
+        var labeled = hh.labeled_images || 0;
+        var negs = hh.negative_count || 0;
+        var hints = [];
+        if (labeled < 8) {
+          hints.push('准确样本仅 ' + labeled + ' 张（建议 ≥ 8），测试集评估可能不稳定');
+        }
+        if (negs < 1) {
+          hints.push('没有误报负样本，本次校准对抑制误报帮助有限');
+        }
+        if (hints.length && !window.confirm(hints.join('\n') + '\n\n仍要开始校准训练？')) {
+          return;
+        }
+      } catch (e) { /* 健康检查失败不阻塞 */ }
+      var body = {
+        epochs: parseInt($('calib-epochs').value, 10) || 30,
+        batch_size: 8,
+        img_size: parseInt($('calib-imgsz').value, 10) || 640,
+        device: ($('calib-device').value || '').trim() || 'cpu',
+        pretrained_model:
+          ($('calib-pretrained').value || '').trim() || sp.model_path || 'yolo26s.pt',
+      };
+      var r = await api('/api/training/projects/' + pid + '/train', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      var j = await r.json();
+      if (!r.ok || !j.success) {
+        $('calib-train-status').textContent = j.message || '启动失败';
+        return;
+      }
+      $('calib-job-panel').classList.remove('tl-hidden');
+      $('calib-job-id').textContent = j.job_id;
+      state.calibLastJobId = j.job_id;
+      $('calib-train-status').textContent = '任务已启动';
+      $('calib-job-log-link').href = '/api/training/jobs/' + j.job_id + '/log';
+      $('btn-calib-deploy').classList.add('tl-hidden');
+      $('calib-job-metrics').classList.add('tl-hidden');
+      $('calib-deploy-status').textContent = '';
+      if (state.calibJobPoll) clearInterval(state.calibJobPoll);
+      state.calibJobPoll = setInterval(function () { pollCalibJob(j.job_id); }, 2000);
+      pollCalibJob(j.job_id);
+    });
+  }
+
+  if ($('btn-calib-deploy')) {
+    $('btn-calib-deploy').addEventListener('click', async function () {
+      var pid = state.calibProjectId;
+      var sp = getCalibSpecialist();
+      if (!pid || !sp || !state.calibLastJobId) return;
+      if (
+        !window.confirm(
+          '将用本次校准权重覆盖线上专模 ' + sp.key +
+          '（旧权重自动备份），插件热加载后立即生效。继续？'
+        )
+      ) {
+        return;
+      }
+      var body = {
+        job_id: state.calibLastJobId,
+        deploy_mode: 'specialist',
+        key: sp.key,
+        name_zh: sp.name_zh || sp.key,
+        name_en: sp.name_en || '',
+        kind: sp.kind || 'person_event',
+        needs_persons: sp.needs_persons !== false,
+        backup: true,
+        force: false,
+      };
+      ['positive_class_ids', 'subject_class_ids', 'comply_class_ids', 'class_ids'].forEach(
+        function (f) {
+          if (sp[f]) body[f] = sp[f];
+        }
+      );
+      var r = await api('/api/training/projects/' + pid + '/deploy', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      var j = await r.json();
+      $('calib-deploy-status').textContent =
+        j.message || (j.success ? '已覆盖部署' : '部署失败');
+      if (j.success) {
+        loadSpecialists().catch(function () {});
+      }
+    });
+  }
 
   $('btn-threshold-suggest').addEventListener('click', async function () {
     if (!state.projectId) return;
@@ -1594,8 +2128,143 @@
     refreshValidateLogs().catch(function () {});
   });
 
+  // 菜单 + 子页 + 步骤导航
+  const STEP_KEYS = ['capture', 'samples', 'annotate', 'train', 'validate', 'threshold'];
+  const MENU_KEYS = ['train', 'import'];
+  const TRAIN_SUB_KEYS = ['new', 'calib'];
+  let currentStep = 'capture';
+  let currentMenu = 'train';
+  let currentTrainSub = 'new';
+
+  function setStep(step) {
+    if (STEP_KEYS.indexOf(step) < 0) step = 'capture';
+    currentStep = step;
+    document.querySelectorAll('.tl-step').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-step') === step);
+    });
+    document.querySelectorAll('[data-step-panel]').forEach(function (panel) {
+      panel.classList.toggle('tl-hidden', panel.getAttribute('data-step-panel') !== step);
+    });
+    syncHash();
+  }
+
+  function setTrainSub(sub) {
+    if (TRAIN_SUB_KEYS.indexOf(sub) < 0) sub = 'new';
+    currentTrainSub = sub;
+    document.querySelectorAll('.tl-subnav-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-train-sub') === sub);
+    });
+    document.querySelectorAll('[data-train-sub-panel]').forEach(function (panel) {
+      panel.classList.toggle('tl-hidden', panel.getAttribute('data-train-sub-panel') !== sub);
+    });
+    if (sub === 'calib') {
+      // 先加载专模列表，再加载告警类型（类型要用专模表过滤）
+      loadSpecialists()
+        .catch(function () {})
+        .then(function () {
+          return loadCalibAlertTypes();
+        })
+        .catch(function () {});
+    }
+    syncHash();
+  }
+
+  function setMenu(menu) {
+    if (MENU_KEYS.indexOf(menu) < 0) menu = 'train';
+    currentMenu = menu;
+    document.querySelectorAll('.tl-menu-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-menu') === menu);
+    });
+    document.querySelectorAll('[data-menu-panel]').forEach(function (panel) {
+      panel.classList.toggle('tl-hidden', panel.getAttribute('data-menu-panel') !== menu);
+    });
+    if (menu === 'import') {
+      loadSpecialists().catch(function () {});
+    }
+    syncHash();
+  }
+
+  function syncHash() {
+    try {
+      let h;
+      if (currentMenu === 'import') h = 'menu=import';
+      else if (currentTrainSub === 'calib') h = 'menu=train&sub=calib';
+      else h = 'step=' + currentStep;
+      history.replaceState(null, '', '#' + h);
+    } catch (e) { /* ignore */ }
+  }
+
+  function initNavFromHash() {
+    try {
+      const raw = (location.hash || '').replace(/^#/, '');
+      const q = new URLSearchParams(raw);
+      const m = q.get('menu');
+      if (m === 'import') {
+        setMenu('import');
+        return;
+      }
+      const sub = q.get('sub');
+      if (sub && TRAIN_SUB_KEYS.indexOf(sub) >= 0) {
+        setMenu('train');
+        setTrainSub(sub);
+        return;
+      }
+      const s = q.get('step');
+      if (s && STEP_KEYS.indexOf(s) >= 0) setStep(s);
+    } catch (e) { /* ignore */ }
+  }
+
+  document.querySelectorAll('.tl-menu-item').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setMenu(this.getAttribute('data-menu') || 'train');
+    });
+  });
+  document.querySelectorAll('.tl-subnav-item').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setMenu('train');
+      setTrainSub(this.getAttribute('data-train-sub') || 'new');
+    });
+  });
+  document.querySelectorAll('.tl-step').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setMenu('train');
+      setTrainSub('new');
+      setStep(this.getAttribute('data-step') || 'capture');
+    });
+  });
+  initNavFromHash();
+
+  // 项目下拉
+  if ($('project-select')) {
+    $('project-select').addEventListener('change', function () {
+      const id = this.value;
+      if (id) selectProject(id);
+    });
+  }
+
+  // 删除当前项目
+  function syncDelProjectButton() {
+    var btn = $('btn-del-project');
+    if (btn) btn.disabled = !state.projectId;
+  }
+  if ($('btn-del-project')) {
+    $('btn-del-project').addEventListener('click', function () {
+      var p = (state.projects || []).find(function (x) { return x.id === state.projectId; });
+      if (!p) {
+        alert('请先选择要删除的项目');
+        return;
+      }
+      deleteProjectEntry(p, null);
+    });
+  }
+
   $('btn-new-project').addEventListener('click', () => $('modal-new').classList.remove('tl-hidden'));
   $('np-cancel').addEventListener('click', () => $('modal-new').classList.add('tl-hidden'));
+  if ($('modal-new')) {
+    $('modal-new').addEventListener('click', function (e) {
+      if (e.target === this) this.classList.add('tl-hidden');
+    });
+  }
 
   if ($('np-template')) {
     $('np-template').addEventListener('change', function () {

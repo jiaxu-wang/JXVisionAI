@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from collections import deque
 
 import cv2
-from flask import Blueprint, Response, abort, jsonify, render_template, request, send_from_directory
+from flask import Blueprint, Response, abort, jsonify, render_template, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
 from visionai.config.settings import SAVE_DIR, yolo_inference_device
@@ -38,9 +38,11 @@ from visionai.web.training_lab_core import (
     deploy_weights_to_production,
     deploy_as_specialist,
     detect_train_device,
+    autolabel_images_with_weights,
     import_snapshots_to_project,
     list_draft_stems,
     list_labeled_stems,
+    list_negative_stems,
     list_production_snapshots,
     list_reviewed_stems,
     materialize_yolo_split,
@@ -63,6 +65,36 @@ training_bp = Blueprint(
 def _repo_root() -> Path:
     # visionai/web/training_routes.py -> visionai -> repo
     return Path(__file__).resolve().parent.parent.parent
+
+
+_DEFAULT_PRETRAINED = "yolo26s.pt"
+
+
+def _resolve_pretrained_model(pretrained_model: str) -> tuple[str, Optional[str]]:
+    """解析预训练权重。本地文件转成绝对路径（训练 cwd 在 training_system/）。
+
+    专模 model.pt 未下载时回退 yolo26s.pt（Ultralytics 可按文件名自动拉取）。
+    返回 (传给 train.py 的路径或文件名, 警告或 None)。
+    """
+    pre = (pretrained_model or "").strip() or _DEFAULT_PRETRAINED
+    repo = _repo_root()
+    p = Path(pre)
+    if p.is_file():
+        return str(p.resolve()), None
+    if not p.is_absolute():
+        cand = (repo / pre).resolve()
+        if cand.is_file():
+            return str(cand), None
+        cand_models = (repo / "models" / p.name).resolve()
+        if cand_models.is_file():
+            return str(cand_models), None
+    # 无目录的 *.pt：交给 Ultralytics 下载，不要当缺失专模路径
+    norm = pre.replace("\\", "/")
+    if "/" not in norm and pre.endswith(".pt"):
+        return pre, None
+    warn = f"预训练权重不存在: {pre}，改用 {_DEFAULT_PRETRAINED}"
+    logger.warning(warn)
+    return _DEFAULT_PRETRAINED, warn
 
 
 def _projects_base() -> Path:
@@ -609,7 +641,10 @@ def _run_training_job(
         return
 
     try:
-        yaml_path = materialize_yolo_split(project_dir, _read_meta(project_dir))
+        _meta = _read_meta(project_dir)
+        yaml_path = materialize_yolo_split(
+            project_dir, _meta, calib=bool(_meta.get("calib_specialist_key"))
+        )
     except ValueError as e:
         with open(job_path, "w", encoding="utf-8") as f:
             json.dump(
@@ -623,19 +658,7 @@ def _run_training_job(
     out_base = run_root / "yolo_outputs"
     out_base.mkdir(parents=True, exist_ok=True)
 
-    # 解析预训练权重路径
-    pre = pretrained_model.strip() or "yolo26s.pt"
-    if pre and not Path(pre).is_absolute():
-        cand = Path(pre)
-        if not cand.is_file():
-            cand2 = (_repo_root() / pre).resolve()
-            if cand2.is_file():
-                pre = str(cand2)
-            else:
-                # models/ 下常见放置
-                cand3 = (_repo_root() / "models" / Path(pre).name).resolve()
-                if cand3.is_file():
-                    pre = str(cand3)
+    pre, pre_warn = _resolve_pretrained_model(pretrained_model)
 
     cmd = [
         sys.executable,
@@ -662,6 +685,8 @@ def _run_training_job(
     ]
 
     with open(log_fp, "a", encoding="utf-8") as logf:
+        if pre_warn:
+            logf.write(f"# {pre_warn}\n")
         logf.write(f"$ {' '.join(cmd)}\n")
         logf.flush()
         proc = subprocess.Popen(
@@ -834,6 +859,7 @@ def _register_api_routes(app):
                     "template_id": meta.get("template_id"),
                     "deploy_target": meta.get("deploy_target"),
                     "deploy_mode": meta.get("deploy_mode"),
+                    "calib_specialist_key": meta.get("calib_specialist_key"),
                     "created_at": meta.get("created_at"),
                     "image_count": len(list((d / "images").glob("*"))) if (d / "images").is_dir() else 0,
                     "labeled_count": health.labeled_images,
@@ -866,12 +892,14 @@ def _register_api_routes(app):
         (pdir / "images").mkdir(parents=True)
         (pdir / "labels").mkdir(parents=True)
         (pdir / "labels_draft").mkdir(parents=True)
+        calib_key = (data.get("calib_specialist_key") or "").strip()
         meta = {
             "title": title,
             "classes": classes,
             "template_id": template_id,
             "deploy_target": tpl.get("deploy_target"),
             "deploy_mode": tpl.get("deploy_mode"),
+            "calib_specialist_key": calib_key if re.match(r"^[a-z][a-z0-9_]*$", calib_key) else None,
             "created_at": time.time(),
             "train_defaults": {
                 "epochs": tpl.get("default_epochs"),
@@ -889,7 +917,10 @@ def _register_api_routes(app):
         project_dir = _pid_path(pid)
         meta = _read_meta(project_dir)
         health = check_dataset_health(project_dir, meta)
-        return jsonify(health.to_dict())
+        out = health.to_dict()
+        out["calib_specialist_key"] = meta.get("calib_specialist_key")
+        out["negative_count"] = len(list_negative_stems(project_dir))
+        return jsonify(out)
 
     @app.route("/api/training/projects/<pid>", methods=["DELETE"])
     @login_required
@@ -1073,11 +1104,29 @@ def _register_api_routes(app):
         force = bool(data.get("force"))
 
         health = check_dataset_health(project_dir, meta)
+        is_calib_project = bool(meta.get("calib_specialist_key"))
+        if is_calib_project and not health.can_train:
+            # 校准项目（微调已部署专模）：小样本即可开训，仅需已审核准确样本达标
+            from visionai.web.training_lab_core import CALIB_MIN_REVIEWED
+
+            if health.labeled_images >= CALIB_MIN_REVIEWED:
+                health.can_train = True
+                health.errors = [
+                    e
+                    for e in (health.errors or [])
+                    if "开训下限" not in e and "训练集预估" not in e
+                    and "验证集预估" not in e and "测试集预估" not in e
+                ]
         if not health.can_train and not force:
+            msg = "未达开训门槛"
+            if is_calib_project:
+                from visionai.web.training_lab_core import CALIB_MIN_REVIEWED
+
+                msg += f"（校准项目需已审核准确样本 ≥ {CALIB_MIN_REVIEWED} 张）"
             return jsonify(
                 {
                     "success": False,
-                    "message": "未达开训门槛",
+                    "message": msg,
                     "health": health.to_dict(),
                 }
             ), 400
@@ -1715,6 +1764,23 @@ def _register_api_routes(app):
         )
         return jsonify(items)
 
+    @app.route("/api/training/snapshots/image", methods=["GET"])
+    @login_required
+    def training_snapshot_image():
+        """安全地回传生产 snapshots 下的单张图片（人工研判预览用）。"""
+        raw = (request.args.get("path") or "").strip()
+        if not raw:
+            return jsonify({"success": False, "message": "缺少 path"}), 400
+        p = Path(raw).resolve()
+        save_resolved = Path(SAVE_DIR).resolve()
+        try:
+            p.relative_to(save_resolved)
+        except ValueError:
+            return jsonify({"success": False, "message": "非法路径"}), 403
+        if not p.is_file() or p.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+            return jsonify({"success": False, "message": "文件不存在"}), 404
+        return send_file(str(p))
+
     @app.route("/api/training/projects/<pid>/import-snapshots", methods=["POST"])
     @login_required
     def training_import_snapshots(pid):
@@ -1723,7 +1789,41 @@ def _register_api_routes(app):
         paths = data.get("paths") or []
         if not isinstance(paths, list) or not paths:
             return jsonify({"success": False, "message": "请提供 paths 数组"}), 400
-        result = import_snapshots_to_project(project_dir, paths, Path(SAVE_DIR))
+        verdicts = data.get("verdicts")
+        if not isinstance(verdicts, dict):
+            verdicts = {}
+        verdicts = {str(k): str(v) for k, v in verdicts.items() if str(v) in ("tp", "fp")}
+        result = import_snapshots_to_project(project_dir, paths, Path(SAVE_DIR), verdicts=verdicts)
+        # 记录本校准项目要覆盖的专模 key（重新部署时默认同名覆盖）
+        sp_key = (data.get("specialist_key") or "").strip()
+        sp_meta = None
+        if sp_key and re.match(r"^[a-z][a-z0-9_]*$", sp_key):
+            meta = _read_meta(project_dir)
+            if meta.get("calib_specialist_key") != sp_key:
+                meta["calib_specialist_key"] = sp_key
+                _write_meta(project_dir, meta)
+            from visionai.config.specialists import load_specialist
+
+            sp_meta = load_specialist(sp_key, _repo_root())
+        # 研判为「准确」的回流图：用专模当前权重直接自动标注（用户已确认准确，免草稿审核）
+        tp_names = result.get("positive_names") or []
+        if tp_names and sp_meta:
+            model_rel = (sp_meta.get("model_path") or "").strip()
+            wp = Path(model_rel)
+            if model_rel and not wp.is_absolute():
+                wp = (_repo_root() / model_rel).resolve()
+            if wp.is_file():
+                try:
+                    al = autolabel_images_with_weights(
+                        project_dir,
+                        tp_names,
+                        weights_path=str(wp),
+                        conf=float(sp_meta.get("conf") or 0.25),
+                    )
+                    result["autolabel"] = al
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("回流准确样本自动标注失败: %s", e)
+                    result["autolabel"] = {"success": False, "message": str(e)}
         return jsonify({"success": True, **result})
 
     @app.route("/api/training/projects/<pid>/prelabel", methods=["POST"])

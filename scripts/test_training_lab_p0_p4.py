@@ -258,6 +258,23 @@ def test_p3_snapshot_list_import():
     shutil.rmtree(pdir)
 
 
+def test_resolve_pretrained_missing_specialist():
+    from visionai.web.training_routes import _resolve_pretrained_model
+
+    path, warn = _resolve_pretrained_model("models/specialists/gun/model.pt")
+    gun = Path(__file__).resolve().parents[1] / "models" / "specialists" / "gun" / "model.pt"
+    if gun.is_file():
+        assert warn is None
+        assert Path(path).is_file()
+        print("resolve pretrained (gun weights present): OK")
+        return
+    assert path == "yolo26s.pt"
+    assert warn and "不存在" in warn
+    name, warn2 = _resolve_pretrained_model("yolo26s.pt")
+    assert name == "yolo26s.pt" and warn2 is None
+    print("resolve pretrained missing specialist -> yolo26s.pt: OK")
+
+
 def main():
     print("=== Training Lab production-ready self-test ===\n")
     test_p0_prepare_smoking_remap()
@@ -271,6 +288,7 @@ def main():
     test_deploy_gate_blocks_without_metrics()
     test_deploy_with_good_metrics()
     test_p3_snapshot_list_import()
+    test_resolve_pretrained_missing_specialist()
     print("\n=== ALL TESTS PASSED ===")
 
 

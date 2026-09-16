@@ -6,7 +6,7 @@
     <title>训练实验室 · JXVisionAI</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='training_lab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='training_lab.css') }}?v=14">
 </head>
 <body>
     <header class="tl-header">
@@ -14,7 +14,7 @@
             <img class="tl-logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
             <div>
                 <h1>训练实验室</h1>
-                <p class="tl-sub">场景模板 → 采图/标注/训练部署 · 或导入社区现成 YOLO 专模 → 检测类型按流勾选</p>
+                <p class="tl-sub">场景模板 → 采图/标注/训练部署 · 或导入社区现成 YOLO 专模</p>
             </div>
         </div>
         <div class="tl-header-actions">
@@ -24,100 +24,83 @@
     </header>
 
     <main class="tl-main">
-        <section class="tl-panel tl-projects">
-            <h2>项目</h2>
-            <button type="button" id="btn-new-project" class="tl-btn tl-btn-primary">新建项目</button>
-            <ul id="project-list" class="tl-list"></ul>
-            <h3 class="tl-subsection">已部署专模</h3>
-            <p class="tl-hint">含训练实验室部署与「导入现成专模」；可在管理平台「检测类型配置」中按流勾选。</p>
-            <ul id="specialist-list" class="tl-list"></ul>
-            <button type="button" id="btn-refresh-specialists" class="tl-btn tl-btn-secondary">刷新专模列表</button>
+        <nav class="tl-menu" aria-label="训练实验室菜单">
+            <button type="button" class="tl-menu-item" data-menu="import">专模导入</button>
+            <button type="button" class="tl-menu-item active" data-menu="train">项目训练</button>
+        </nav>
 
-            <h3 class="tl-subsection">导入现成专模</h3>
-            <p class="tl-hint">
-                接入 Hugging Face / Ultralytics Platform 等社区 YOLO 检测权重（<code>.pt</code> / <code>.onnx</code>）。
-                勿用其替换主检 <code>yolo_model</code>（主检固定 COCO 80）；专模与主检并行。
-            </p>
-            <div class="tl-import-form">
-                <label class="tl-label">权重文件
-                    <input type="file" id="import-file" class="tl-input" accept=".pt,.onnx,application/octet-stream">
-                </label>
-                <label class="tl-label">或权重 URL（http/https，可空）
-                    <input type="url" id="import-weights-url" class="tl-input" placeholder="https://.../model.pt">
-                </label>
-                <div class="tl-row">
-                    <button type="button" id="btn-import-inspect" class="tl-btn tl-btn-secondary">读取类别</button>
-                    <span id="import-inspect-status" class="tl-muted"></span>
+        <section class="tl-workspace">
+            <!-- 菜单：项目训练 -->
+            <div data-menu-panel="train">
+                <div class="tl-subnav">
+                    <button type="button" class="tl-subnav-item active" data-train-sub="new">新项目</button>
+                    <button type="button" class="tl-subnav-item" data-train-sub="calib">回流校准</button>
                 </div>
-                <label class="tl-label">键名 key（小写字母开头，a-z0-9_）
-                    <input type="text" id="import-key" class="tl-input" placeholder="如 hardhat / smoking">
-                </label>
-                <label class="tl-label">中文名
-                    <input type="text" id="import-name-zh" class="tl-input" placeholder="如 未戴安全帽">
-                </label>
-                <label class="tl-label">英文名（可选）
-                    <input type="text" id="import-name-en" class="tl-input" placeholder="no_hardhat">
-                </label>
-                <label class="tl-label">类型 kind
-                    <select id="import-kind" class="tl-input">
-                        <option value="person_event">person_event（人物关联事件，如吸烟）</option>
-                        <option value="violation">violation（合规/违规双类，如安全帽）</option>
-                        <option value="scene">scene（全画面场景）</option>
-                    </select>
-                </label>
-                <label class="tl-label">类别名（逗号分隔，可空=自动从权重读）
-                    <input type="text" id="import-classes" class="tl-input" placeholder="no_helmet,helmet">
-                </label>
-                <div class="tl-import-advanced" id="import-kind-fields">
-                    <label class="tl-label" data-for-kind="person_event">positive_class_ids（告警类索引，默认 0）
-                        <input type="text" id="import-positive-ids" class="tl-input" value="0">
-                    </label>
-                    <label class="tl-label" data-for-kind="violation">subject_class_ids（违规类，默认 0）
-                        <input type="text" id="import-subject-ids" class="tl-input" value="0">
-                    </label>
-                    <label class="tl-label" data-for-kind="violation">comply_class_ids（合规类，默认 1）
-                        <input type="text" id="import-comply-ids" class="tl-input" value="1">
-                    </label>
-                    <label class="tl-label" data-for-kind="scene">class_ids（场景类，空=全部）
-                        <input type="text" id="import-class-ids" class="tl-input" placeholder="0 或 0,1">
-                    </label>
-                </div>
-                <label class="tl-label">conf / score_threshold / min_duration_sec
-                    <div class="tl-row tl-row-tight">
-                        <input type="number" id="import-conf" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="conf" value="0.40">
-                        <input type="number" id="import-score" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="score" value="0.45">
-                        <input type="number" id="import-duration" class="tl-input" step="0.1" min="0" placeholder="秒" value="1">
+                <div data-train-sub-panel="new">
+                <div class="tl-project-bar" id="projectBar">
+                    <div class="tl-project-bar-inner">
+                        <label class="tl-project-bar-label">当前项目</label>
+                        <select id="project-select" class="tl-input tl-project-select"></select>
+                        <span id="current-project-label" class="tl-muted"></span>
+                        <button type="button" id="btn-new-project" class="tl-btn tl-btn-primary">新建项目</button>
+                        <button type="button" id="btn-del-project" class="tl-btn tl-btn-ghost" disabled>删除项目</button>
                     </div>
-                </label>
-                <label class="tl-check">
-                    <input type="checkbox" id="import-needs-persons" checked>
-                    需与人物框重叠（person_event / violation 常用）
-                </label>
-                <div class="tl-row">
-                    <button type="button" id="btn-import-specialist" class="tl-btn tl-btn-primary">导入并上线</button>
-                    <span id="import-status" class="tl-muted"></span>
                 </div>
-            </div>
-        </section>
-
-        <section class="tl-panel tl-workspace">
-            <h2>工作区 <span id="current-project-label" class="tl-muted"></span></h2>
-
-            <div class="tl-grid">
-                <div class="tl-block">
-                    <h3>1. RTSP</h3>
-                    <select id="stream-picker" class="tl-input"><option value="">— 可选：Redis 中的流 —</option></select>
-                    <input type="text" id="rtsp-url" class="tl-input" placeholder="rtsp://user:pass@host:554/...">
-                    <div class="tl-row">
-                        <button type="button" id="btn-preview" class="tl-btn tl-btn-secondary">预览一帧</button>
-                        <button type="button" id="btn-capture" class="tl-btn tl-btn-primary" disabled>截帧到数据集</button>
+                <div class="tl-train-layout">
+                <div class="tl-steps-pane">
+                    <div class="tl-steps-head">操作步骤</div>
+                    <div class="tl-steps" id="tlSteps">
+                        <button type="button" class="tl-step active" data-step="capture">
+                            <span class="tl-step-num">1</span>
+                            <span class="tl-step-text">采图</span>
+                        </button>
+                        <button type="button" class="tl-step" data-step="samples">
+                            <span class="tl-step-num">2</span>
+                            <span class="tl-step-text">样本</span>
+                        </button>
+                        <button type="button" class="tl-step" data-step="annotate">
+                            <span class="tl-step-num">3</span>
+                            <span class="tl-step-text">标注</span>
+                        </button>
+                        <button type="button" class="tl-step" data-step="train">
+                            <span class="tl-step-num">4</span>
+                            <span class="tl-step-text">训练</span>
+                        </button>
+                        <button type="button" class="tl-step" data-step="validate">
+                            <span class="tl-step-num">5</span>
+                            <span class="tl-step-text">验证</span>
+                        </button>
+                        <button type="button" class="tl-step" data-step="threshold">
+                            <span class="tl-step-num">6</span>
+                            <span class="tl-step-text">阈值</span>
+                        </button>
                     </div>
-                    <img id="preview-img" alt="预览" class="tl-preview" crossorigin="anonymous">
+                </div>
+                <div class="tl-train-panels">
+                <!-- 1. 采图 -->
+                <div class="tl-step-panel" data-step-panel="capture">
+                    <div class="tl-panel-head">
+                        <h2>采图</h2>
+                        <p class="tl-hint">从 RTSP 预览并截帧到数据集。线上误报/漏报的告警截图请切换到上方「回流校准」子页操作。</p>
+                    </div>
+                    <div class="tl-block">
+                        <h3>RTSP 截帧</h3>
+                        <select id="stream-picker" class="tl-input"><option value="">— 可选：Redis 中的流 —</option></select>
+                        <input type="text" id="rtsp-url" class="tl-input" placeholder="rtsp://user:pass@host:554/...">
+                        <div class="tl-row">
+                            <button type="button" id="btn-preview" class="tl-btn tl-btn-secondary">预览一帧</button>
+                            <button type="button" id="btn-capture" class="tl-btn tl-btn-primary" disabled>截帧到数据集</button>
+                        </div>
+                        <img id="preview-img" alt="预览" class="tl-preview" crossorigin="anonymous">
+                    </div>
                 </div>
 
-                <div class="tl-block">
-                    <h3>2. 样本列表</h3>
-                    <p class="tl-hint">绿点=已审核可训练；黄点=预标注草稿（需审核）；灰点=未标注。点击图片进入标注画布，保存即视为审核通过。</p>
+                <!-- 2. 样本 -->
+                <div class="tl-step-panel tl-hidden" data-step-panel="samples">
+                    <div class="tl-panel-head">
+                        <h2>样本列表</h2>
+                        <p class="tl-hint">绿点=已审核可训练；黄点=预标注草稿（需审核）；红点=误报负样本（无需标注，训练时作背景抑制误报）；灰点=未标注。点击图片进入标注画布，保存即视为审核通过。</p>
+                    </div>
                     <div id="dataset-health" class="tl-health tl-hidden"></div>
                     <div class="tl-row">
                         <button type="button" id="btn-prelabel" class="tl-btn tl-btn-secondary" disabled>预标注到草稿</button>
@@ -127,106 +110,251 @@
                     <ul id="sample-list" class="tl-samples"></ul>
                 </div>
 
-                <div class="tl-block">
-                    <h3>2b. 生产快照回流</h3>
-                    <p class="tl-hint">从线上告警截图导入数据集，用于误报/漏报迭代标注。</p>
-                    <input type="text" id="snap-stream" class="tl-input" placeholder="可选：流名称子目录">
-                    <input type="text" id="snap-det-type" class="tl-input" placeholder="可选：检测类型过滤，如 smoking">
-                    <div class="tl-row">
-                        <button type="button" id="btn-snap-list" class="tl-btn tl-btn-secondary" disabled>加载快照</button>
-                        <button type="button" id="btn-snap-import" class="tl-btn tl-btn-primary" disabled>导入选中</button>
+                <!-- 3. 标注 -->
+                <div class="tl-step-panel tl-hidden" data-step-panel="annotate">
+                    <div class="tl-panel-head">
+                        <h2>标注 <span id="annotate-filename" class="tl-muted"></span></h2>
+                        <p class="tl-hint">空白处拖拽画框；点击选中后可拖移或拖角点改大小。<code>Ctrl+Z</code> 撤销 / <code>Ctrl+Y</code> 重做；<code>Delete</code> 删选中框；双击也可删；<code>←</code>/<code>→</code>（或 <code>A</code>/<code>D</code>）上一张/下一张（切换前自动保存）；<code>S</code> 保存。</p>
                     </div>
-                    <ul id="snap-list" class="tl-snap-list"></ul>
-                </div>
-            </div>
-
-            <div class="tl-block tl-annotate">
-                <h3>3. 标注 <span id="annotate-filename" class="tl-muted"></span></h3>
-                <p class="tl-hint">空白处拖拽画框；点击选中后可拖移或拖角点改大小。<code>Ctrl+Z</code> 撤销 / <code>Ctrl+Y</code> 重做；<code>Delete</code> 删选中框；双击也可删；<code>←</code>/<code>→</code>（或 <code>A</code>/<code>D</code>）上一张/下一张（切换前自动保存）；<code>S</code> 保存。</p>
-                <select id="class-picker" class="tl-input tl-class-picker"></select>
-                <canvas id="anno-canvas" class="tl-canvas"></canvas>
-                <div class="tl-row">
-                    <button type="button" id="btn-prev-sample" class="tl-btn tl-btn-secondary" disabled title="上一张（← / A）">上一张</button>
-                    <span id="sample-nav-pos" class="tl-muted"></span>
-                    <button type="button" id="btn-next-sample" class="tl-btn tl-btn-secondary" disabled title="下一张（→ / D）">下一张</button>
-                    <button type="button" id="btn-undo-box" class="tl-btn tl-btn-secondary" disabled>撤销</button>
-                    <button type="button" id="btn-redo-box" class="tl-btn tl-btn-secondary" disabled>重做</button>
-                    <button type="button" id="btn-delete-box" class="tl-btn tl-btn-secondary" disabled>删除选中</button>
-                    <button type="button" id="btn-save-labels" class="tl-btn tl-btn-primary">保存标注</button>
-                    <span id="label-status" class="tl-muted"></span>
-                </div>
-            </div>
-
-            <div class="tl-block">
-                <h3>4. 训练（后台子进程）</h3>
-                <div class="tl-train-fields">
-                    <label>epochs <input type="number" id="train-epochs" value="80" min="1" max="500" class="tl-input tl-num"></label>
-                    <label>batch <input type="number" id="train-batch" value="8" min="1" max="128" class="tl-input tl-num"></label>
-                    <label>imgsz <input type="number" id="train-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
-                    <label>device <input type="text" id="train-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
-                    <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolo26s.pt" class="tl-input"></label>
-                </div>
-                <p class="tl-hint">默认 <code>yolo26s.pt</code>（本项目统一 YOLO26）；开训需已审核样本达门槛（约 ≥50 张、独立 val/test）。训练完成后以<strong>测试集</strong>指标决定能否一键上线。</p>
-                <div class="tl-row">
-                    <button type="button" id="btn-train" class="tl-btn tl-btn-primary">开始训练</button>
-                    <span id="train-status" class="tl-muted"></span>
-                </div>
-                <div id="train-job-panel" class="tl-hidden">
-                    <p>任务 <code id="job-id"></code> <span id="job-status"></span></p>
-                    <div id="job-eval-metrics" class="tl-eval-metrics tl-hidden"></div>
-                    <div class="tl-row">
-                        <a id="job-log-link" href="#" target="_blank" class="tl-link">查看日志</a>
-                        <a id="job-weights-link" href="#" class="tl-link tl-hidden">下载 best.pt</a>
-                        <button type="button" id="btn-deploy" class="tl-btn tl-btn-primary tl-hidden">一键部署到线上</button>
+                    <div class="tl-annotate-toolbar">
+                        <select id="class-picker" class="tl-input tl-class-picker"></select>
+                        <div class="tl-row">
+                            <button type="button" id="btn-prev-sample" class="tl-btn tl-btn-secondary" disabled title="上一张（← / A）">上一张</button>
+                            <span id="sample-nav-pos" class="tl-muted"></span>
+                            <button type="button" id="btn-next-sample" class="tl-btn tl-btn-secondary" disabled title="下一张（→ / D）">下一张</button>
+                            <button type="button" id="btn-undo-box" class="tl-btn tl-btn-secondary" disabled>撤销</button>
+                            <button type="button" id="btn-redo-box" class="tl-btn tl-btn-secondary" disabled>重做</button>
+                            <button type="button" id="btn-delete-box" class="tl-btn tl-btn-secondary" disabled>删除选中</button>
+                            <button type="button" id="btn-save-labels" class="tl-btn tl-btn-primary">保存标注</button>
+                            <span id="label-status" class="tl-muted"></span>
+                        </div>
                     </div>
-                    <p id="deploy-status" class="tl-muted"></p>
+                    <canvas id="anno-canvas" class="tl-canvas"></canvas>
+                </div>
+
+                <!-- 4. 训练 -->
+                <div class="tl-step-panel tl-hidden" data-step-panel="train">
+                    <div class="tl-panel-head">
+                        <h2>训练（后台子进程）</h2>
+                        <p class="tl-hint">默认 <code>yolo26s.pt</code>（本项目统一 YOLO26）；开训需已审核样本达门槛（约 ≥50 张、独立 val/test）。训练完成后以<strong>测试集</strong>指标决定能否一键上线。</p>
+                    </div>
+                    <div class="tl-train-fields">
+                        <label>epochs <input type="number" id="train-epochs" value="80" min="1" max="500" class="tl-input tl-num"></label>
+                        <label>batch <input type="number" id="train-batch" value="8" min="1" max="128" class="tl-input tl-num"></label>
+                        <label>imgsz <input type="number" id="train-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
+                        <label>device <input type="text" id="train-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
+                        <label class="tl-wide">pretrained <input type="text" id="train-pretrained" value="yolo26s.pt" class="tl-input"></label>
+                    </div>
+                    <div class="tl-row">
+                        <button type="button" id="btn-train" class="tl-btn tl-btn-primary">开始训练</button>
+                        <span id="train-status" class="tl-muted"></span>
+                    </div>
+                    <div id="train-job-panel" class="tl-hidden">
+                        <p>任务 <code id="job-id"></code> <span id="job-status"></span></p>
+                        <div id="job-eval-metrics" class="tl-eval-metrics tl-hidden"></div>
+                        <div class="tl-row">
+                            <a id="job-log-link" href="#" target="_blank" class="tl-link">查看日志</a>
+                            <a id="job-weights-link" href="#" class="tl-link tl-hidden">下载 best.pt</a>
+                            <button type="button" id="btn-deploy" class="tl-btn tl-btn-primary tl-hidden">一键部署到线上</button>
+                        </div>
+                        <p id="deploy-status" class="tl-muted"></p>
+                    </div>
+                </div>
+
+                <!-- 5. 验证 -->
+                <div class="tl-step-panel tl-hidden" data-step-panel="validate">
+                    <div class="tl-panel-head">
+                        <h2>验证模型</h2>
+                        <p class="tl-hint">对已训练的 <code>best.pt</code> 做推理：可上传静态图，或用上方 RTSP 单次/循环。可用「类别过滤」只看 <code>0=no_glasses</code> 或 <code>1=glasses</code>。上线以训练任务的<strong>测试集 mAP/P/R</strong>为准，本区仅作肉眼抽检。</p>
+                    </div>
+                    <select id="val-weights" class="tl-input"><option value="">— 选择本项目已训练权重 —</option></select>
+                    <input type="text" id="val-weights-manual" class="tl-input" placeholder="可选：粘贴权重绝对路径（须在本项目目录下）">
+                    <div class="tl-row tl-val-radio">
+                        <label><input type="radio" name="val-src" value="upload" /> 单次：上传图片</label>
+                        <label><input type="radio" name="val-src" value="rtsp_once" checked /> 单次：当前 RTSP 截一帧</label>
+                    </div>
+                    <input type="file" id="val-file" class="tl-input tl-file-input" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
+                    <p id="val-upload-status" class="tl-muted tl-hint"></p>
+                    <div class="tl-train-fields tl-val-fields">
+                        <label>置信度 conf <input type="number" id="val-conf" value="0.25" min="0.05" max="0.95" step="0.05" class="tl-input tl-num" title="画框与「命中」用；日志会另附 conf≥0.001 的候选及分数"></label>
+                        <label>imgsz <input type="number" id="val-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
+                        <label>推理 device <input type="text" id="val-device" value="" class="tl-input tl-device-w" placeholder="空=沿用配置"></label>
+                        <label>循环间隔(s) <input type="number" id="val-interval" value="5" min="1" max="120" class="tl-input tl-num"></label>
+                        <label>类别过滤
+                            <select id="val-class-filter" class="tl-input tl-device-w" title="只显示某一类，便于核验未戴眼镜">
+                                <option value="">全部</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="tl-row tl-val-actions">
+                        <button type="button" id="btn-val-once" class="tl-btn tl-btn-secondary">执行单次验证</button>
+                        <button type="button" id="btn-val-start" class="tl-btn tl-btn-primary">开启 RTSP 循环验证</button>
+                        <button type="button" id="btn-val-stop" class="tl-btn tl-btn-secondary" disabled>停止循环验证</button>
+                        <button type="button" id="btn-val-logs-refresh" class="tl-btn tl-btn-secondary">刷新日志</button>
+                    </div>
+                    <p id="val-cycle-status" class="tl-muted"></p>
+                    <div id="val-log" class="tl-val-log"></div>
+                </div>
+
+                <!-- 6. 阈值 -->
+                <div class="tl-step-panel tl-hidden" data-step-panel="threshold">
+                    <div class="tl-panel-head">
+                        <h2>阈值向导</h2>
+                        <p class="tl-hint">在验证集上扫描置信度，建议 detector_conf 与告警阈值（仅供参考，不会自动写入 config.ini）。</p>
+                    </div>
+                    <div class="tl-row">
+                        <button type="button" id="btn-threshold-suggest" class="tl-btn tl-btn-secondary" disabled>分析并建议阈值</button>
+                        <label class="tl-check"><input type="checkbox" id="threshold-apply-config" /> 写入 config.ini（需重启）</label>
+                    </div>
+                    <pre id="threshold-result" class="tl-threshold-result"></pre>
+                </div>
+                </div>
+                </div>
+                </div>
+                <div data-train-sub-panel="calib" class="tl-hidden">
+                <div class="tl-step-panel tl-panel-stacked">
+                    <div class="tl-panel-head">
+                        <h2>快照回流校准</h2>
+                        <p class="tl-hint">
+                            校准闭环：① 选择检测类型（只列出有已部署专模、可校准训练的告警类型），加载该类型全部流的告警截图 → ② 点击截图可放大查看，逐张研判「准确 / 误报」（不用全部研判完）→ ③ 导入校准项目：误报自动成为负样本，准确图用专模当前权重自动标注 → ④ 下方直接开始校准训练（从专模当前权重微调）→ ⑤ 测试集达标后一键覆盖部署，热加载生效。
+                        </p>
+                    </div>
+                    <div class="tl-calib-form">
+                        <div class="tl-row">
+                            <select id="calib-det-type" class="tl-input tl-calib-sp"><option value="">— 检测类型（来自告警记录）—</option></select>
+                            <button type="button" id="btn-calib-load" class="tl-btn tl-btn-secondary" disabled>加载告警截图</button>
+                        </div>
+                        <div class="tl-row tl-calib-target-row">
+                            <span class="tl-muted">关联专模：</span>
+                            <span id="calib-sp-name" class="tl-calib-target">—</span>
+                            <span class="tl-muted">回流到：</span>
+                            <span id="calib-target-project" class="tl-calib-target">—</span>
+                            <button type="button" id="btn-calib-new-project" class="tl-btn tl-btn-secondary tl-btn-sm tl-hidden">新建校准项目</button>
+                        </div>
+                        <div id="calib-snap-grid" class="tl-snap-grid"></div>
+                        <div class="tl-row">
+                            <span id="calib-summary" class="tl-muted"></span>
+                            <button type="button" id="btn-calib-import" class="tl-btn tl-btn-primary" disabled>导入已研判截图</button>
+                            <span id="calib-status" class="tl-muted"></span>
+                        </div>
+
+                        <div id="calib-train-block" class="tl-calib-train tl-hidden">
+                            <h3 class="tl-calib-train-title">校准训练与部署</h3>
+                            <p id="calib-project-stats" class="tl-muted"></p>
+                            <div class="tl-train-fields">
+                                <label>epochs <input type="number" id="calib-epochs" value="30" min="1" max="300" class="tl-input tl-num" title="微调训练，通常 20~50 轮即可"></label>
+                                <label>imgsz <input type="number" id="calib-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
+                                <label>device <input type="text" id="calib-device" value="cpu" class="tl-input tl-device" placeholder="cpu 或 0"></label>
+                                <label class="tl-wide">pretrained <input type="text" id="calib-pretrained" class="tl-input" placeholder="默认：专模当前权重（在其基础上微调）"></label>
+                            </div>
+                            <p id="calib-pretrained-hint" class="tl-muted"></p>
+                            <div class="tl-row">
+                                <button type="button" id="btn-calib-train" class="tl-btn tl-btn-primary">开始校准训练</button>
+                                <span id="calib-train-status" class="tl-muted"></span>
+                            </div>
+                            <div id="calib-job-panel" class="tl-hidden">
+                                <p>任务 <code id="calib-job-id"></code> <span id="calib-job-status"></span></p>
+                                <div id="calib-job-metrics" class="tl-eval-metrics tl-hidden"></div>
+                                <div class="tl-row">
+                                    <a id="calib-job-log-link" href="#" target="_blank" class="tl-link">查看日志</a>
+                                    <button type="button" id="btn-calib-deploy" class="tl-btn tl-btn-primary tl-hidden">验证达标，覆盖部署到线上专模</button>
+                                </div>
+                                <p id="calib-deploy-status" class="tl-muted"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 </div>
             </div>
 
-            <div class="tl-block tl-validate">
-                <h3>5. 验证模型</h3>
-                <p class="tl-hint">对已训练的 <code>best.pt</code> 做推理：可上传静态图，或用上方 RTSP 单次/循环。可用「类别过滤」只看 <code>0=no_glasses</code> 或 <code>1=glasses</code>。上线以训练任务的<strong>测试集 mAP/P/R</strong>为准，本区仅作肉眼抽检。</p>
-                <select id="val-weights" class="tl-input"><option value="">— 选择本项目已训练权重 —</option></select>
-                <input type="text" id="val-weights-manual" class="tl-input" placeholder="可选：粘贴权重绝对路径（须在本项目目录下）">
-                <div class="tl-row tl-val-radio">
-                    <label><input type="radio" name="val-src" value="upload" /> 单次：上传图片</label>
-                    <label><input type="radio" name="val-src" value="rtsp_once" checked /> 单次：当前 RTSP 截一帧</label>
+            <!-- 菜单：专模导入 -->
+            <div data-menu-panel="import" class="tl-hidden">
+                <div class="tl-step-panel">
+                    <div class="tl-panel-head">
+                        <h2>已部署专模</h2>
+                        <p class="tl-hint">含训练实验室部署与「导入现成专模」；可在管理平台「算法配置」中按流勾选。</p>
+                    </div>
+                    <div class="tl-row">
+                        <button type="button" id="btn-refresh-specialists" class="tl-btn tl-btn-secondary">刷新专模列表</button>
+                    </div>
+                    <ul id="specialist-list" class="tl-list tl-specialist-list"></ul>
                 </div>
-                <input type="file" id="val-file" class="tl-input tl-file-input" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
-                <p id="val-upload-status" class="tl-muted tl-hint"></p>
-                <div class="tl-train-fields tl-val-fields">
-                    <label>置信度 conf <input type="number" id="val-conf" value="0.25" min="0.05" max="0.95" step="0.05" class="tl-input tl-num" title="画框与「命中」用；日志会另附 conf≥0.001 的候选及分数"></label>
-                    <label>imgsz <input type="number" id="val-imgsz" value="640" min="320" max="1280" class="tl-input tl-num"></label>
-                    <label>推理 device <input type="text" id="val-device" value="" class="tl-input tl-device-w" placeholder="空=沿用配置"></label>
-                    <label>循环间隔(s) <input type="number" id="val-interval" value="5" min="1" max="120" class="tl-input tl-num"></label>
-                    <label>类别过滤
-                        <select id="val-class-filter" class="tl-input tl-device-w" title="只显示某一类，便于核验未戴眼镜">
-                            <option value="">全部</option>
-                        </select>
-                    </label>
-                </div>
-                <div class="tl-row tl-val-actions">
-                    <button type="button" id="btn-val-once" class="tl-btn tl-btn-secondary">执行单次验证</button>
-                    <button type="button" id="btn-val-start" class="tl-btn tl-btn-primary">开启 RTSP 循环验证</button>
-                    <button type="button" id="btn-val-stop" class="tl-btn tl-btn-secondary" disabled>停止循环验证</button>
-                    <button type="button" id="btn-val-logs-refresh" class="tl-btn tl-btn-secondary">刷新日志</button>
-                </div>
-                <p id="val-cycle-status" class="tl-muted"></p>
-                <div id="val-log" class="tl-val-log"></div>
-            </div>
 
-            <div class="tl-block tl-threshold-wizard">
-                <h3>6. 阈值向导</h3>
-                <p class="tl-hint">在验证集上扫描置信度，建议 detector_conf 与告警阈值（仅供参考，不会自动写入 config.ini）。</p>
-                <div class="tl-row">
-                    <button type="button" id="btn-threshold-suggest" class="tl-btn tl-btn-secondary" disabled>分析并建议阈值</button>
-                    <label class="tl-check"><input type="checkbox" id="threshold-apply-config" /> 写入 config.ini（需重启）</label>
+                <div class="tl-step-panel tl-panel-stacked">
+                    <div class="tl-panel-head">
+                        <h2>导入现成专模</h2>
+                        <p class="tl-hint">
+                            接入 Hugging Face / Ultralytics Platform 等社区 YOLO 检测权重（<code>.pt</code> / <code>.onnx</code>）。
+                            勿用其替换主检 <code>yolo_model</code>（主检固定 COCO 80）；专模与主检并行。
+                        </p>
+                    </div>
+                    <div class="tl-import-form">
+                        <label class="tl-label">权重文件
+                            <input type="file" id="import-file" class="tl-input" accept=".pt,.onnx,application/octet-stream">
+                        </label>
+                        <label class="tl-label">或权重 URL（http/https，可空）
+                            <input type="url" id="import-weights-url" class="tl-input" placeholder="https://.../model.pt">
+                        </label>
+                        <div class="tl-row">
+                            <button type="button" id="btn-import-inspect" class="tl-btn tl-btn-secondary">读取类别</button>
+                            <span id="import-inspect-status" class="tl-muted"></span>
+                        </div>
+                        <label class="tl-label">键名 key（小写字母开头，a-z0-9_）
+                            <input type="text" id="import-key" class="tl-input" placeholder="如 hardhat / smoking">
+                        </label>
+                        <label class="tl-label">中文名
+                            <input type="text" id="import-name-zh" class="tl-input" placeholder="如 未戴安全帽">
+                        </label>
+                        <label class="tl-label">英文名（可选）
+                            <input type="text" id="import-name-en" class="tl-input" placeholder="no_hardhat">
+                        </label>
+                        <label class="tl-label">类型 kind
+                            <select id="import-kind" class="tl-input">
+                                <option value="person_event">person_event（人物关联事件，如吸烟）</option>
+                                <option value="violation">violation（合规/违规双类，如安全帽）</option>
+                                <option value="scene">scene（全画面场景）</option>
+                            </select>
+                        </label>
+                        <label class="tl-label">类别名（逗号分隔，可空=自动从权重读）
+                            <input type="text" id="import-classes" class="tl-input" placeholder="no_helmet,helmet">
+                        </label>
+                        <div class="tl-import-advanced" id="import-kind-fields">
+                            <label class="tl-label" data-for-kind="person_event">positive_class_ids（告警类索引，默认 0）
+                                <input type="text" id="import-positive-ids" class="tl-input" value="0">
+                            </label>
+                            <label class="tl-label" data-for-kind="violation">subject_class_ids（违规类，默认 0）
+                                <input type="text" id="import-subject-ids" class="tl-input" value="0">
+                            </label>
+                            <label class="tl-label" data-for-kind="violation">comply_class_ids（合规类，默认 1）
+                                <input type="text" id="import-comply-ids" class="tl-input" value="1">
+                            </label>
+                            <label class="tl-label" data-for-kind="scene">class_ids（场景类，空=全部）
+                                <input type="text" id="import-class-ids" class="tl-input" placeholder="0 或 0,1">
+                            </label>
+                        </div>
+                        <label class="tl-label">conf / score_threshold / min_duration_sec
+                            <div class="tl-row tl-row-tight">
+                                <input type="number" id="import-conf" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="conf" value="0.40">
+                                <input type="number" id="import-score" class="tl-input" step="0.01" min="0.05" max="0.99" placeholder="score" value="0.45">
+                                <input type="number" id="import-duration" class="tl-input" step="0.1" min="0" placeholder="秒" value="1">
+                            </div>
+                        </label>
+                        <label class="tl-check">
+                            <input type="checkbox" id="import-needs-persons" checked>
+                            需与人物框重叠（person_event / violation 常用）
+                        </label>
+                        <div class="tl-row">
+                            <button type="button" id="btn-import-specialist" class="tl-btn tl-btn-primary">导入并上线</button>
+                            <span id="import-status" class="tl-muted"></span>
+                        </div>
+                    </div>
                 </div>
-                <pre id="threshold-result" class="tl-threshold-result"></pre>
             </div>
         </section>
     </main>
 
+    <!-- 新建项目 -->
     <div id="modal-new" class="tl-modal tl-hidden">
         <div class="tl-modal-inner">
             <h3>新建训练项目</h3>
@@ -243,6 +371,14 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='training_lab.js') }}"></script>
+    <!-- 告警截图放大预览 -->
+    <div id="modal-img-preview" class="tl-img-preview tl-hidden">
+        <img id="img-preview-full" alt="告警截图预览">
+    </div>
+
+    <!-- 兼容旧逻辑：项目列表仍渲染，但不在主界面显示 -->
+    <ul id="project-list" class="tl-list tl-hidden" aria-hidden="true"></ul>
+
+    <script src="{{ url_for('static', filename='training_lab.js') }}?v=14"></script>
 </body>
 </html>
