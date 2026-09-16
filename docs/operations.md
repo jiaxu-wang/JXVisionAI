@@ -49,7 +49,7 @@ YOLO模型加载完成
 
 ## 性能建议
 
-- 多路与高分辨率线性消耗 CPU/GPU/带宽；可调大 `detection_interval`
+- 多路与高分辨率线性消耗 CPU/GPU/带宽；可调大 `detection_interval`，或把 `detect_burst_frames` 降为 `1` 退回单帧
 - YOLO26 档位：`n` 最轻 → `x` 最重；多路优先 `n`/`s`，精度对比可换 `m`/`l`/`x`（改 `yolo_model` 后重启）
 - GPU 推理 ONNX 需 `onnxruntime-gpu` 且 `[basic]` `inference_device = gpu`
 - 预览仅 ZLM WebRTC（低延迟）；需 compose 映射宿主机 **18000**（→8000）且 ZLM 鉴权正常
@@ -106,6 +106,7 @@ YOLO模型加载完成
 - [x] Web 训练实验室（审核标注、独立测试集、部署门禁、类别契约）
 - [x] **人脸识别**（buffalo_l、人脸库、按流触发、画面旋转、可选性别年龄）
 - [x] **车牌识别**（plate 专模框 + RapidOCR + 车牌库 known/unknown）
+- [x] **疲劳驾驶 DMS**（准入闸、常连/突发密检、PERCLOS/哈欠/低头；不合格机位拒绝）
 - [x] 可选 `visionai-inferd`（`[infer] backend=cpp`）
 - [ ] 仅开人脸识别时跳过 YOLO 主检测（性能优化）
 - [ ] 生产 WebRTC TURN、更多专模开箱权重

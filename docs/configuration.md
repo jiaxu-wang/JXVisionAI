@@ -37,7 +37,11 @@
 |-------------------|------------------|------|------|
 | `visionai_secret` / `VISIONAI_SECRET` | `[basic]` | 管理端登录密钥 | 见 example |
 | `timezone` / `VISIONAI_TIMEZONE` | `[basic]` | 应用时区（IANA，告警落库与历史页）；也可用 `TZ` | `Asia/Shanghai` |
-| `detection_interval` | `[basic]` | 检测间隔（秒）；代码默认 **15**，`config.example.ini` 示例可能为 `1` | 15 |
+| `detection_interval` | `[basic]` | 两轮检测的间隔（秒）；代码默认 **15**，`config.example.ini` 示例可能为 `1` | 15 |
+| `detect_burst_duration_ms` | `[basic]` | 一轮采样窗（毫秒）；`0` 关闭多帧 | 500 |
+| `detect_burst_frames` | `[basic]` | 一轮最多抽几帧推理；`1` 关闭多帧 | 15 |
+| `detect_burst_min_frames` | `[basic]` | 实际抽到少于此值则跳过本轮 | 1 |
+| `detect_burst_hit_ratio` | `[basic]` | 类型阳性帧占比阈值（0~1） | 0.4 |
 | `conf_threshold` | `[basic]` | YOLO 主检测置信度 | 0.5 |
 | `save_dir` / `SAVE_DIR` | `[basic]` | 截图目录 | `./snapshots` |
 | `yolo_model` | `[models]` | YOLO26 主检：`yolo26n/s/m/l/x.pt`，改完重启 | `models/yolo26s.pt` |

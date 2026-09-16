@@ -141,6 +141,11 @@ SECRET = _secret()
 # 检测
 DETECTION_INTERVAL = _cfg_int("DETECTION_INTERVAL", 15)
 CONF_THRESHOLD = _cfg_float("CONF_THRESHOLD", 0.5)
+# 一轮内短窗抽帧：frames=1 或 duration_ms=0 时退回「到点检 1 帧」
+DETECT_BURST_DURATION_MS = max(0, _cfg_int("DETECT_BURST_DURATION_MS", 500))
+DETECT_BURST_FRAMES = max(1, min(60, _cfg_int("DETECT_BURST_FRAMES", 15)))
+DETECT_BURST_MIN_FRAMES = max(1, min(DETECT_BURST_FRAMES, _cfg_int("DETECT_BURST_MIN_FRAMES", 1)))
+DETECT_BURST_HIT_RATIO = max(0.0, min(1.0, _cfg_float("DETECT_BURST_HIT_RATIO", 0.4)))
 
 # 人员聚集：单帧检出人物数 ≥ 阈值即判定（可选持续时长防抖，0 表示立即告警）
 GATHER_MIN_PERSONS = max(3, _cfg_int("GATHER_MIN_PERSONS", 3))

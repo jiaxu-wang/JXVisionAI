@@ -2,7 +2,7 @@
 JXVisionAI 进程入口。
 
 单进程内同时拉起：
-  1. 每路 RTSP 的检测线程（读帧 → YOLO/行为插件 → 截图 → Redis/告警）
+  1. 每路 RTSP 的检测线程（读帧 → 到点开一轮短窗抽帧 → YOLO/行为插件 → 聚合 → 截图 → Redis/告警）
   2. Flask 管理端（默认 0.0.0.0:5000）
   3. 离线流探测与禁用流状态维护线程
 
@@ -14,6 +14,12 @@ import threading
 import time
 
 from visionai.core.detector import Detector
+from visionai.core.detect_burst import (
+    DetectBurstCollector,
+    burst_enabled,
+    format_hit_summary,
+    run_burst_round,
+)
 from visionai.core.stream_handler import StreamHandler
 from visionai.utils.logger import setup_logger
 from visionai.utils.alert_email import (
@@ -24,9 +30,16 @@ from visionai.utils.alert_webhook import (
     normalize_stream_alert_webhook_enabled,
     normalize_stream_webhook_urls,
 )
-from visionai.config.settings import SAVE_DIR
-from visionai.config.detection_catalog import any_detection_enabled, normalize_detections
+from visionai.config.settings import DETECT_BURST_HIT_RATIO, SAVE_DIR
+from visionai.config.detection_catalog import (
+    FATIGUE_KEY,
+    any_detection_enabled,
+    normalize_detections,
+)
 from visionai.config.stream_access import stream_should_analyze
+from visionai.core.dms.config import normalize_fatigue_config
+from visionai.core.dms.sampler import WindowSampler
+from visionai.core.dms.session import start_gb_play, stop_gb_play
 from visionai.core.face_recognition_config import normalize_face_recognition_config
 from visionai.core.plate_recognition_config import normalize_plate_recognition_config
 from visionai.web.app import app
@@ -169,6 +182,9 @@ def run_video_processing(stream_info):
             stream_info.get("detections"),
             stream_id=stream_info.get("id"),
         )
+        detector.fatigue_driving_config = normalize_fatigue_config(
+            stream_info.get("fatigue_driving_config")
+        )
         set_stream_status(stream_name, "在线")
         last_status_hb = time.time()
         last_gb_live = 0.0
@@ -178,9 +194,90 @@ def run_video_processing(stream_info):
         read_failure_count = 0
         max_read_failures = 5  # 最大连续失败次数
         logged_empty_detections = False
+        dms_sampler = WindowSampler.from_cfg(stream_info.get("fatigue_driving_config"))
+        last_cfg_refresh = 0.0
+        yolo_burst = DetectBurstCollector() if burst_enabled() else None
+        if yolo_burst:
+            logger.info(
+                f"[{stream_name}] 检测一轮：间隔 {yolo_burst.interval_sec:.0f}s，"
+                f"窗 {yolo_burst.duration_s * 1000:.0f}ms 抽 {yolo_burst.max_frames} 帧，"
+                f"命中率 ≥ {DETECT_BURST_HIT_RATIO:.0%}"
+            )
+
+        def _refresh_detector_cfg(latest):
+            nonlocal stream_name
+            if latest.get("name"):
+                stream_name = latest["name"]
+                detector.stream_name = stream_name
+            if latest.get("id"):
+                detector.stream_id = latest["id"]
+            detector.detections = normalize_detections(latest.get("detections"))
+            detector.alert_emails = normalize_stream_alert_emails(latest.get("alert_emails"))
+            detector.alert_email_enabled = normalize_stream_alert_email_enabled(
+                latest.get("alert_email_enabled")
+            )
+            detector.alert_webhook_urls = normalize_stream_webhook_urls(
+                latest.get("alert_webhook_urls")
+            )
+            detector.alert_webhook_enabled = normalize_stream_alert_webhook_enabled(
+                latest.get("alert_webhook_enabled")
+            )
+            detector.face_recognition_config = normalize_face_recognition_config(
+                latest.get("face_recognition_config")
+            )
+            detector.plate_recognition_config = normalize_plate_recognition_config(
+                latest.get("plate_recognition_config")
+            )
+            detector.fatigue_driving_config = normalize_fatigue_config(
+                latest.get("fatigue_driving_config")
+            )
+            dms_sampler.update_cfg(latest.get("fatigue_driving_config"))
 
         # 主循环
         while True:
+            now_loop = time.time()
+            if now_loop - last_cfg_refresh >= 2.0:
+                latest_cfg = get_stream_config_current(stream_info)
+                if latest_cfg:
+                    if not stream_should_analyze(latest_cfg):
+                        logger.info(f"[{stream_name}] 流已禁用、已退出分析或已删除，停止处理")
+                        break
+                    _refresh_detector_cfg(latest_cfg)
+                    stream_info = latest_cfg
+                last_cfg_refresh = now_loop
+
+            fatigue_on = bool(detector.detections.get(FATIGUE_KEY, False))
+            other_on = any(
+                bool(v) for k, v in (detector.detections or {}).items()
+                if k != FATIGUE_KEY and v
+            )
+            burst_release = (
+                fatigue_on
+                and dms_sampler.pull_mode() == "burst"
+                and not other_on
+            )
+            if burst_release and dms_sampler.waiting_for_next_pull(now_loop):
+                if stream_handler.cap is not None:
+                    stream_handler.disconnect()
+                    stop_gb_play(stream_info)
+                    set_stream_status(stream_name, "在线")
+                time.sleep(0.35)
+                continue
+            if (
+                burst_release
+                and stream_handler.cap is None
+            ):
+                if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                    started = start_gb_play(stream_info)
+                    if started.get("ok") and started.get("stream_info"):
+                        stream_info = started["stream_info"]
+                        stream_handler.url = stream_info.get("url") or stream_handler.url
+                if not stream_handler.reconnect():
+                    logger.warning(f"[{stream_name}] DMS 突发拉流失败，稍后重试")
+                    time.sleep(2.0)
+                    continue
+                set_stream_status(stream_name, "在线")
+
             # 读取帧
             frame = stream_handler.read_frame()
             if frame is None:
@@ -253,19 +350,40 @@ def run_video_processing(stream_info):
                     last_status_hb = now_hb
                 else:
                     set_stream_status(stream_name, "离线")
-            
+
+            if fatigue_on and dms_sampler.should_sample(time.time()):
+                try:
+                    detector.process_dms_frame(frame)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[{stream_name}] DMS 本帧异常（保持在线）: {e}", exc_info=True)
+                if dms_sampler.maybe_close_window(time.time()):
+                    if burst_release:
+                        stream_handler.disconnect()
+                        stop_gb_play(stream_info)
+                        continue
+
+            burst_batch = None
+            if burst_release and not dms_sampler.in_window:
+                run_yolo = False
+                if yolo_burst:
+                    yolo_burst.reset_capture()
+            elif not other_on:
+                run_yolo = False
+                if yolo_burst:
+                    yolo_burst.reset_capture()
+            elif yolo_burst is not None:
+                burst_batch = yolo_burst.feed(frame, time.time())
+                run_yolo = burst_batch is not None
+            else:
+                run_yolo = stream_handler.should_detect()
+
             # 判断是否需要检测
-            if stream_handler.should_detect():
+            if run_yolo:
                 latest = get_stream_config_current(stream_info)
                 if not latest or not stream_should_analyze(latest):
                     logger.info(f"[{stream_name}] 流已禁用、已退出分析或已删除，停止处理")
                     break
-                if latest.get("name"):
-                    stream_name = latest["name"]
-                    detector.stream_name = stream_name
-                if latest.get("id"):
-                    detector.stream_id = latest["id"]
-                detector.detections = normalize_detections(latest.get("detections"))
+                _refresh_detector_cfg(latest)
                 if not any_detection_enabled(detector.detections):
                     if not logged_empty_detections:
                         logger.info(
@@ -275,29 +393,24 @@ def run_video_processing(stream_info):
                         logged_empty_detections = True
                     continue
                 logged_empty_detections = False
-                detector.alert_emails = normalize_stream_alert_emails(
-                    latest.get("alert_emails")
-                )
-                detector.alert_email_enabled = normalize_stream_alert_email_enabled(
-                    latest.get("alert_email_enabled")
-                )
-                detector.alert_webhook_urls = normalize_stream_webhook_urls(
-                    latest.get("alert_webhook_urls")
-                )
-                detector.alert_webhook_enabled = normalize_stream_alert_webhook_enabled(
-                    latest.get("alert_webhook_enabled")
-                )
-                detector.face_recognition_config = normalize_face_recognition_config(
-                    latest.get("face_recognition_config")
-                )
-                detector.plate_recognition_config = normalize_plate_recognition_config(
-                    latest.get("plate_recognition_config")
-                )
-                # 执行检测
                 t0 = time.time()
-                results = detector.detect(frame)
-                # 处理结果
-                processed_frame, detections = detector.process_results(frame, results)
+                try:
+                    if burst_batch is not None:
+                        processed_frame, detections, stats = run_burst_round(
+                            detector, burst_batch.frames
+                        )
+                        logger.info(
+                            f"[{stream_name}] 检测轮次 采样 {stats.get('got')}/{burst_batch.want} "
+                            f"窗 {burst_batch.capture_ms:.0f}ms 推理 {stats.get('infer_ms')}ms "
+                            f"{format_hit_summary(stats)}"
+                        )
+                        stream_handler.flush_stale()
+                    else:
+                        results = detector.detect(frame)
+                        processed_frame, detections = detector.process_results(frame, results)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[{stream_name}] 本轮检测失败（保持在线）: {e}", exc_info=True)
+                    continue
                 sid = (latest.get("id") or "").strip()
                 try:
                     from visionai.core.runtime_metrics import note_detect, note_frame

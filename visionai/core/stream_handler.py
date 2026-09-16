@@ -87,9 +87,20 @@ class StreamHandler:
             logger.error(f"[{self.name}] 读取帧失败: {e}")
             return None
 
+    def flush_stale(self, n: int = 8):
+        """丢掉缓冲里的过期帧（一轮推理阻塞后调用）。"""
+        if not self.cap or not self.cap.isOpened() or n <= 0:
+            return
+        try:
+            for _ in range(int(n)):
+                self.cap.grab()
+        except Exception:  # noqa: BLE001
+            pass
+
     def should_detect(self):
-        """判断是否需要检测"""
-        return self.frame_count % (self.fps * DETECTION_INTERVAL) == 0
+        """单帧模式：按帧率×间隔取模。多帧一轮时由 DetectBurstCollector 接管。"""
+        step = max(1, int(self.fps) * int(DETECTION_INTERVAL))
+        return self.frame_count % step == 0
 
     def reconnect(self):
         """重新连接视频流"""
