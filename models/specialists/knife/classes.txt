@@ -1,0 +1,4 @@
+0: Gun
+1: explosion
+2: grenade
+3: knife

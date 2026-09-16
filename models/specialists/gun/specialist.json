@@ -1,0 +1,40 @@
+{
+  "key": "gun",
+  "kind": "scene",
+  "name_zh": "枪支检测",
+  "name_en": "gun",
+  "model_path": "models/specialists/gun/model.pt",
+  "classes": [
+    "Gun"
+  ],
+  "conf": 0.4,
+  "score_threshold": 0.45,
+  "min_duration_sec": 1.0,
+  "max_persons": 8,
+  "needs_persons": false,
+  "class_ids": [
+    0
+  ],
+  "positive_class_ids": [
+    0
+  ],
+  "subject_class_ids": [
+    0
+  ],
+  "comply_class_ids": [
+    1
+  ],
+  "created_at": 1789458370.0048628,
+  "updated_at": 1789458370.0048628,
+  "source_project_id": "e822d7d2c68b",
+  "test_metrics": {
+    "map50": 0.995,
+    "map50_95": 0.7455,
+    "precision": 1.0,
+    "recall": 1.0,
+    "split": "test",
+    "ok": true
+  },
+  "source": "specialist",
+  "origin": "trained"
+}

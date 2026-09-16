@@ -10,14 +10,15 @@ JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 *
 |------|------|
 | 多路接入 | RTSP直连、ONVIF 发现、国标 28181（独立 SIP 进程注册 + ZLM 收 PS；**通道**「接入分析」写入 streamlist）；每路独立线程拉流。接入平台与接入分析分离（`analyze`） |
 | COCO 80 类 | 按流单独开关（人物、手机、车辆等） |
-| 内置扩展 | 玩手机、人员聚集、人脸识别、车牌识别 |
+| 内置扩展 | 玩手机、人员聚集、人脸识别、车牌识别、疲劳驾驶（DMS） |
 | 训练专模 / 导入专模 | 部署或导入到 `models/specialists/<key>/`，出现在检测类型列表，可删 |
 | 玩手机 | 人与手机框重叠后，可用 **YOLO26-pose** 辅助判定把玩（贴耳打电话能力已下线，需自训专模） |
 | 人脸识别 | buffalo_l（SCRFD + ArcFace）；可选性别年龄；库在 Redis，照片在 MinIO |
 | 车牌识别 | 专模 `plate` 检框 + RapidOCR 读号 + Redis 车牌库（known / unknown） |
+| 疲劳驾驶 | 准入闸 + 常连/突发密检窗 + SCRFD/眼区 PERCLOS、哈欠、低头；不合格机位拒绝 |
 | 人员聚集 | 单帧人数 ≥ 阈值，可选持续时长防抖 |
 | 告警 | Redis 记录 + 可选 SMTP / Webhook；截图本地或 MinIO/S3 |
-| Web | 状态概览、设备接入（RTSP直连/ONVIF/国标 Tab）、检测配置、历史、设置、人脸库/车牌库；预览在设备接入（国标在通道内）；ONVIF 对讲；`/training` 训练实验室 |
+| Web | 管理端为 Flask + 原生 JS。主界面 `templates/admin.html` 壳 + `templates/admin/_*.html` 分片，样式/脚本在 `static/admin/` 按页拆分。状态概览、设备接入、视频预览、检测配置、历史、设置；人脸库/车牌库/训练实验室为独立页。 |
 | 语音对讲 | ONVIF RTSP Audio Backchannel（探测 + 浏览器采麦 G.711 回传）；GB28181 对讲未实现 |
 | 可选 C++ 主检 | `visionai-inferd`（ORT），`[infer] backend=cpp` 时由宿主机 `start.sh` 或自定义编排拉起 |
 
@@ -160,7 +161,7 @@ flowchart TB
 | 进程 / 容器 | 职责 |
 |-------------|------|
 | `visionai-api` / `visionai.api` | Flask 管理端、预览、配置读写；**不拉流** |
-| `visionai-worker` / `visionai.worker` | 每路 RTSP 线程：读帧 → 主检 → 行为 → 截图 → 入队告警；写流在线状态 |
+| `visionai-worker` / `visionai.worker` | 每路 RTSP 线程：读帧 → 到点开一轮短窗抽帧 → 主检/行为 → 命中率聚合 → 截图 → 入队告警；写流在线状态 |
 | `visionai-alert` / `alert_worker` | 消费 Redis `alert_queue`，发邮件 / Webhook |
 | `visionai-inferd` | 可选；`backend=cpp` 时提供 ORT 主检 |
 | `visionai-sip` / `visionai.sip` | 国标 REGISTER / Keepalive / Catalog / Invite；写 `gb28181/runtime`；启动时清空在线缓存 |
@@ -206,7 +207,7 @@ flowchart TB
   Cam --> ZLM
   ZLM -->|本地 / 网内 RTSP| SH
   Cam -->|fallback_direct_rtsp| SH
-  SH -->|detection_interval| Det
+  SH -->|detection_interval · burst 窗| Det
   Det --> Beh --> Draw --> Snap
   Snap --> Rec
   Snap --> Q --> AW
@@ -238,9 +239,10 @@ flowchart LR
 | 人员聚集 | `gather` | 人数 + 时长 |
 | 人脸识别 | `face_recognition` | `models/buffalo_l/` + Redis 库 |
 | 车牌识别 | `plate_recognition` | `models/specialists/plate/` + RapidOCR + Redis 车牌库 |
-| 专模 | `models/specialists/<key>/` | 自训或导入；如跌倒、口罩、积水、吸烟等 |
+| 疲劳驾驶 | `fatigue_driving` | `visionai/core/dms/`：闸 + 密检窗 + PERCLOS；车内正脸 |
+| 专模 | `models/specialists/<key>/` | 自训或导入；如跌倒、口罩、积水、吸烟、枪支、刀具等 |
 
-仓库内常见专模目录示例（以实际 `models/specialists/` 为准）：`facemask`、`fall`、`plate`、`puddle`。
+仓库内常见专模目录示例（以实际 `models/specialists/` 为准）：`facemask`、`fall`、`plate`、`puddle`、`gun`、`knife`。
 
 ---
 
