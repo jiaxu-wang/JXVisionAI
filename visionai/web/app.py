@@ -59,6 +59,11 @@ from visionai.core.face_recognition_config import (
     default_face_recognition_config,
     normalize_face_recognition_config,
 )
+from visionai.core.dms.config import (
+    default_fatigue_config,
+    normalize_fatigue_config,
+)
+from visionai.core.dms.gate import get_all_dms_status
 from visionai.core.plate_recognition_config import (
     default_plate_recognition_config,
     normalize_plate_recognition_config,
@@ -473,6 +478,7 @@ def get_streams():
     streams = redis_manager.get_streams()
     
     # 获取流配置并添加状态信息
+    dms_map = get_all_dms_status()
     streams_with_status = []
     for stream in streams:
         stream_copy = stream.copy()
@@ -493,11 +499,16 @@ def get_streams():
         stream_copy['plate_recognition_config'] = normalize_plate_recognition_config(
             stream_copy.get('plate_recognition_config')
         )
+        stream_copy['fatigue_driving_config'] = normalize_fatigue_config(
+            stream_copy.get('fatigue_driving_config')
+        )
         apply_access_fields(stream_copy)
         apply_analyze_field(stream_copy)
         # 添加状态信息（Redis 跨进程；worker 写入，API 读取）
         nm = (stream.get("name") or "").strip()
         stream_copy['status'] = get_stream_status(nm, "离线")
+        sid = str(stream.get("id") or "").strip()
+        stream_copy['dms_status'] = dms_map.get(sid) if sid else None
         streams_with_status.append(stream_copy)
     return jsonify(streams_with_status)
 
@@ -549,6 +560,9 @@ def save_streams():
             )
             stream['plate_recognition_config'] = normalize_plate_recognition_config(
                 stream.get('plate_recognition_config')
+            )
+            stream['fatigue_driving_config'] = normalize_fatigue_config(
+                stream.get('fatigue_driving_config')
             )
             apply_access_fields(stream)
             apply_analyze_field(stream, default=False if was_new else None)
@@ -687,6 +701,7 @@ def onvif_add_stream():
         "alert_webhook_enabled": False,
         "face_recognition_config": default_face_recognition_config(),
         "plate_recognition_config": default_plate_recognition_config(),
+        "fatigue_driving_config": default_fatigue_config(),
         "onvif": safe_meta,
         "talk_supported": talk_supported,
         "talk_protocol": talk_protocol,
@@ -1202,23 +1217,43 @@ def _gb_invite_channel(device_id: str, channel_id: str):
     return sip_cmd.wait_result(rid, timeout_sec=28.0)
 
 
+def _gb_rtp_online(device_id: str, channel_id: str) -> bool:
+    try:
+        from visionai.core.zlm_client import get_zlm_client
+
+        zlm = get_zlm_client()
+        return bool(zlm and zlm.is_rtp_online(gb28181_store.rtp_stream_id(device_id, channel_id)))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.route("/api/gb28181/devices/<device_id>/channels/<channel_id>/preview", methods=["POST"])
 @login_required
 def gb28181_preview_play(device_id: str, channel_id: str):
-    """点播预览：Invite 收流，不写入监控列表。已在监控中则直接复用。"""
+    """点播预览：Invite 收流。已接入分析且 RTP 已在线则复用；否则仍要 Invite。"""
     device, channel_id, err = _gb_require_channel(device_id, channel_id)
     if err:
         return err
     existing = gb28181_store.find_stream_for_channel(
         redis_manager.get_streams() or [], device_id, channel_id
     )
-    if existing:
+    zlm_stream = gb28181_store.rtp_stream_id(device_id, channel_id)
+    alias = ""
+    for c in gb28181_store.normalize_channels(device.get("channels") or []):
+        if c.get("channel_id") == channel_id:
+            alias = str(c.get("alias") or "")
+            break
+    name = (existing or {}).get("name") or alias or f"{device.get('name') or device_id}-{channel_id[-4:]}"
+    if existing and _gb_rtp_online(device_id, channel_id):
         return jsonify(
             {
                 "success": True,
                 "already_monitored": True,
                 "stream_id": existing.get("id") or "",
-                "name": existing.get("name") or "",
+                "zlm_app": "rtp",
+                "zlm_stream": zlm_stream,
+                "media_online": True,
+                "name": name,
                 "device_id": device_id,
                 "channel_id": channel_id,
             }
@@ -1229,22 +1264,15 @@ def gb28181_preview_play(device_id: str, channel_id: str):
         return jsonify({"success": False, "message": str(ex)}), 500
     if not result.get("ok"):
         return jsonify({"success": False, "message": result.get("message") or "Invite 失败"}), 502
-    alias = ""
-    for c in gb28181_store.normalize_channels(device.get("channels") or []):
-        if c.get("channel_id") == channel_id:
-            alias = str(c.get("alias") or "")
-            break
-    name = alias or f"{device.get('name') or device_id}-{channel_id[-4:]}"
+    play_stream = result.get("stream") or zlm_stream
     return jsonify(
         {
             "success": True,
-            "already_monitored": False,
+            "already_monitored": bool(existing),
+            "stream_id": (existing or {}).get("id") or "",
             "zlm_app": "rtp",
-            "zlm_stream": result.get("stream")
-            or gb28181_store.rtp_stream_id(device_id, channel_id),
-            "url": result.get("url") or gb28181_store.rtp_pull_url(
-                result.get("stream") or gb28181_store.rtp_stream_id(device_id, channel_id)
-            ),
+            "zlm_stream": play_stream,
+            "url": result.get("url") or gb28181_store.rtp_pull_url(play_stream),
             "media_online": result.get("media_online", True),
             "message": result.get("message") or "",
             "name": name,
@@ -1434,6 +1462,7 @@ def gb28181_join_monitor(device_id: str, channel_id: str):
         "alert_webhook_enabled": False,
         "face_recognition_config": default_face_recognition_config(),
         "plate_recognition_config": default_plate_recognition_config(),
+        "fatigue_driving_config": default_fatigue_config(),
         "gb28181": {
             "device_id": device_id,
             "channel_id": channel_id,

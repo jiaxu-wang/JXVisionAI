@@ -1,0 +1,94 @@
+                <!-- 设备接入：直连 / ONVIF / 国标 -->
+                <div id="accessPage" class="page-content" style="display: none;">
+                    <div class="access-tabs" role="tablist" aria-label="接入方式">
+                        <button type="button" class="access-tab-btn active" data-access-tab="direct" role="tab">RTSP直连</button>
+                        <button type="button" class="access-tab-btn" data-access-tab="onvif" role="tab">ONVIF 接入</button>
+                        <button type="button" class="access-tab-btn" data-access-tab="gb28181" role="tab">国标 28181</button>
+                    </div>
+
+                    <div id="accessTabDirect" class="access-tab-panel active" data-access-panel="direct">
+                        <div class="card">
+                            <h2>RTSP直连</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 8px 0;">填写可拉流的 <code>rtsp://</code> / <code>rtsps://</code> 地址。保存后接入平台并定时探测在线；离线不可预览。点「接入AI分析」后才会进入检测配置。</p>
+                            <p style="color:#856404;font-size:12px;margin:0 0 14px 0;background:#fff3cd;padding:8px 10px;border-radius:6px;">修改地址后需「保存」并重启服务生效。</p>
+                            <div id="directStreamContainer"></div>
+                            <div class="stream-toolbar">
+                                <button type="button" class="btn-add" id="addStreamBtn">➕ 添加 RTSP 流</button>
+                            </div>
+                            <div class="button-group">
+                                <button type="button" class="btn-save" id="saveStreamsBtn">💾 保存接入配置</button>
+                                <button type="button" class="btn-restart" id="restartBtn">🔄 重启服务</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="accessTabOnvif" class="access-tab-panel" data-access-panel="onvif">
+                        <div class="card">
+                            <h2>ONVIF 接入</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 14px 0;">发现或手填 IP 探测设备 → 选 Profile 加入平台。可预览（需在线）、复制 HLS、改名称、刷新 RTSP、对讲、删除。点「接入AI分析」后才会进入检测配置。</p>
+                            <div class="stream-toolbar" style="margin-top:0;">
+                                <button type="button" class="btn-add btn-onvif" id="onvifDiscoverBtn">📡 ONVIF 发现 / 手动探测</button>
+                            </div>
+                            <div id="onvifStreamContainer" style="margin-top:16px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="accessTabGb28181" class="access-tab-panel" data-access-panel="gb28181">
+                        <div class="card" id="gbPlatformCard">
+                            <div class="gb-collapse-head">
+                                <button type="button" class="gb-collapse-toggle" id="gbPlatformCollapseBtn" aria-expanded="false" aria-controls="gbPlatformCollapseBody">
+                                    <span class="gb-collapse-chevron" aria-hidden="true">▶</span>
+                                    SIP 信令（平台）
+                                </button>
+                                <label class="gb-collapse-enable"><input type="checkbox" id="gbEnabled">启用平台</label>
+                                <span id="gbPlatformSummary" class="gb-collapse-summary"></span>
+                            </div>
+                            <div id="gbPlatformCollapseBody" class="gb-collapse-body" hidden>
+                                <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">摄像机「上级平台」填 SIP 服务器 ID、域、对外地址和 SIP 服务器端口。监听地址不填到设备；对外地址必须是摄像机可达的 IP。</p>
+                                <div id="gb28181PlatformForm" class="gb28181-form">
+                                    <label>传输协议<select id="gbTransport"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="both">UDP+TCP</option></select></label>
+                                    <label>协议版本<input type="text" id="gbProtocolVersion" value="GB/T28181-2022"></label>
+                                    <label>SIP服务器ID<input type="text" id="gbServerId" placeholder="34020000002000000001"></label>
+                                    <label>SIP服务器域<input type="text" id="gbDomain" placeholder="3402000000"></label>
+                                    <label>监听地址 bind<input type="text" id="gbBindHost" placeholder="0.0.0.0"></label>
+                                    <label>对外地址 public<input type="text" id="gbPublicHost" placeholder="默认本机局域网 IP"></label>
+                                    <label>SIP服务器端口<input type="number" id="gbSipPort" value="15060"></label>
+                                    <label>注册有效期（秒）<input type="number" id="gbExpires" value="3600"></label>
+                                    <label>心跳周期（秒）<input type="number" id="gbKeepalive" value="60"></label>
+                                    <label>心跳超时次数<input type="number" id="gbKeepaliveMiss" value="3"></label>
+                                </div>
+                            </div>
+                            <p id="gbSipReadyHint" style="font-size:12px;color:#856404;margin:0 0 8px 0;"></p>
+                        </div>
+                        <div class="card">
+                            <h2>媒体收流（Invite / ZLM）</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">只用于点播 SDP，不填到摄像机 SIP 表单。每路通道从范围内占用一个 UDP 端口，可同时多路收流。</p>
+                            <div class="gb28181-form">
+                                <label>媒体收流 IP<input type="text" id="gbMediaIp" placeholder="摄像机推 PS 的目的 IP"></label>
+                                <label>媒体端口范围<input type="text" id="gbMediaPortRange" placeholder="10000-10200" value="10000-10200"></label>
+                            </div>
+                            <div class="button-group" style="margin-bottom:12px;">
+                                <button type="button" class="btn-save" id="gbSavePlatformBtn">💾 保存平台参数</button>
+                            </div>
+                            <p id="gbPlatformHint" style="font-size:12px;color:#856404;margin:0;"></p>
+                        </div>
+                        <div class="card">
+                            <h2>设备列表</h2>
+                            <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">点「新建」填写 SIP 用户与密码，用户名/认证 ID 自动分配。预览和接入分析在「通道」里按通道操作（预览不等于分析）。「复制参数」用于摄像机上级平台配置。</p>
+                            <div class="button-group gb-dev-toolbar" style="margin-bottom:12px;">
+                                <button type="button" class="btn-add" id="gbStartCreateBtn" style="width:auto;min-width:160px;">➕ 新建</button>
+                                <button type="button" class="btn-filter-apply" id="gbRefreshDraftIdsBtn">🔄 刷新编码</button>
+                                <button type="button" class="btn-filter-apply" id="gbRefreshStatusBtn">🔄 刷新在线状态</button>
+                                <label class="gb-dev-status-filter">在线状态
+                                    <select id="gbDeviceStatusFilter" title="按在线状态筛选">
+                                        <option value="">全部</option>
+                                        <option value="online">在线</option>
+                                        <option value="offline">离线</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <p id="gbDeviceListHint" style="font-size:12px;color:#856404;margin:0 0 10px 0;"></p>
+                            <div id="gb28181DeviceList" class="gb-dev-table-wrap"></div>
+                        </div>
+                    </div>
+                </div>

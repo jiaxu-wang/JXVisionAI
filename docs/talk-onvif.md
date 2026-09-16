@@ -43,4 +43,4 @@ JXVisionAI 支持通过 **ONVIF RTSP Audio Backchannel** 将浏览器麦克风�
 - `visionai/core/rtsp_backchannel.py` — DESCRIBE/SETUP/PLAY + RTP 上行  
 - `visionai/core/talk_session.py` — 会话管理  
 - `visionai/web/app.py` — `/api/talk/*`  
-- `visionai/web/templates/admin.html` — 对讲 UI  
+- `visionai/web/templates/admin/_modals.html` + `static/admin/js/devices.js` — 对讲 UI 与逻辑  

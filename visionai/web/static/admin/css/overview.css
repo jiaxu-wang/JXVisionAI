@@ -1,0 +1,53 @@
+/* JXVisionAI admin — extracted from templates/admin.html */
+/* overview.css */
+
+/* 状态概览 */
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.status-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border-left: 4px solid #2196F3;
+}
+
+.status-card h3 {
+    font-size: 14px;
+    color: #6c757d;
+    margin-bottom: 10px;
+}
+
+.status-card .value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+}
+
+.status-card .status {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    margin-top: 10px;
+    display: inline-block;
+}
+
+.status-online {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-offline {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-warn {
+    background: #fff3cd;
+    color: #856404;
+}
