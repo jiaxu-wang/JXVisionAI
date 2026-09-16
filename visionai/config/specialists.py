@@ -38,6 +38,7 @@ _BUILTIN_RESERVED = frozenset(
         "gather",
         "face_recognition",
         "plate_recognition",
+        "fatigue_driving",
         "person",
         "cell_phone",
     }
@@ -248,7 +249,9 @@ def load_specialist(key: str, repo_root: Optional[Path] = None) -> Optional[Dict
                 cand = d / name
                 if cand.is_file():
                     meta["model_path"] = str(cand.relative_to(root)).replace("\\", "/")
+                    abs_model = cand
                     break
+        meta["weights_exists"] = abs_model.is_file()
         return meta
     except Exception as e:  # noqa: BLE001
         logger.warning("读取专模 %s 失败: %s", key, e)
@@ -403,7 +406,7 @@ def deploy_specialist(
         "success": True,
         "message": (
             f"已{origin_zh}专模「{meta['name_zh']}」（键 {key}），"
-            "可在检测类型配置中勾选；一般无需重启"
+            "可在算法配置中勾选；一般无需重启"
         ),
         "key": key,
         "meta": meta,

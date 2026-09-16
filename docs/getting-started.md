@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 推理设备：`config.ini` → **`[basic]` → `inference_device = cpu | gpu`**，改完重启生效。
 
-除内置检测（COCO 80、玩手机、聚集、人脸识别、车牌识别）外，其它场景可：
+除内置检测（COCO 80、玩手机、聚集、人脸识别、车牌识别、疲劳驾驶）外，其它场景可：
 
 - **导入现成专模**：训练实验室上传社区 YOLO 权重（见 [detection.md](detection.md#导入现成专模社区--平台权重)）
 - **自训专模**：训练实验室标注训练后部署到 `models/specialists/<key>/`
@@ -148,7 +148,7 @@ Compose：`docker compose restart visionai-api visionai-worker visionai-alert`
 
 #### 4.5 人脸识别（可选）
 
-将 InsightFace **buffalo_l** 解压到 `models/buffalo_l/`（`det_10g.onnx`、`w600k_r50.onnx`、可选 `genderage.onnx`）。
+将 InsightFace **buffalo_l** 解压到 `models/buffalo_l/`（`det_10g.onnx`、`w600k_r50.onnx`、可选 `genderage.onnx`）。人脸识别与疲劳驾驶共用检测模型。
 
 #### 4.6 内置扩展与训练专模
 
@@ -157,7 +157,9 @@ Compose：`docker compose restart visionai-api visionai-worker visionai-alert`
 | 玩手机 | `pose_model`（默认 `models/yolo26s-pose.pt`） |
 | 人员聚集 | 仅依赖 YOLO26 人物框 |
 | 人脸识别 | `models/buffalo_l/` |
+| 疲劳驾驶 | 同上 `buffalo_l`（车内正脸 + 密检窗；不合格机位拒绝） |
 | 车牌识别 | `models/specialists/plate/` + RapidOCR |
+| 枪支 / 刀具 | `./env/bin/python scripts/download_weapon_specialists.py` → `models/specialists/gun/`、`knife/` |
 | 其它检测 | 训练实验室自训/导入 → `models/specialists/<key>/` |
 
 打电话能力已下线；需要时自训/导入专模。权重**不入 Git**。

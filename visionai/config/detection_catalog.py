@@ -194,6 +194,7 @@ PHONE_PLAY_KEY = "phone_play"
 GATHER_KEY = "gather"
 FACE_RECOG_KEY = "face_recognition"
 PLATE_RECOG_KEY = "plate_recognition"
+FATIGUE_KEY = "fatigue_driving"
 
 # 内置扩展（非专模）。打电话能力已下线；历史告警文案仍保留 CALL_KEY 标签。
 EXTENSION_KEYS: Tuple[str, ...] = (
@@ -201,6 +202,7 @@ EXTENSION_KEYS: Tuple[str, ...] = (
     GATHER_KEY,
     FACE_RECOG_KEY,
     PLATE_RECOG_KEY,
+    FATIGUE_KEY,
 )
 
 EXTENSION_LABELS_ZH: Dict[str, str] = {
@@ -209,6 +211,7 @@ EXTENSION_LABELS_ZH: Dict[str, str] = {
     GATHER_KEY: "人员聚集",
     FACE_RECOG_KEY: "人脸识别",
     PLATE_RECOG_KEY: "车牌识别",
+    FATIGUE_KEY: "疲劳驾驶",
 }
 
 EXTENSION_CATALOG_META: List[Dict[str, str]] = [
@@ -231,6 +234,11 @@ EXTENSION_CATALOG_META: List[Dict[str, str]] = [
         "key": PLATE_RECOG_KEY,
         "name_en": "license plate OCR + library (known / unknown)",
         "name_zh": EXTENSION_LABELS_ZH[PLATE_RECOG_KEY],
+    },
+    {
+        "key": FATIGUE_KEY,
+        "name_en": "fatigue driving (PERCLOS / yawn / nod, cabin face only)",
+        "name_zh": EXTENSION_LABELS_ZH[FATIGUE_KEY],
     },
 ]
 

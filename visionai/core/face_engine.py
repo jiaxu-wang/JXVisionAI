@@ -484,6 +484,64 @@ def analyze_faces(
     return out
 
 
+def detect_faces_kps(
+    frame_bgr: np.ndarray,
+    *,
+    max_faces: int = 2,
+    rotate: int = 0,
+) -> List[Dict[str, Any]]:
+    """只做人脸框 + 5 点，不做 ArcFace（供 DMS）。"""
+    if not _ensure_sessions() or frame_bgr is None or frame_bgr.size == 0:
+        return []
+    orig_h, orig_w = frame_bgr.shape[:2]
+    src = _rotate_frame(frame_bgr, rotate) if rotate else frame_bgr
+    det_size = FACE_RECOG_DET_SIZE[0]
+    try:
+        dets = _detect_faces_scrfd(src, det_size=det_size, conf_thresh=FACE_RECOG_DET_CONF)
+    except Exception as ex:  # noqa: BLE001
+        logger.debug("DMS 人脸检测异常: %s", ex, exc_info=True)
+        return []
+    out: List[Dict[str, Any]] = []
+    for i, det in enumerate(dets[: max(1, max_faces)]):
+        bbox = list(det["bbox"])
+        kps = det.get("kps")
+        if rotate:
+            bbox = _map_bbox_from_rotated(bbox, orig_w, orig_h, rotate)
+            if kps is not None:
+                kps = _map_kps_from_rotated(kps, orig_w, orig_h, rotate)
+        x1, y1, x2, y2 = [int(v) for v in bbox[:4]]
+        out.append(
+            {
+                "index": i,
+                "bbox": [x1, y1, x2, y2],
+                "kps": kps,
+                "det_score": float(det.get("det_score") or 0.0),
+                "face_width": max(0, x2 - x1),
+            }
+        )
+    return out
+
+
+def _map_kps_from_rotated(
+    kps: np.ndarray, orig_w: int, orig_h: int, rotate: int
+) -> np.ndarray:
+    d = int(rotate) % 360
+    pts = np.asarray(kps, dtype=np.float32).reshape(-1, 2).copy()
+    if d == 0:
+        return pts
+    mapped = []
+    for x, y in pts:
+        if d == 180:
+            mapped.append((orig_w - x, orig_h - y))
+        elif d == 90:
+            mapped.append((y, orig_h - x))
+        elif d == 270:
+            mapped.append((orig_w - y, x))
+        else:
+            mapped.append((float(x), float(y)))
+    return np.asarray(mapped, dtype=np.float32)
+
+
 def extract_single_face_embedding(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
     faces = analyze_faces(frame_bgr, max_faces=2)
     if len(faces) != 1:

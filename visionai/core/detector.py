@@ -2,7 +2,8 @@
 检测核心：YOLO26 主检 + 行为插件融合 + 画框截图。
 
 每路流对应一个 Detector 实例。主循环由 ``__main__.run_video_processing`` 驱动：
-按 ``detection_interval`` 取帧 → ``detect()`` → ``process_results()`` → ``save_snapshot()``。
+按 ``detection_interval`` 开一轮，窗内抽多帧 → ``detect()`` → ``process_results()`` →
+命中率聚合 → ``save_snapshot()``（一轮一张）。``detect_burst_frames=1`` 时退回单帧。
 
 多路并行加载同一权重文件时加锁，避免 torch.load 竞态。
 """
@@ -25,6 +26,7 @@ from visionai.config.detection_catalog import (
     NUM_COCO_CLASSES,
     PHONE_PLAY_KEY,
     FACE_RECOG_KEY,
+    FATIGUE_KEY,
     PLATE_RECOG_KEY,
     all_extension_keys,
     normalize_detections,
@@ -56,6 +58,10 @@ from visionai.core.face_recognition_config import (
     default_face_recognition_config,
     normalize_face_recognition_config,
 )
+from visionai.core.dms.config import (
+    default_fatigue_config,
+    normalize_fatigue_config,
+)
 from visionai.core.plate_recognition_config import default_plate_recognition_config
 from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
@@ -85,6 +91,7 @@ _BEHAVIOR_COLORS = {
     CALL_KEY: (0, 0, 255),
     FACE_RECOG_KEY: (0, 200, 0),
     PLATE_RECOG_KEY: (255, 140, 0),
+    FATIGUE_KEY: (0, 90, 255),
 }
 
 
@@ -123,6 +130,7 @@ class Detector:
         self.alert_webhook_enabled: bool = False
         self.face_recognition_config = default_face_recognition_config()
         self.plate_recognition_config = default_plate_recognition_config()
+        self.fatigue_driving_config = default_fatigue_config()
         self._cpp_session_ready = False
         self._load_model()
 
@@ -179,6 +187,51 @@ class Detector:
             kw["device"] = dev
         return boxes_from_ultralytics(self.model(frame, **kw))
 
+    def process_dms_frame(self, frame):
+        """密检窗内只跑疲劳驾驶，不跑主检 YOLO。"""
+        if not self.detections.get(FATIGUE_KEY, False):
+            return None
+        from visionai.core.behaviors.registry import run_behaviors
+
+        now = time.time()
+        ctx = BehaviorContext(
+            frame_source=frame,
+            persons=[],
+            cell_phones=[],
+            stream_name=self.stream_name,
+            now=now,
+            extra={
+                "fatigue_driving_config": self.fatigue_driving_config,
+                "stream_id": self.stream_id or "",
+            },
+        )
+        flags = {FATIGUE_KEY: True}
+        try:
+            out = run_behaviors(ctx, self._behavior_state, flags)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("DMS 本帧失败（不中断拉流）: %s", e, exc_info=True)
+            return None
+        fg = out.get(FATIGUE_KEY) or {}
+        vis = frame.copy()
+        color = _color_for_behavior(FATIGUE_KEY)
+        fs_px = label_font_px(vis)
+        for bx in fg.get("boxes") or []:
+            draw_labeled_box(vis, bx.get("box"), str(bx.get("name") or "疲劳驾驶"), color, font_px=fs_px)
+        detections = {
+            "persons": [],
+            "cell_phones": [],
+            "calls": [],
+            "phone_play": [],
+            "by_class": {},
+            "gathering_alert": False,
+            "gather_cluster_indices": [],
+            "gather_count": 0,
+            "behaviors": {FATIGUE_KEY: fg},
+        }
+        if fg.get("alert"):
+            self.save_snapshot(vis, detections)
+        return fg
+
     def detect(self, frame):
         """返回 DetectionBox 列表（python / cpp 统一）。"""
         try:
@@ -208,8 +261,10 @@ class Detector:
         """处理已归一化的 DetectionBox 列表（主路径）。"""
         return self.process_results(frame, boxes)
 
-    def process_results(self, frame, results):
+    def process_results(self, frame, results, now=None):
         """处理检测结果（接受 Ultralytics Results 或 DetectionBox 列表）。
+
+        ``now``：可选墙钟；一轮多帧时应传入同一时刻，避免持续时长闸被推理耗时推进。
 
         「打电话」：人物框与手机框存在重叠（交集面积 > 0）即记为一次打电话配对。
 
@@ -238,6 +293,7 @@ class Detector:
         gather_on = self.detections.get(GATHER_KEY, False)
         face_recog_on = self.detections.get(FACE_RECOG_KEY, False)
         plate_recog_on = self.detections.get(PLATE_RECOG_KEY, False)
+        fatigue_on = self.detections.get(FATIGUE_KEY, False)
         p_keys = person_behavior_keys()
         s_keys = scene_behavior_keys()
         person_behavior_on = any(self.detections.get(k, False) for k in p_keys)
@@ -266,6 +322,7 @@ class Detector:
             or scene_behavior_on
             or face_recog_on
             or plate_recog_on
+            or fatigue_on
         )
         behavior_src = frame.copy() if behavior_needed else None
 
@@ -346,7 +403,7 @@ class Detector:
         gathering_alert = False
         gather_cluster_indices: list[int] = []
         gather_count = len(persons)
-        now = time.time()
+        now = time.time() if now is None else float(now)
         if gather_on:
             min_p = GATHER_MIN_PERSONS
             raw = len(persons) >= min_p
@@ -373,9 +430,15 @@ class Detector:
                 extra={
                     "face_recognition_config": self.face_recognition_config,
                     "plate_recognition_config": self.plate_recognition_config,
+                    "fatigue_driving_config": self.fatigue_driving_config,
+                    "stream_id": self.stream_id or "",
                 },
             )
-            behaviors_out = run_behaviors(ctx, self._behavior_state, self.detections)
+            flags = dict(self.detections)
+            if fatigue_on:
+                # 密检由 process_dms_frame 单独采样，避免 YOLO 抽帧再计一次
+                flags[FATIGUE_KEY] = False
+            behaviors_out = run_behaviors(ctx, self._behavior_state, flags)
 
         call_result = behaviors_out.get(CALL_KEY, {})
         if use_dedicated_call and call_result.get("alert"):
@@ -640,6 +703,13 @@ class Detector:
                     font_px=fs_px,
                 )
 
+        fg_result = behaviors_out.get(FATIGUE_KEY, {})
+        if fatigue_on:
+            color = _color_for_behavior(FATIGUE_KEY)
+            for bx in fg_result.get("boxes") or []:
+                nm = str(bx.get("name") or "疲劳驾驶")
+                draw_labeled_box(frame, bx.get("box"), nm, color, font_px=fs_px)
+
         if gathering_alert and gather_on and gather_cluster_indices:
             pts = []
             for gi in gather_cluster_indices:
@@ -825,8 +895,25 @@ class Detector:
                 }
 
         p_keys = person_behavior_keys()
+        fg_saved = behaviors_saved.get(FATIGUE_KEY, {})
+        if self.detections.get(FATIGUE_KEY, False) and fg_saved.get("alert"):
+            should_save = True
+            zh = label_zh_for_extension(FATIGUE_KEY)
+            reasons = fg_saved.get("reasons") or []
+            label = zh + ((" · " + "/".join(reasons)) if reasons else "")
+            if label not in detection_types:
+                detection_types.append(label)
+            info.append(f"{label} PERCLOS={float(fg_saved.get('perclos') or 0):.0%}")
+            if detection_extra is None:
+                detection_extra = {}
+            detection_extra["fatigue_driving"] = {
+                "perclos": fg_saved.get("perclos"),
+                "reasons": reasons,
+                "metrics": fg_saved.get("metrics"),
+            }
+
         for ek in all_extension_keys():
-            if ek in (FACE_RECOG_KEY, PLATE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY):
+            if ek in (FACE_RECOG_KEY, PLATE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY, FATIGUE_KEY):
                 continue
             if ek == CALL_KEY and detections.get("calls"):
                 # 已在上方按 calls 记录
