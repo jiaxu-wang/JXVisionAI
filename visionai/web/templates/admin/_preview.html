@@ -2,22 +2,22 @@
                     <div class="card preview-wall-card">
                         <div class="preview-wall-toolbar">
                             <div>
-                                <h2 style="margin:0 0 4px;">视频预览墙</h2>
-                                <p style="color:#6c757d;font-size:13px;margin:0;">左侧设备树按接入类型展开，双击视频/通道加入。最多 25 路（5×5）。RTSP/ONVIF 走 ZLM 代理，国标 Invite 后收 RTP。</p>
+                                <h2 style="margin:0 0 4px;" data-i18n="preview.wallTitle">视频预览墙</h2>
+                                <p style="color:#6c757d;font-size:13px;margin:0;" data-i18n="preview.wallHint">左侧设备树按接入类型展开，双击视频/通道加入。最多 25 路（5×5）。RTSP/ONVIF 走 ZLM 代理，国标 Invite 后收 RTP。</p>
                             </div>
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <span id="previewWallCount" style="font-size:13px;color:#495057;">0 / 25</span>
-                                <button type="button" class="btn-restart" id="previewWallClearBtn">全部关闭</button>
+                                <button type="button" class="btn-restart" id="previewWallClearBtn" data-i18n="preview.closeAll">全部关闭</button>
                             </div>
                         </div>
                         <div class="preview-wall-body">
                             <aside class="preview-tree-pane">
-                                <div class="preview-tree-head">设备</div>
-                                <div id="previewNavTree" class="preview-nav-tree" aria-label="按接入类型预览"></div>
+                                <div class="preview-tree-head" data-i18n="preview.devices">设备</div>
+                                <div id="previewNavTree" class="preview-nav-tree" data-i18n-aria="preview.devices" aria-label="按接入类型预览"></div>
                             </aside>
                             <div class="preview-wall-main">
                                 <div id="previewWallGrid" class="preview-wall-grid">
-                                    <div class="preview-wall-empty">双击左侧通道开始预览</div>
+                                    <div class="preview-wall-empty" data-i18n="preview.empty">双击左侧通道开始预览</div>
                                 </div>
                             </div>
                         </div>

@@ -24,11 +24,34 @@ _ASSIGN_RE = re.compile(r"^(\s*)([A-Za-z_][\w]*)\s*=\s*(.*)$")
 _COMMENT_ASSIGN_RE = re.compile(r"^\s*#\s*([A-Za-z_][\w]*)\s*=\s*(.*)$")
 _SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
 
-_SENSITIVE_KEYWORDS = ("secret", "password")
+_SENSITIVE_KEYWORDS = ("secret", "password", "api_key")
 
 
 def config_file_path() -> str:
     return os.environ.get("VISIONAI_CONFIG", _DEFAULT_INI)
+
+
+def read_ui_language() -> str:
+    """[ui] language：管理端默认语言，并用于告警推送类型展示名。无配置或非法值时为 zh。"""
+    path = config_file_path()
+    if not path or not os.path.isfile(path):
+        return "zh"
+    try:
+        cp = configparser.ConfigParser(interpolation=None)
+        read = cp.read(path, encoding="utf-8")
+        if not read or not cp.has_section("ui"):
+            return "zh"
+        raw = ""
+        if cp.has_option("ui", "language"):
+            raw = cp.get("ui", "language", raw=True) or ""
+        elif cp.has_option("ui", "ui_language"):
+            raw = cp.get("ui", "ui_language", raw=True) or ""
+        v = str(raw).strip().lower()
+        if v in ("en", "en-us", "english"):
+            return "en"
+        return "zh"
+    except Exception:  # noqa: BLE001
+        return "zh"
 
 
 def _read_lines(path: str) -> List[str]:
@@ -112,22 +135,29 @@ def _field_payload(
 ) -> Dict[str, Any]:
     if field.readonly:
         val = ""
+        val_en = ""
         if field.key == "_priority":
             val = "环境变量 > config.ini（多分节）> settings.py 内置默认值"
+            val_en = "Environment variables > config.ini (multi-section) > built-in defaults in settings.py"
         elif field.key == "_restart":
             val = "保存后重启服务生效"
+            val_en = "Restart the service after saving"
         elif field.key == "_config_path":
             val = config_file_path()
+            val_en = val
         return {
             "key": field.key,
             "label": field.label,
+            "label_en": field.label_en or field.label,
             "type": field.field_type,
             "editable": False,
             "readonly": True,
             "comment": field.comment,
+            "comment_en": field.comment_en or field.comment,
             "section": getattr(field, "section", "") or "",
             "ini_key": "",
             "value": val,
+            "value_en": val_en or val,
             "in_file": False,
             "commented_only": False,
         }
@@ -149,10 +179,12 @@ def _field_payload(
     return {
         "key": field.key,
         "label": field.label,
+        "label_en": field.label_en or field.label,
         "type": field.field_type,
         "editable": field.editable,
         "readonly": False,
         "comment": field.comment,
+        "comment_en": field.comment_en or field.comment,
         "section": field.section or sec,
         "ini_key": field.ini_key or ini_k,
         "value": value,
@@ -169,21 +201,27 @@ def read_structured_units() -> List[Dict[str, Any]]:
     active, commented, _, _, _ = _parse_ini_state(lines)
 
     units: List[Dict[str, Any]] = []
+    meta0 = CONFIG_UNITS[0]
     meta_unit = {
         "id": "meta",
-        "title": "配置说明",
-        "description": CONFIG_UNITS[0].description,
+        "title": meta0.title,
+        "title_en": meta0.title_en or meta0.title,
+        "description": meta0.description,
+        "description_en": meta0.description_en or meta0.description,
         "fields": [
-            _field_payload(CONFIG_UNITS[0].fields[0], active, commented, include_effective=False),
-            _field_payload(CONFIG_UNITS[0].fields[1], active, commented, include_effective=False),
+            _field_payload(meta0.fields[0], active, commented, include_effective=False),
+            _field_payload(meta0.fields[1], active, commented, include_effective=False),
             {
                 "key": "_config_path",
                 "label": "配置文件路径",
+                "label_en": "Config file path",
                 "type": "readonly",
                 "editable": False,
                 "readonly": True,
-                "comment": "可由环境变量 VISIONAI_CONFIG 覆盖；节：[basic]/[redis]/[minio]/[email]/[models]",
+                "comment": "可由环境变量 VISIONAI_CONFIG 覆盖；节：[basic]/[redis]/[minio]/[email]/[models]/[ui]",
+                "comment_en": "Override with VISIONAI_CONFIG; sections: [basic]/[redis]/[minio]/[email]/[models]/[ui]",
                 "value": path,
+                "value_en": path,
                 "in_file": False,
                 "commented_only": False,
             },
@@ -201,7 +239,9 @@ def read_structured_units() -> List[Dict[str, Any]]:
             {
                 "id": unit.id,
                 "title": unit.title,
+                "title_en": unit.title_en or unit.title,
                 "description": unit.description,
+                "description_en": unit.description_en or unit.description,
                 "fields": fields,
             }
         )
@@ -369,8 +409,10 @@ def config_meta() -> Dict[str, Any]:
         "mtime": mtime,
         "env_config_override": env_override or None,
         "priority": "环境变量 > config.ini（多分节）> settings.py 内置默认值",
+        "priority_en": "Environment variables > config.ini (multi-section) > built-in defaults in settings.py",
         "restart_required": True,
-        "sections": ["basic", "redis", "minio", "email", "models", "preview"],
+        "sections": ["basic", "redis", "minio", "email", "models", "preview", "ui"],
+        "default_locale": read_ui_language(),
     }
 
 

@@ -20,6 +20,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="JXVisionAI 人脸识别测试")
     parser.add_argument("--image", required=True, help="测试图片路径")
     parser.add_argument("--name", default="测试人员", help="录入姓名（--enroll 时）")
+    parser.add_argument("--identity", default="", help="身份ID / 证件号（--enroll 时必填）")
     parser.add_argument("--enroll", action="store_true", help="录入到人脸库")
     parser.add_argument("--list", action="store_true", help="列出人脸库")
     parser.add_argument(
@@ -45,7 +46,9 @@ def main() -> int:
 
     if args.enroll:
         try:
-            r = face_library.enroll_person(img, name=args.name)
+            r = face_library.enroll_person(
+                img, name=args.name, identity_id=args.identity or args.name
+            )
             print("录入成功:", r)
         except Exception as ex:  # noqa: BLE001
             print("录入失败:", ex)

@@ -24,6 +24,8 @@
 | `[infer]` | 主检后端：`python`（默认）或 `cpp`（visionai-inferd） | `backend`、`endpoint`、`on_daemon_error` |
 | `[preview]` | 检测框标签字号（流预览仅 ZLM WebRTC） | `label_font_px`、… |
 | `[zlm]` | ZLMediaKit 媒体面（可选） | `enabled`、`api_base`、`secret`、`fallback_direct_rtsp`、… |
+| `[integration]` | 开放 API、全局告警 Webhook、侧栏「平台接入」嵌入页 | `open_api_key`、`outbound_webhook_url`、`platform_embed_url` |
+| `[ui]` | 管理端默认语言；告警 webhook/邮件的类型展示名也用此值。浏览器已选语言时管理端以 localStorage 为准，推送仍读 ini | `language`（`zh` / `en`） |
 
 **兼容**：旧版单节 `[visionai]`（键为规范全名，如 `redis_host`、`smtp_host`）仍可读取。
 
@@ -62,6 +64,7 @@
 | `zlm_enabled` | `[zlm]` → `enabled` | 经 ZLMediaKit 代理后再本地取流；管理端预览为 ZLM WebRTC | false |
 | `zlm_api_base` / `secret` | `[zlm]` | ZLM HTTP API；**secret 须与 `config/zlm/config.ini` 一致** | 见下节 |
 | `zlm_fallback_direct_rtsp` | `[zlm]` → `fallback_direct_rtsp` | 代理失败时直连摄像机 RTSP | true |
+| `ui_language` | `[ui]` → `language` | 管理端首次访问默认语言，以及告警推送类型展示名 `zh`/`en`（顶栏切换只改浏览器缓存，不改推送） | `zh` |
 | `STREAM_LEASE_ENABLED` | 环境变量 | 多 worker 流租约 HA | false |
 
 完整字段与 Web「系统设置」页同步。
@@ -137,8 +140,8 @@ WebRTC 预览：管理端「预览」→ **ZLM WebRTC**；信令走 `POST /api/z
 [minio]
 enabled = true
 endpoint_url = http://127.0.0.1:9000
-access_key_id = minioadmin
-secret_access_key = minioadmin
+access_key_id =
+secret_access_key =
 bucket = visionai
 keep_local = true
 ```

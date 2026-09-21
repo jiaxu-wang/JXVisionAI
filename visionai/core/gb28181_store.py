@@ -827,21 +827,53 @@ def get_runtime_map(redis_manager) -> Dict[str, Dict[str, Any]]:
 
 
 def is_sip_alive(redis_manager) -> bool:
+    return bool(get_sip_alive_meta(redis_manager))
+
+
+def get_sip_alive_meta(redis_manager) -> Dict[str, Any]:
     if not redis_manager or not redis_manager.is_connected():
-        return False
+        return {}
     try:
-        return bool(redis_manager._redis_client.get(sip_alive_key(redis_manager)))
+        raw = redis_manager._redis_client.get(sip_alive_key(redis_manager))
     except Exception:  # noqa: BLE001
-        return False
+        return {}
+    if not raw:
+        return {}
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    text = str(raw).strip()
+    if not text:
+        return {}
+    if text.startswith("{"):
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:  # noqa: BLE001
+            return {"ok": True}
+    return {"ok": True}
 
 
-def touch_sip_alive(redis_manager, *, ttl_sec: int = 15) -> None:
+def touch_sip_alive(
+    redis_manager,
+    *,
+    ttl_sec: int = 15,
+    boot_id: str = "",
+    session_count: int = 0,
+) -> None:
     if not redis_manager or not redis_manager.is_connected():
         return
     try:
         redis_manager._redis_client.set(
             sip_alive_key(redis_manager),
-            json.dumps({"updated_at": _now_str()}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "updated_at": _now_str(),
+                    "boot_id": str(boot_id or ""),
+                    "sessions": int(session_count or 0),
+                },
+                ensure_ascii=False,
+            ),
             ex=max(5, int(ttl_sec)),
         )
     except Exception as e:  # noqa: BLE001
@@ -962,9 +994,14 @@ def overlay_sip_runtime(
     devices: List[Dict[str, Any]],
     runtime: Dict[str, Dict[str, Any]],
     plat: Optional[Dict[str, Any]] = None,
+    sip_boot_id: str = "",
 ) -> List[Dict[str, Any]]:
-    """用 SIP 运行时覆盖账号在线状态（不写 Redis）。"""
+    """用 SIP 运行时覆盖账号在线状态（不写 Redis）。
+
+    无运行时记录、心跳过期、或 sip_boot_id 与当前信令进程不一致时一律 offline。
+    """
     out: List[Dict[str, Any]] = []
+    boot = str(sip_boot_id or "").strip()
     for src in devices:
         d = dict(src)
         did = str(d.get("sip_user") or d.get("device_id") or "")
@@ -974,6 +1011,9 @@ def overlay_sip_runtime(
             if st not in ("online", "offline", "unknown"):
                 st = "offline"
             note = str(rt.get("note") or "")
+            if st == "online" and boot and str(rt.get("sip_boot_id") or "") != boot:
+                st = "offline"
+                note = "信令进程已重启，等待重新注册"
             if st == "online" and not runtime_is_fresh(rt, plat):
                 st = "offline"
                 note = "心跳已过期，等待摄像机重新注册"
@@ -997,18 +1037,28 @@ def overlay_sip_runtime(
 
 
 def list_devices_live(redis_manager) -> List[Dict[str, Any]]:
-    """账号列表 + 当前 SIP 在线状态。"""
+    """账号列表 + 当前 SIP 在线状态。无 SIP 心跳则不得显示可点播在线。"""
     plat = get_platform(redis_manager)
+    alive = get_sip_alive_meta(redis_manager)
+    boot = str(alive.get("boot_id") or "")
+    if not alive:
+        mark_all_runtime_offline(redis_manager, note="信令进程未运行")
+        return overlay_sip_runtime(list_devices(redis_manager), {}, plat, sip_boot_id="")
     runtime = get_runtime_map(redis_manager)
-    if not is_sip_alive(redis_manager):
-        forced: Dict[str, Dict[str, Any]] = {}
-        for did, rt in runtime.items():
-            row = dict(rt) if isinstance(rt, dict) else {}
+    out = overlay_sip_runtime(list_devices(redis_manager), runtime, plat, sip_boot_id=boot)
+    for d in out:
+        did = str(d.get("sip_user") or d.get("device_id") or "")
+        if not did:
+            continue
+        if str(d.get("status") or "").lower() == "online":
+            continue
+        rt = runtime.get(did)
+        if isinstance(rt, dict) and str(rt.get("status") or "").lower() == "online":
+            row = dict(rt)
             row["status"] = "offline"
-            row["note"] = "信令进程未运行"
-            forced[did] = row
-        runtime = forced
-    return overlay_sip_runtime(list_devices(redis_manager), runtime, plat)
+            row["note"] = str(d.get("status_note") or "心跳已过期，等待摄像机重新注册")
+            write_runtime(redis_manager, did, row)
+    return out
 
 
 def refresh_device_statuses(redis_manager) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -1292,7 +1342,7 @@ def sync_analysis_stream_names(redis_manager, device: Dict[str, Any]) -> int:
         try:
             from visionai.core.state_manager import get_stream_status, set_stream_status
 
-            set_stream_status(alias, get_stream_status(old, "离线"))
+            set_stream_status(alias, get_stream_status(old, "offline"))
         except Exception:  # noqa: BLE001
             pass
         logger.info(

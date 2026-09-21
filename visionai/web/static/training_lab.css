@@ -29,7 +29,28 @@ body {
 }
 .tl-brand h1 { font-size: 1.25rem; font-weight: 600; }
 .tl-sub { font-size: 0.8rem; color: #94a3b8; margin-top: 2px; }
-.tl-header-actions { display: flex; gap: 10px; }
+.tl-header-actions { display: flex; gap: 10px; align-items: center; }
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+  margin-right: 4px;
+}
+.lang-switch button {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+.lang-switch button.active {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.lang-switch-sep { color: #475569; }
 
 /* 项目条（项目训练页内顶部） */
 .tl-project-bar {
@@ -60,8 +81,9 @@ body {
   grid-template-columns: 200px 1fr;
   gap: 20px;
   padding: 20px 24px 32px;
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   align-items: start;
 }
 @media (max-width: 960px) {

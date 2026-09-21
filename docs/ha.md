@@ -36,6 +36,6 @@ API 只需跑一份（`python -m visionai.api`）。预览优先走 ZLM 播放 U
 ## 注意
 
 - 租约键：`{redis_key_prefix}stream_lease:{stream_id}`  
-- 流在线状态键：`{redis_key_prefix}stream_runtime_status`（各 worker 写心跳，API 只读；与租约独立）  
-- Redis 故障时租约逻辑降级为「本机全量处理」，避免全集群停检  
+- 流在线状态键：`{redis_key_prefix}stream_runtime_status`（各 worker 写心跳，API 只读；值为 `online`/`offline`，兼容读旧「在线/离线」）  
+- Redis 故障时：未启用租约的单 worker 仍处理；**启用租约的多 worker 拒绝抢流**（打 ERROR），避免全集群重复检测  
 - 训练实验室仍建议只在 API 节点运行

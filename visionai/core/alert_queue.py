@@ -107,7 +107,10 @@ def process_alert_job(job: Dict[str, Any]) -> None:
     from visionai.core.object_storage import get_object_storage
     from visionai.core.redis_manager import redis_manager
     from visionai.utils.alert_email import notify_alert_by_email
-    from visionai.utils.alert_webhook import notify_alert_by_webhooks
+    from visionai.utils.alert_webhook import (
+        notify_alert_by_webhooks,
+        resolved_alert_webhook_urls,
+    )
     from visionai.utils.timeutil import app_now, app_tz
 
     stream_name = str(job.get("stream_name") or "")
@@ -129,6 +132,7 @@ def process_alert_job(job: Dict[str, Any]) -> None:
     else:
         now = app_now()
     extra = job.get("extra")
+    record_id = str(job.get("record_id") or "").strip() or None
     alert_emails = list(job.get("alert_emails") or [])
     alert_email_enabled = bool(job.get("alert_email_enabled"))
     alert_webhook_urls = list(job.get("alert_webhook_urls") or [])
@@ -170,6 +174,7 @@ def process_alert_job(job: Dict[str, Any]) -> None:
         object_key=object_key,
         storage_kind=storage_kind,
         extra=extra if isinstance(extra, dict) else None,
+        record_id=record_id,
     )
     if rec_id and alert_emails and alert_email_enabled:
         img_for_mail = (
@@ -182,15 +187,19 @@ def process_alert_job(job: Dict[str, Any]) -> None:
             image_path=img_for_mail,
             timestamp=now,
         )
-    if rec_id and alert_webhook_enabled and alert_webhook_urls:
+    webhook_dest = resolved_alert_webhook_urls(
+        alert_webhook_urls, stream_enabled=alert_webhook_enabled
+    )
+    if rec_id and webhook_dest:
         notify_alert_by_webhooks(
             stream_name=stream_name,
             stream_id=stream_id or None,
-            webhook_urls=alert_webhook_urls,
+            webhook_urls=webhook_dest,
             detection_types=detection_types,
             image_path=path_for_redis or None,
             object_key=object_key,
             storage_kind=storage_kind,
             detection_id=rec_id,
             timestamp=now,
+            extra=extra if isinstance(extra, dict) else None,
         )

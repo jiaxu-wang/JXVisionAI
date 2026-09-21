@@ -79,7 +79,7 @@ class ZlmClient:
         secret: str = "",
         *,
         vhost: str = "__defaultVhost__",
-        app: str = "live",
+        app: str = "jvai",
         rtsp_port: int = 554,
         http_port: int = 80,
         pull_host: str = "",
@@ -89,7 +89,7 @@ class ZlmClient:
         self.api_base = (api_base or "http://127.0.0.1:80").rstrip("/") + "/"
         self.secret = secret or ""
         self.vhost = vhost or "__defaultVhost__"
-        self.app = app or "live"
+        self.app = app or "jvai"
         self.rtsp_port = int(rtsp_port or 554)
         self.http_port = int(http_port or 80)
         self.pull_host = (pull_host or "").strip() or "127.0.0.1"
@@ -145,6 +145,40 @@ class ZlmClient:
         h = (host or "").strip() or self.pull_host
         port = self.pull_rtsp_port
         return f"rtsp://{h}:{port}/{self.app}/{stream}"
+
+    def get_snap(
+        self, url: str, *, timeout_sec: float = 8.0, expire_sec: float = 1.0
+    ) -> Optional[bytes]:
+        """让 ZLM 对已在线流或源地址截一张 JPEG。失败返回 None。"""
+        src = (url or "").strip()
+        if not src:
+            return None
+        api = urljoin(self.api_base, "index/api/getSnap")
+        wait = max(2.0, float(timeout_sec))
+        try:
+            r = requests.get(
+                api,
+                params=self._params(
+                    {
+                        "url": src,
+                        "timeout_sec": str(int(wait)),
+                        "expire_sec": str(int(max(1.0, expire_sec))),
+                    }
+                ),
+                timeout=wait + 4.0,
+            )
+            body = r.content or b""
+            if r.status_code == 200 and len(body) > 32 and body[:2] == b"\xff\xd8":
+                return body
+            logger.debug(
+                "ZLM getSnap not jpeg: status=%s len=%s",
+                r.status_code,
+                len(body),
+            )
+            return None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ZLM getSnap failed: %s", e)
+            return None
 
     def play_urls(self, stream: str, host: str = "127.0.0.1", app: str = "") -> Dict[str, str]:
         """浏览器可播地址（相对本机/内网 host）。"""

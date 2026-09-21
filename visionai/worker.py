@@ -14,7 +14,7 @@ from visionai import __main__ as core
 from visionai.config.settings import SAVE_DIR, STREAM_LEASE_ENABLED
 from visionai.config.stream_access import stream_should_analyze
 from visionai.core import stream_sync
-from visionai.core.state_manager import set_stream_status
+from visionai.core.state_manager import STATUS_OFFLINE, STATUS_ONLINE, set_stream_status
 from visionai.core.stream_handler import StreamHandler
 from visionai.core.stream_lease import resolve_worker_id, try_acquire_lease
 from visionai.utils.logger import setup_logger
@@ -48,7 +48,7 @@ def main() -> None:
         logger.warning("未从Redis获取到流配置，请检查Redis连接")
 
     for stream_info in streams:
-        set_stream_status(stream_info["name"], "离线")
+        set_stream_status(stream_info["name"], STATUS_OFFLINE)
 
     for stream_info in streams:
         if not stream_should_analyze(stream_info):
@@ -93,13 +93,13 @@ def main() -> None:
                             prepared, err = prepare_gb_stream(stream_info)
                             if err or not prepared:
                                 log.warning("[离线检测] 国标点播失败 %s: %s", name, err)
-                                set_stream_status(name, "离线")
+                                set_stream_status(name, STATUS_OFFLINE)
                                 continue
                             start_info = prepared
                     except Exception as e:  # noqa: BLE001
                         log.warning("[离线检测] 国标准备失败 %s: %s", name, e)
                         if gb:
-                            set_stream_status(name, "离线")
+                            set_stream_status(name, STATUS_OFFLINE)
                             continue
                     if not gb:
                         sh = StreamHandler(stream_info)
@@ -110,7 +110,7 @@ def main() -> None:
                         if key in core.active_threads:
                             continue
                     if not gb:
-                        set_stream_status(name, "在线")
+                        set_stream_status(name, STATUS_ONLINE)
                     threading.Thread(
                         target=core.run_video_processing,
                         args=(start_info,),
@@ -123,6 +123,7 @@ def main() -> None:
 
     threading.Thread(target=check_offline_with_lease, daemon=True).start()
     threading.Thread(target=core.check_disabled_stream_status, daemon=True).start()
+    threading.Thread(target=core.run_stream_watchdog, daemon=True).start()
     logger.info("stream worker 守护线程已启动，主线程保活")
     while True:
         time.sleep(3600)

@@ -8,7 +8,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/streams` | 流列表（含 `detections`、`analyze`、`access_method`、`face_recognition_config`、`plate_recognition_config`、`status`；状态来自 Redis） |
+| `GET` | `/api/streams` | 流列表（含 `detections`、`analyze`、`access_method`、`face_recognition_config`、`plate_recognition_config`、`status`=`online`/`offline`；未登录返回 **401 JSON**） |
 | `POST` | `/api/streams` | 保存流配置到 Redis |
 | `PATCH` | `/api/streams/<stream_id>` | 更新单路（`name` / `url` / `enabled` / **`analyze`** / ONVIF 元数据） |
 | `DELETE` | `/api/streams/<stream_id>` | 删除流；国标会尝试 BYE |
@@ -28,7 +28,9 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/face-library` | 人脸库管理页面 |
-| `GET/POST` | `/api/face-library` | 列表 / 录入 |
+| `GET/POST` | `/api/face-library` | 列表 / 录入（列表含 `threshold`） |
+| `POST` | `/api/face-library/compare` | 1:1 手动比对：multipart 探测图 `photo`，必填 `person_id`（已录入人员），可选 `threshold` / `top_k` |
+| `POST` | `/api/face-library/compare-stream` | 对当前在线流截帧后与指定人员 1:1 比对（JSON：`stream_id`、`person_id`，可选 `threshold` / `top_k`） |
 | `GET/PUT/DELETE` | `/api/face-library/<person_id>` | 查询 / 更新 / 删除 |
 | `GET` | `/api/face-library/<person_id>/photo` | 人员照片 |
 | `POST` | `/api/face-library/reload` | 重新加载索引 |
@@ -59,7 +61,7 @@
 | `POST` | `/api/zlm/webrtc/push` | **喊话推流**：ZLM WebRTC push；body `{app,stream,sdp}` |
 | `GET/PUT` | `/api/system/config` | 读取/保存 `config.ini` |
 | `GET` | `/api/config` | 运行时配置摘要（含 `preview.zlm_webrtc_enabled`） |
-| `POST` | `/api/restart` | 重启服务（宿主机依赖 `start.sh` 布局；Compose 部署请用 `docker compose restart …`） |
+| `POST` | `/api/restart` | 默认 **403**。Compose 请用 `docker compose restart`；宿主机需显式 `VISIONAI_ALLOW_PROCESS_RESTART=1` |
 | `GET` | `/api/alert-image/<id>` | 告警截图（S3 回源） |
 
 ---
@@ -94,6 +96,28 @@
 成功后热加载插件，一般无需重启。操作说明见 [detection.md](detection.md#导入现成专模社区--平台权重)。
 
 完整训练实验室接口（项目、采图、标注、训练任务、验证、快照回流等）见 `/training` 页面与 `visionai/web/training_routes.py`。
+
+---
+
+## 开放集成（机对机，无需 Session）
+
+鉴权：请求头 `X-Api-Key` 对应 `[integration] open_api_key`（或环境变量 `OPEN_API_KEY`）。密钥未配置或错误时返回 **401 JSON** `{"success":false,"message":"..."}`，**不会** 302 到登录页。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/open/v1/streams` | 仅 `analyze=true` 的流：`id/name/status/online/access_method/play_rtsp/play_hls/zlm_app/zlm_stream`。国标 `zlm_app=rtp`，RTSP/ONVIF 为 `jvai` |
+| `GET` | `/api/open/v1/alerts/<id>/image` | 告警截图；`X-Api-Key` 或查询参数 `token`（HMAC，见 webhook `image_url`） |
+| `POST` | `/api/open/v1/zlm/ensure-proxy` | body `{stream_id}`：RTSP 建/复用拉流代理；国标只返回已有 `rtp` 播放地址 |
+
+告警 Webhook（`event=visionai.alert`）在原有字段上增加绝对 `image_url`。全局 `[integration] outbound_webhook_url` 与每路 `alert_webhook_urls` 合并去重；未开每路开关时仍会投递全局 URL。
+
+对接步骤见 [integration.md](integration.md)。
+
+### 管理页嵌入（可选）
+
+第三方控制台可用 `X-Api-Key` 调用 `POST /api/open/v1/embed-token`，得到一次性 `embed_url`（默认 60 秒、用一次即作废）。浏览器打开 `/embed?token=` 后写入与普通登录相同的 Session。
+
+`[integration] embed_frame_ancestors` 填对接方页面的源（空格或逗号分隔），进程会下发 `Content-Security-Policy: frame-ancestors 'self' …`。空则不写 CSP。HTTP 局域网下 Chrome 可能拦 iframe 第三方 Cookie，这时用新窗口打开同一地址即可。
 
 ---
 

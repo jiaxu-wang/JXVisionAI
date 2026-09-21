@@ -19,5 +19,6 @@
 | [api.md](api.md) | HTTP API |
 | [operations.md](operations.md) | 日志、排障、性能注意 |
 | [talk-onvif.md](talk-onvif.md) | ONVIF 语音对讲（Backchannel）探测与使用 |
+| [integration.md](integration.md) | 第三方：告警 Webhook、开放 API、侧栏嵌入页、可选嵌入管理页 |
 
 返回：[../README.md](../README.md)

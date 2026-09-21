@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>人脸库管理 - JXVisionAI</title>
+    <title data-i18n="faceLib.title">人脸库管理 - JXVisionAI</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <style>
@@ -21,18 +21,59 @@
         }
         .top h1 { margin: 0; font-size: 20px; }
         .top a { color: #2196F3; text-decoration: none; margin-left: 16px; }
-        .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+        .top-actions { display: flex; align-items: center; gap: 8px; }
+        .lang-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #6c757d; }
+        .lang-switch button { border: none; background: transparent; color: #6c757d; cursor: pointer; padding: 4px 2px; font-size: 13px; }
+        .lang-switch button.active { color: #1976D2; font-weight: 600; }
+        .lang-switch-sep { color: #ced4da; }
+        .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
         .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
         .card h2 { margin: 0 0 16px; font-size: 17px; }
         .status { font-size: 13px; padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; }
         .status.ok { background: #d4edda; color: #155724; }
         .status.bad { background: #f8d7da; color: #721c24; }
         label { display: block; font-size: 13px; margin-bottom: 4px; color: #495057; }
-        input[type=text], textarea { width: 100%; max-width: 480px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+        input[type=text], input[type=number], textarea, select { width: 100%; max-width: 480px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; margin-bottom: 12px; background: #fff; }
+        .compare-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+        @media (max-width: 800px) { .compare-pair { grid-template-columns: 1fr; } }
+        .compare-pane { border: 1px solid #e9ecef; border-radius: 8px; padding: 14px; background: #fafbfc; }
+        .compare-pane h3 { margin: 0 0 10px; font-size: 14px; }
+        .compare-pane select, .compare-pane input[type=number], .compare-pane input[type=file] { max-width: 100%; }
+        .enrolled-box { display: flex; align-items: center; gap: 12px; min-height: 88px; }
+        .enrolled-photo { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; background: #eee; }
+        .enrolled-meta { font-size: 14px; line-height: 1.5; }
+        .enrolled-meta .muted { color: #6c757d; font-size: 12px; }
+        .probe-tabs { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13px; }
+        .probe-tabs label { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; color: #212529; }
+        .compare-preview { max-width: 100%; border-radius: 8px; background: #111; display: block; }
+        .result-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+        @media (max-width: 800px) { .result-pair { grid-template-columns: 1fr; } }
+        .result-pair .cap { font-size: 12px; color: #6c757d; margin-bottom: 6px; }
+        .face-block { border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; margin-top: 12px; background: #fff; }
+        .face-block h3 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+        .badge.hit { background: #d4edda; color: #155724; }
+        .badge.miss { background: #f8d7da; color: #721c24; }
+        .sim-bar { height: 8px; background: #e9ecef; border-radius: 3px; overflow: hidden; max-width: 280px; margin-top: 6px; }
+        .sim-bar > span { display: block; height: 100%; background: #2196F3; }
+        .sim-bar.hit > span { background: #28a745; }
+        #compareResult { margin-top: 16px; }
+        .compare-meta { font-size: 13px; color: #6c757d; margin: 8px 0 12px; }
+        tr.selected { background: #e8f4fd; }
         .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn-primary { background: #2196F3; color: #fff; }
         .btn-danger { background: #dc3545; color: #fff; }
         .btn-secondary { background: #6c757d; color: #fff; }
+        .btn-edit { background: #fff; color: #1976D2; border: 1px solid #1976D2; }
+        .btn-compare { background: #fff; color: #2e7d32; border: 1px solid #2e7d32; }
+        .op-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+        .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 40; align-items: center; justify-content: center; padding: 16px; }
+        .modal-mask.show { display: flex; }
+        .modal-card { background: #fff; border-radius: 10px; padding: 20px; width: 100%; max-width: 520px; max-height: 92vh; overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.18); }
+        .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
+        .modal-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .edit-preview { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; background: #eee; display: block; margin-bottom: 12px; }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th, td { padding: 10px 12px; border-bottom: 1px solid #e9ecef; text-align: left; }
         th { background: #f8f9fa; font-weight: 600; }
@@ -48,57 +89,337 @@
     <div class="top">
         <div class="top-brand">
             <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
-            <h1>人脸库管理</h1>
+            <h1 data-i18n="faceLib.title">人脸库管理</h1>
         </div>
-        <div>
-            <a href="/">← 返回管理端</a>
-            <a href="/logout">退出</a>
+        <div class="top-actions">
+            <div id="langSwitch" class="lang-switch"></div>
+            <a href="/" data-i18n="faceLib.back">← 返回管理端</a>
+            <a href="/logout" data-i18n="faceLib.logout">退出</a>
         </div>
     </div>
     <div class="wrap">
-        <div id="engineStatus" class="status">正在检查模型状态…</div>
+        <div id="engineStatus" class="status" data-i18n="faceLib.checking">正在检查模型状态…</div>
 
         <div class="card">
-            <h2>录入人员</h2>
-            <p class="hint">上传<strong>仅含一张正面人脸</strong>的照片，系统使用 buffalo_l 提取特征并写入人脸库。</p>
+            <h2 data-i18n="faceLib.enroll">录入人员</h2>
+            <p class="hint" data-i18n="faceLib.enrollHint">上传仅含一张正面人脸的照片，系统使用 buffalo_l 提取特征并写入人脸库。</p>
             <form id="enrollForm">
-                <label>姓名 *</label>
+                <label data-i18n="faceLib.identityId">身份ID *</label>
+                <input type="text" id="enrollIdentity" required maxlength="64" data-i18n-placeholder="faceLib.identityIdPh" placeholder="工号 / 证件号">
+                <label data-i18n="faceLib.name">姓名 *</label>
                 <input type="text" id="enrollName" required placeholder="张三">
-                <label>部门</label>
+                <label data-i18n="faceLib.dept">部门</label>
                 <input type="text" id="enrollDept" placeholder="安保部">
-                <label>备注</label>
+                <label data-i18n="faceLib.remark">备注</label>
                 <input type="text" id="enrollRemark" placeholder="可选">
-                <label>照片 *</label>
+                <label data-i18n="faceLib.photo">照片 *</label>
                 <input type="file" id="enrollPhoto" accept="image/*" required>
                 <div style="margin-top: 12px;">
-                    <button type="submit" class="btn btn-primary">录入</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="faceLib.submit">录入</button>
                 </div>
             </form>
             <div id="enrollMsg" class="msg"></div>
         </div>
 
         <div class="card">
-            <h2>人员列表 <span id="personCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
+            <h2><span data-i18n="faceLib.list">人员列表</span> <span id="personCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
             <table>
                 <thead>
                     <tr>
-                        <th>照片</th>
-                        <th>姓名</th>
-                        <th>部门</th>
-                        <th>录入时间</th>
-                        <th>操作</th>
+                        <th data-i18n="faceLib.colPhoto">照片</th>
+                        <th data-i18n="faceLib.colId">身份ID</th>
+                        <th data-i18n="faceLib.colName">姓名</th>
+                        <th data-i18n="faceLib.colDept">部门</th>
+                        <th data-i18n="faceLib.colTime">录入时间</th>
+                        <th data-i18n="faceLib.colOp">操作</th>
                     </tr>
                 </thead>
                 <tbody id="personTableBody">
-                    <tr><td colspan="5" style="text-align:center;color:#6c757d;">加载中…</td></tr>
+                    <tr><td colspan="6" style="text-align:center;color:#6c757d;" data-i18n="faceLib.loading">加载中…</td></tr>
                 </tbody>
             </table>
         </div>
+
+        <div class="card" id="compareCard">
+            <h2 data-i18n="faceLib.compare">手动比对</h2>
+            <p class="hint" data-i18n="faceLib.compareHint">从人员列表点「比对」，或在此选择已录入人员作为基准（使用库内登记照，不必重新上传）。探测侧再上传新图，或截取一路在线视频。</p>
+            <div class="compare-pair">
+                <div class="compare-pane">
+                    <h3 data-i18n="faceLib.compareEnrolled">已录入人脸（基准）</h3>
+                    <label data-i18n="faceLib.compareScope">选择人员</label>
+                    <select id="compareTarget"></select>
+                    <div class="enrolled-box">
+                        <img id="compareEnrolledPhoto" class="enrolled-photo" alt="" style="display:none">
+                        <div id="compareEnrolledMeta" class="enrolled-meta"></div>
+                    </div>
+                </div>
+                <div class="compare-pane">
+                    <h3 data-i18n="faceLib.compareProbe">探测图</h3>
+                    <div class="probe-tabs">
+                        <label><input type="radio" name="probeSrc" value="upload" checked> <span data-i18n="faceLib.compareProbeUpload">上传图片</span></label>
+                        <label><input type="radio" name="probeSrc" value="stream"> <span data-i18n="faceLib.compareProbeStream">在线视频截图</span></label>
+                    </div>
+                    <div id="probeUploadBox">
+                        <input type="file" id="comparePhoto" accept="image/*">
+                    </div>
+                    <div id="probeStreamBox" style="display:none">
+                        <select id="compareStream"></select>
+                        <button type="button" class="btn btn-secondary" id="compareRefreshBtn" data-i18n="faceLib.compareRefresh">刷新在线列表</button>
+                    </div>
+                    <label data-i18n="faceLib.compareThreshold">相似度阈值</label>
+                    <input type="number" id="compareThreshold" min="0" max="1" step="0.01" placeholder="0.45">
+                    <p class="hint" data-i18n="faceLib.compareThresholdHint">高于或等于阈值为命中。默认与实时人脸识别阈值相同。</p>
+                    <button type="button" class="btn btn-primary" id="compareRunBtn" data-i18n="faceLib.compareRun">开始比对</button>
+                </div>
+            </div>
+            <div id="compareMsg" class="msg"></div>
+            <div id="compareResult"></div>
+        </div>
     </div>
+    <div id="editModal" class="modal-mask" onclick="if(event.target===this) closeEdit()">
+        <div class="modal-card">
+            <h2 data-i18n="faceLib.editTitle">修改人员</h2>
+            <form id="editForm">
+                <input type="hidden" id="editPersonId">
+                <img id="editPreview" class="edit-preview" alt="">
+                <label data-i18n="faceLib.identityId">身份ID *</label>
+                <input type="text" id="editIdentity" required maxlength="64" data-i18n-placeholder="faceLib.identityIdPh" placeholder="工号 / 证件号">
+                <label data-i18n="faceLib.name">姓名 *</label>
+                <input type="text" id="editName" required placeholder="张三">
+                <label data-i18n="faceLib.dept">部门</label>
+                <input type="text" id="editDept" placeholder="安保部">
+                <label data-i18n="faceLib.remark">备注</label>
+                <input type="text" id="editRemark" placeholder="可选">
+                <label data-i18n="faceLib.photoOptional">照片（可选，不选则保留原图）</label>
+                <input type="file" id="editPhoto" accept="image/*">
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary" data-i18n="common.save">保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeEdit()" data-i18n="common.cancel">取消</button>
+                </div>
+            </form>
+            <div id="editMsg" class="msg"></div>
+        </div>
+    </div>
+    <script>window.__VISIONAI_DEFAULT_LOCALE__ = {{ (ui_language or 'zh')|tojson }};</script>
+    <script src="{{ url_for('static', filename='i18n/i18n.js') }}?v=14"></script>
     <script>
+        let lastCompare = null;
+        let lastPersons = [];
+
         function showMsg(el, text, ok) {
             el.textContent = text;
             el.className = 'msg show ' + (ok ? 'ok' : 'err');
+        }
+
+        function personById(id) {
+            return lastPersons.find(p => p.id === id) || null;
+        }
+
+        function fillCompareTargets(persons) {
+            lastPersons = persons || [];
+            const sel = document.getElementById('compareTarget');
+            const cur = sel.value;
+            sel.innerHTML = '<option value="">' + t('faceLib.comparePickPerson') + '</option>' +
+                lastPersons.map(p =>
+                    '<option value="' + escapeHtml(p.id) + '">' +
+                    escapeHtml(p.name) + ' / ' + escapeHtml(p.identity_id || p.id || '') + '</option>'
+                ).join('');
+            if (cur && [].some.call(sel.options, o => o.value === cur)) sel.value = cur;
+            else sel.value = '';
+            renderEnrolled();
+        }
+
+        function renderEnrolled() {
+            const id = document.getElementById('compareTarget').value;
+            const img = document.getElementById('compareEnrolledPhoto');
+            const meta = document.getElementById('compareEnrolledMeta');
+            const p = personById(id);
+            document.querySelectorAll('#personTableBody tr').forEach(tr => {
+                tr.classList.toggle('selected', tr.getAttribute('data-id') === id);
+            });
+            if (!p) {
+                img.style.display = 'none';
+                img.removeAttribute('src');
+                meta.innerHTML = '<span class="muted">' + t('faceLib.compareNeedPerson') + '</span>';
+                return;
+            }
+            img.src = '/api/face-library/' + encodeURIComponent(p.id) + '/photo?v=' + encodeURIComponent(p.updated_at || p.id);
+            img.style.display = '';
+            meta.innerHTML = '<strong>' + escapeHtml(p.name || '') + '</strong><div class="muted">' +
+                escapeHtml(p.identity_id || p.id || '') +
+                (p.department ? ' · ' + escapeHtml(p.department) : '') + '</div>';
+        }
+
+        function pickPersonForCompare(btn) {
+            const id = btn.getAttribute('data-id');
+            if (!id) return;
+            const sel = document.getElementById('compareTarget');
+            sel.value = id;
+            renderEnrolled();
+            const card = document.getElementById('compareCard');
+            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function probeSource() {
+            const el = document.querySelector('input[name="probeSrc"]:checked');
+            return el ? el.value : 'upload';
+        }
+
+        function syncProbeSource() {
+            const stream = probeSource() === 'stream';
+            document.getElementById('probeUploadBox').style.display = stream ? 'none' : '';
+            document.getElementById('probeStreamBox').style.display = stream ? '' : 'none';
+        }
+
+        async function loadOnlineStreams() {
+            const sel = document.getElementById('compareStream');
+            try {
+                const r = await fetch('/api/streams');
+                const list = await r.json();
+                const online = (Array.isArray(list) ? list : []).filter(s => {
+                    const st = String(s.status || '').trim();
+                    return st === 'online' || st === '在线';
+                });
+                if (!online.length) {
+                    sel.innerHTML = '<option value="">' + t('faceLib.compareNoOnline') + '</option>';
+                    return;
+                }
+                const cur = sel.value;
+                sel.innerHTML = online.map(s =>
+                    '<option value="' + escapeHtml(s.id || '') + '">' +
+                    escapeHtml(s.name || s.id || '') + '</option>'
+                ).join('');
+                if ([].some.call(sel.options, o => o.value === cur)) sel.value = cur;
+            } catch (e) {
+                sel.innerHTML = '<option value="">' + t('faceLib.loadFail', { err: e.message }) + '</option>';
+            }
+        }
+
+        function compareCommonFields(target) {
+            const threshold = document.getElementById('compareThreshold').value;
+            const personId = document.getElementById('compareTarget').value;
+            if (target instanceof FormData) {
+                if (threshold !== '') target.append('threshold', threshold);
+                target.append('person_id', personId);
+                target.append('top_k', '1');
+                return target;
+            }
+            const body = { person_id: personId, top_k: 1 };
+            if (threshold !== '') body.threshold = Number(threshold);
+            return Object.assign(body, target || {});
+        }
+
+        function pct(sim) {
+            const n = Number(sim);
+            if (!isFinite(n)) return 0;
+            return Math.max(0, Math.min(100, Math.round(n * 100)));
+        }
+
+        function enrolledPhotoUrl(personId) {
+            const p = personById(personId);
+            const v = p ? (p.updated_at || p.id) : personId;
+            return '/api/face-library/' + encodeURIComponent(personId) + '/photo?v=' + encodeURIComponent(v);
+        }
+
+        function renderCompare(data) {
+            lastCompare = data;
+            const box = document.getElementById('compareResult');
+            if (!data || !data.success) {
+                box.innerHTML = '';
+                return;
+            }
+            const personId = data.scope && data.scope !== 'all'
+                ? data.scope
+                : document.getElementById('compareTarget').value;
+            const p = personById(personId);
+            const srcLabel = data.source === 'stream'
+                ? t('faceLib.compareSourceStream', { name: data.stream_name || data.stream_id || '' })
+                : t('faceLib.compareSourceUpload');
+            const faces = data.faces || [];
+            let html = '<div class="compare-meta">' + srcLabel + ' · ' +
+                t('faceLib.compareMeta', { n: data.face_count || faces.length, thr: data.threshold }) +
+                '</div>';
+            html += '<div class="result-pair">';
+            html += '<div><div class="cap">' + t('faceLib.compareEnrolled') + '</div>';
+            if (personId) {
+                html += '<img class="enrolled-photo" src="' + enrolledPhotoUrl(personId) + '" alt="">';
+                if (p) html += '<div class="enrolled-meta" style="margin-top:8px"><strong>' +
+                    escapeHtml(p.name || '') + '</strong><div class="muted">' +
+                    escapeHtml(p.identity_id || p.id) + '</div></div>';
+            }
+            html += '</div><div><div class="cap">' + t('faceLib.compareProbe') + '</div>';
+            if (data.query_jpeg) html += '<img class="compare-preview" alt="" src="' + data.query_jpeg + '">';
+            html += '</div></div>';
+            if (!faces.length) {
+                html += '<p class="hint">' + t('faceLib.compareNoFace') + '</p>';
+            }
+            faces.forEach(function (face, i) {
+                const best = face.best || (face.candidates && face.candidates[0]) || null;
+                const hit = !!face.matched;
+                const sim = best ? Number(best.similarity) : NaN;
+                html += '<div class="face-block"><h3>' + t('faceLib.compareFace', { n: i + 1 }) +
+                    ' <span class="badge ' + (hit ? 'hit' : 'miss') + '">' +
+                    (hit ? t('faceLib.compareHit') : t('faceLib.compareMiss')) + '</span></h3>';
+                if (!best) {
+                    html += '<p class="hint">' + t('faceLib.compareNoCandidates') + '</p></div>';
+                    return;
+                }
+                html += '<div>' + t('faceLib.compareSim') + ' ' +
+                    (isFinite(sim) ? sim.toFixed(4) : '') + ' (' + pct(sim) + '%)</div>' +
+                    '<div class="sim-bar' + (hit ? ' hit' : '') + '"><span style="width:' + pct(sim) + '%"></span></div></div>';
+            });
+            box.innerHTML = html;
+        }
+
+        async function runCompare() {
+            const msg = document.getElementById('compareMsg');
+            const personId = document.getElementById('compareTarget').value;
+            if (!personId) {
+                showMsg(msg, t('faceLib.compareNeedPerson'), false);
+                return;
+            }
+            setCompareBusy(true);
+            try {
+                let r;
+                if (probeSource() === 'stream') {
+                    const streamId = document.getElementById('compareStream').value;
+                    if (!streamId) {
+                        showMsg(msg, t('faceLib.comparePickStream'), false);
+                        return;
+                    }
+                    showMsg(msg, t('faceLib.compareRunning'), true);
+                    r = await fetch('/api/face-library/compare-stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(compareCommonFields({ stream_id: streamId }))
+                    });
+                } else {
+                    const file = document.getElementById('comparePhoto').files[0];
+                    if (!file) {
+                        showMsg(msg, t('faceLib.comparePickPhoto'), false);
+                        return;
+                    }
+                    const fd = compareCommonFields(new FormData());
+                    fd.append('photo', file);
+                    r = await fetch('/api/face-library/compare', { method: 'POST', body: fd });
+                }
+                const data = await r.json();
+                if (data.success) {
+                    showMsg(msg, t('faceLib.compareDone', { n: data.face_count || 0 }), true);
+                    renderCompare(data);
+                } else {
+                    showMsg(msg, data.message || t('faceLib.compareFail'), false);
+                }
+            } catch (e) {
+                showMsg(msg, t('faceLib.reqFail', { err: e.message }), false);
+            } finally {
+                setCompareBusy(false);
+            }
+        }
+
+        function setCompareBusy(busy) {
+            document.getElementById('compareRunBtn').disabled = busy;
+            document.getElementById('compareRefreshBtn').disabled = busy;
         }
 
         async function loadStatus() {
@@ -108,34 +429,45 @@
                 const data = await r.json();
                 if (data.engine_ready) {
                     el.className = 'status ok';
-                    el.textContent = '人脸识别模型已就绪（buffalo_l）。当前库内 ' + (data.count || 0) + ' 人。';
+                    el.textContent = t('faceLib.ready', { n: data.count || 0 });
                 } else {
                     el.className = 'status bad';
-                    el.textContent = '模型未就绪：请确认 models/buffalo_l/det_10g.onnx 与 w600k_r50.onnx 存在。';
+                    el.textContent = t('faceLib.notReady');
                 }
+                fillCompareTargets(data.persons || []);
                 renderTable(data.persons || []);
+                const thr = document.getElementById('compareThreshold');
+                if (data.threshold != null && thr.value === '') {
+                    thr.value = Number(data.threshold).toFixed(2);
+                }
             } catch (e) {
                 el.className = 'status bad';
-                el.textContent = '加载失败：' + e.message;
+                el.textContent = t('faceLib.loadFail', { err: e.message });
             }
         }
 
         function renderTable(persons) {
             const tbody = document.getElementById('personTableBody');
-            document.getElementById('personCount').textContent = '(' + persons.length + ' 人)';
+            document.getElementById('personCount').textContent = t('faceLib.count', { n: persons.length });
             if (!persons.length) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6c757d;">暂无人员，请先录入</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6c757d;">' + t('faceLib.empty') + '</td></tr>';
                 return;
             }
             tbody.innerHTML = persons.map(p => `
-                <tr>
-                    <td><img class="thumb" src="/api/face-library/${encodeURIComponent(p.id)}/photo" alt="" onerror="this.style.display='none'"></td>
+                <tr data-id="${escapeHtml(p.id)}">
+                    <td><img class="thumb" src="/api/face-library/${encodeURIComponent(p.id)}/photo?v=${encodeURIComponent(p.updated_at || p.id)}" alt="" onerror="this.style.display='none'"></td>
+                    <td>${escapeHtml(p.identity_id || p.id || '')}</td>
                     <td>${escapeHtml(p.name)}</td>
                     <td>${escapeHtml(p.department || '')}</td>
                     <td>${escapeHtml((p.created_at || '').replace('T', ' '))}</td>
-                    <td><button type="button" class="btn btn-danger" data-id="${escapeHtml(p.id)}" onclick="deletePerson(this)">删除</button></td>
+                    <td><span class="op-btns">
+                        <button type="button" class="btn btn-compare" data-id="${escapeHtml(p.id)}" onclick="pickPersonForCompare(this)">${t('faceLib.compareFromList')}</button>
+                        <button type="button" class="btn btn-edit" data-id="${escapeHtml(p.id)}" onclick="openEdit(this)">${t('faceLib.edit')}</button>
+                        <button type="button" class="btn btn-danger" data-id="${escapeHtml(p.id)}" onclick="deletePerson(this)">${t('common.delete')}</button>
+                    </span></td>
                 </tr>
             `).join('');
+            renderEnrolled();
         }
 
         function escapeHtml(s) {
@@ -144,17 +476,80 @@
 
         async function deletePerson(btn) {
             const id = btn.getAttribute('data-id');
-            if (!id || !confirm('确定删除该人员？')) return;
+            if (!id || !confirm(t('faceLib.delConfirm'))) return;
             const r = await fetch('/api/face-library/' + encodeURIComponent(id), { method: 'DELETE' });
             const data = await r.json();
             if (data.success) loadStatus();
-            else alert(data.message || '删除失败');
+            else alert(data.message || t('faceLib.delFail'));
         }
+
+        function closeEdit() {
+            document.getElementById('editModal').classList.remove('show');
+            document.getElementById('editForm').reset();
+            document.getElementById('editMsg').className = 'msg';
+        }
+
+        async function openEdit(btn) {
+            const id = btn.getAttribute('data-id');
+            if (!id) return;
+            const msg = document.getElementById('editMsg');
+            msg.className = 'msg';
+            try {
+                const r = await fetch('/api/face-library/' + encodeURIComponent(id));
+                const data = await r.json();
+                const p = data.person;
+                if (!data.success || !p) {
+                    alert(data.message || t('faceLib.editFail'));
+                    return;
+                }
+                document.getElementById('editPersonId').value = p.id;
+                document.getElementById('editIdentity').value = p.identity_id || p.id || '';
+                document.getElementById('editName').value = p.name || '';
+                document.getElementById('editDept').value = p.department || '';
+                document.getElementById('editRemark').value = p.remark || '';
+                document.getElementById('editPhoto').value = '';
+                const img = document.getElementById('editPreview');
+                img.src = '/api/face-library/' + encodeURIComponent(p.id) + '/photo?v=' + encodeURIComponent(p.updated_at || p.id);
+                img.style.display = '';
+                document.getElementById('editModal').classList.add('show');
+                if (window.VisionAI && VisionAI.i18n) VisionAI.i18n.applyI18n(document.getElementById('editModal'));
+            } catch (e) {
+                alert(t('faceLib.reqFail', { err: e.message }));
+            }
+        }
+
+        document.getElementById('editForm').addEventListener('submit', async function(ev) {
+            ev.preventDefault();
+            const id = document.getElementById('editPersonId').value;
+            const msg = document.getElementById('editMsg');
+            if (!id) return;
+            const fd = new FormData();
+            fd.append('identity_id', document.getElementById('editIdentity').value.trim());
+            fd.append('name', document.getElementById('editName').value.trim());
+            fd.append('department', document.getElementById('editDept').value.trim());
+            fd.append('remark', document.getElementById('editRemark').value.trim());
+            const photo = document.getElementById('editPhoto').files[0];
+            if (photo) fd.append('photo', photo);
+            try {
+                const r = await fetch('/api/face-library/' + encodeURIComponent(id), { method: 'PUT', body: fd });
+                const data = await r.json();
+                if (data.success) {
+                    showMsg(msg, t('faceLib.editOk', { name: (data.person && data.person.name) || '' }), true);
+                    loadStatus();
+                    setTimeout(closeEdit, 400);
+                } else {
+                    showMsg(msg, data.message || t('faceLib.editFail'), false);
+                }
+            } catch (e) {
+                showMsg(msg, t('faceLib.reqFail', { err: e.message }), false);
+            }
+        });
 
         document.getElementById('enrollForm').addEventListener('submit', async function(ev) {
             ev.preventDefault();
             const msg = document.getElementById('enrollMsg');
             const fd = new FormData();
+            fd.append('identity_id', document.getElementById('enrollIdentity').value.trim());
             fd.append('name', document.getElementById('enrollName').value.trim());
             fd.append('department', document.getElementById('enrollDept').value.trim());
             fd.append('remark', document.getElementById('enrollRemark').value.trim());
@@ -163,18 +558,37 @@
                 const r = await fetch('/api/face-library', { method: 'POST', body: fd });
                 const data = await r.json();
                 if (data.success) {
-                    showMsg(msg, '录入成功：' + (data.name || ''), true);
+                    showMsg(msg, t('faceLib.enrollOk', { name: data.name || '', id: data.identity_id || data.id || '' }), true);
                     document.getElementById('enrollForm').reset();
                     loadStatus();
                 } else {
-                    showMsg(msg, data.message || '录入失败', false);
+                    showMsg(msg, data.message || t('faceLib.enrollFail'), false);
                 }
             } catch (e) {
-                showMsg(msg, '请求失败：' + e.message, false);
+                showMsg(msg, t('faceLib.reqFail', { err: e.message }), false);
             }
         });
 
-        loadStatus();
+        window.__visionaiOnLocaleChange = function () {
+            loadStatus();
+            loadOnlineStreams();
+            if (lastCompare) renderCompare(lastCompare);
+        };
+        document.getElementById('compareTarget').addEventListener('change', renderEnrolled);
+        document.querySelectorAll('input[name="probeSrc"]').forEach(function (el) {
+            el.addEventListener('change', syncProbeSource);
+        });
+        document.getElementById('compareRunBtn').addEventListener('click', runCompare);
+        document.getElementById('compareRefreshBtn').addEventListener('click', loadOnlineStreams);
+        document.addEventListener('DOMContentLoaded', async function () {
+            if (window.VisionAI && VisionAI.i18n) {
+                VisionAI.i18n.mountLangSwitch(document.getElementById('langSwitch'));
+                await VisionAI.i18n.ready();
+            }
+            loadStatus();
+            loadOnlineStreams();
+            syncProbeSource();
+        });
     </script>
 </body>
 </html>

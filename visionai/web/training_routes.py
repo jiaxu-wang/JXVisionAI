@@ -28,6 +28,7 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request,
 from werkzeug.utils import secure_filename
 
 from visionai.config.settings import SAVE_DIR, yolo_inference_device
+from visionai.core.stream_frame import read_frame_bgr_prefer_snap
 from visionai.utils.rtsp_url import normalize_rtsp_url
 from visionai.web.training_lab_core import (
     DEPLOY_GATE,
@@ -168,28 +169,6 @@ def _write_meta(project_dir: Path, meta: Dict[str, Any]) -> None:
 def _allowed_rtsp(url: str) -> bool:
     u = (url or "").strip().lower()
     return u.startswith("rtsp://") or u.startswith("rtsps://")
-
-
-def read_rtsp_frame_bgr(url: str, timeout_sec: float = 12.0) -> Optional[Any]:
-    """读取单帧 BGR；失败返回 None。"""
-    u = normalize_rtsp_url((url or "").strip())
-    if not _allowed_rtsp(u):
-        return None
-    cap = cv2.VideoCapture(u, cv2.CAP_FFMPEG)
-    if not cap.isOpened():
-        return None
-    if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(timeout_sec * 1000))
-    t0 = time.monotonic()
-    frame = None
-    while time.monotonic() - t0 < timeout_sec:
-        ok, fr = cap.read()
-        if ok and fr is not None and fr.size > 0:
-            frame = fr
-            break
-        time.sleep(0.05)
-    cap.release()
-    return frame
 
 
 # ---- 模型验证（推理日志、RTSP 定时、上传图） ----
@@ -549,7 +528,7 @@ def _validate_rtsp_worker(
                 {"kind": "error", "message": "无效的 RTSP 地址", "snapshot": None, "detections": []},
             )
         else:
-            frame = read_rtsp_frame_bgr(u, timeout_sec=12.0)
+            frame = read_frame_bgr_prefer_snap(u, timeout_sec=12.0)
             if frame is None:
                 _validate_append_log(
                     project_id,
@@ -791,7 +770,7 @@ def _register_api_routes(app):
         url = request.args.get("url", "").strip()
         if not _allowed_rtsp(url):
             return jsonify({"success": False, "message": "仅支持 rtsp:// 或 rtsps://"}), 400
-        frame = read_rtsp_frame_bgr(url)
+        frame = read_frame_bgr_prefer_snap(url)
         if frame is None:
             return jsonify({"success": False, "message": "无法读取帧，请检查地址与网络"}), 400
         ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
@@ -812,7 +791,9 @@ def _register_api_routes(app):
                 {
                     "id": tid,
                     "title": tpl.get("title"),
+                    "title_en": tpl.get("title_en") or tpl.get("title"),
                     "description": tpl.get("description"),
+                    "description_en": tpl.get("description_en") or tpl.get("description"),
                     "classes": tpl.get("classes") or [],
                     "deploy_target": tpl.get("deploy_target"),
                     "deploy_mode": tpl.get("deploy_mode"),
@@ -946,7 +927,7 @@ def _register_api_routes(app):
         url = (data.get("rtsp_url") or "").strip()
         if not _allowed_rtsp(url):
             return jsonify({"success": False, "message": "需要有效的 rtsp:// 或 rtsps:// 地址"}), 400
-        frame = read_rtsp_frame_bgr(url)
+        frame = read_frame_bgr_prefer_snap(url)
         if frame is None:
             return jsonify({"success": False, "message": "截帧失败"}), 400
         name = f"cap_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -1288,7 +1269,7 @@ def _register_api_routes(app):
             url = (data.get("rtsp_url") or "").strip()
             if not _allowed_rtsp(url):
                 return jsonify({"success": False, "message": "无效 RTSP 地址"}), 400
-            frame = read_rtsp_frame_bgr(url)
+            frame = read_frame_bgr_prefer_snap(url)
             src_label = "rtsp"
         else:
             return jsonify({"success": False, "message": "source 须为 upload 或 rtsp"}), 400

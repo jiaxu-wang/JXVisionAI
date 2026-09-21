@@ -1,34 +1,34 @@
                 <!-- 状态概览页面 -->
                 <div id="overviewPage" class="page-content">
                     <div class="card">
-                        <h2>系统状态</h2>
+                        <h2 data-i18n="overview.systemStatus">系统状态</h2>
                         <div class="status-grid">
                             <div class="status-card">
-                                <h3>检测能力</h3>
+                                <h3 data-i18n="overview.capability">检测能力</h3>
                                 <div class="value" id="detectionCapabilityCount">—</div>
-                                <span class="status status-online">COCO 80类 + 玩手机 + 人员聚集 + 人脸识别 + 专模（自训/导入）</span>
+                                <span class="status status-online" data-i18n="overview.capabilityHint">COCO 80类 + 玩手机 + 人员聚集 + 人脸识别 + 专模（自训/导入）</span>
                             </div>
                             <div class="status-card">
-                                <h3>在线流 / 视频</h3>
+                                <h3 data-i18n="overview.streams">在线流 / 视频</h3>
                                 <div class="value" id="streamOnlineSummary">（0/0）</div>
                                 <span class="status" id="streamStatus">-</span>
                             </div>
                             <div class="status-card">
-                                <h3>今日告警</h3>
+                                <h3 data-i18n="overview.todayAlerts">今日告警</h3>
                                 <div class="value" id="alertCount">0</div>
-                                <span class="status status-online" id="todayAlertsHint">今日触发</span>
+                                <span class="status status-online" id="todayAlertsHint" data-i18n="overview.todayHint">今日触发</span>
                             </div>
                             <div class="status-card">
-                                <h3>运行指标</h3>
+                                <h3 data-i18n="overview.runtime">运行指标</h3>
                                 <div class="value" id="runtimeMetricSummary" style="font-size:1.1rem;">—</div>
-                                <span class="status" id="zlmRuntimeHint">ZLM / 队列</span>
+                                <span class="status" id="zlmRuntimeHint" data-i18n="overview.zlmQueue">ZLM / 队列</span>
                             </div>
                         </div>
                     </div>
                     
                     <div class="card">
-                        <h2>视频</h2>
-                        <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;">在线状态一览。预览、对讲、复制 HLS 请到「设备接入」对应连接操作。</p>
+                        <h2 data-i18n="overview.video">视频</h2>
+                        <p style="color:#6c757d;font-size:13px;margin:0 0 12px 0;" data-i18n="overview.videoHint">在线状态一览。预览、对讲、复制 HLS 请到「设备接入」对应连接操作。</p>
                         <div id="streamStatusList">
                             <!-- 流状态将通过JavaScript动态生成 -->
                         </div>

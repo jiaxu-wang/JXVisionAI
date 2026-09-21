@@ -94,13 +94,20 @@ def _build_message(
 ) -> MIMEMultipart:
     msg = MIMEMultipart()
     msg["From"] = SMTP_FROM
-    subject = f"JXVisionAI 告警 | {stream_name} | {', '.join(detection_types)}"
+    try:
+        from visionai.utils.type_display import alert_ui_locale, display_detection_types
+
+        type_labels = display_detection_types(detection_types, alert_ui_locale())
+    except Exception:  # noqa: BLE001
+        type_labels = list(detection_types)
+    types_text = ", ".join(type_labels)
+    subject = f"JXVisionAI 告警 | {stream_name} | {types_text}"
     msg["Subject"] = Header(subject, "utf-8")
 
     lines = [
         f"视频: {stream_name}",
         f"时间: {ts.isoformat(timespec='seconds')}",
-        f"类型: {', '.join(detection_types)}",
+        f"类型: {types_text}",
         "",
         "（本邮件由 JXVisionAI 自动发送）",
     ]

@@ -8,6 +8,11 @@ function escapeHtml(text) {
     return d.innerHTML;
 }
 
+function streamIsOnline(status) {
+    const s = String(status || '').trim();
+    return s === 'online' || s === '在线';
+}
+
 let streamPreviewPc = null;
 let streamPreviewHandle = null;
 let streamPreviewStreamId = null;
@@ -93,7 +98,7 @@ function fatigueTrafficText(cfg) {
     } else {
         mbh = (kbps * 3600) / 8 / 1024;
     }
-    return '预估约 ' + mbh.toFixed(1) + ' MB/小时（按码率 ' + kbps + ' kbps；常连几乎等于码流本身，burst 只算窗内）。';
+    return t('policy.fatigueTraffic', { mbh: mbh.toFixed(1), kbps: kbps });
 }
 
 function normalizeFaceRecogConfigClient(raw) {
@@ -208,7 +213,7 @@ function syncFatiguePanelFromDraft() {
         const pending = st.supported == null;
         gate.style.color = ok ? '#2b8a3e' : (pending ? '#6c757d' : '#c92a2a');
         gate.textContent = (st.reason_zh || '') +
-            (st.max_face_px ? ' · 人脸宽 ' + st.max_face_px + 'px' : '');
+            (st.max_face_px ? t('policy.facePx', { px: st.max_face_px }) : '');
     }
 }
 
@@ -364,8 +369,8 @@ function startWebrtcPlay(videoEl, streamId, opts) {
     pc.onconnectionstatechange = function () {
         if (handle.stopped) return;
         if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-            if (typeof opts.onError === 'function') opts.onError('ZLM WebRTC 连接失败（ICE）');
-            else showMessage('ZLM WebRTC 连接失败（ICE）。请检查 8000 端口与 [zlm] public_host', 'error');
+            if (typeof opts.onError === 'function') opts.onError(t('msg.webrtcIce'));
+            else showMessage(t('msg.webrtcIce'), 'error');
         }
     };
     const app = opts.app || '';
@@ -438,7 +443,7 @@ function startWebrtcPlay(videoEl, streamId, opts) {
             console.warn(err);
             const msg = (err && err.message) ? String(err.message) : 'ZLM WebRTC 预览失败';
             if (typeof opts.onError === 'function') opts.onError(msg);
-            else showMessage('ZLM WebRTC 失败: ' + msg, 'error');
+            else showMessage(t('msg.webrtcFail', { err: msg }), 'error');
         });
     return handle;
 }
@@ -457,17 +462,17 @@ function rebuildStreamPreview() {
 function openStreamPreview(streamId, streamName, opts) {
     opts = opts || {};
     if (!streamId) {
-        showMessage('该流缺少 ID，请保存配置后重试', 'error');
+        showMessage(t('msg.needStreamId'), 'error');
         return;
     }
     const modal = document.getElementById('streamPreviewModal');
     if (!modal) {
-        showMessage('预览组件未加载', 'error');
+        showMessage(t('msg.previewMissing'), 'error');
         return;
     }
     const titleEl = document.getElementById('streamPreviewTitle');
     if (titleEl) {
-        titleEl.textContent = streamName ? ('预览 · ' + streamName) : '流预览';
+        titleEl.textContent = streamName ? t('msg.previewTitle', { name: streamName }) : t('msg.streamPreview');
     }
     streamPreviewStreamId = streamId;
     streamPreviewApp = opts.app || '';
@@ -496,7 +501,7 @@ function previewSnapshotStamp() {
 function captureStreamPreview() {
     const vid = document.getElementById('streamPreviewVideo');
     if (!vid || vid.readyState < 2 || !vid.videoWidth || !vid.videoHeight) {
-        showMessage('画面尚未就绪，请等预览出图后再截图', 'error');
+        showMessage(t('msg.snapNotReady'), 'error');
         return;
     }
     const canvas = document.createElement('canvas');
@@ -507,11 +512,11 @@ function captureStreamPreview() {
         ctx = canvas.getContext('2d');
         ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
     } catch (e) {
-        showMessage('截图失败（浏览器无法读取当前画面）', 'error');
+        showMessage(t('msg.snapReadFail'), 'error');
         return;
     }
     const filename = previewSnapshotBasename() + '_' + previewSnapshotStamp() + '.jpg';
-    const fail = function () { showMessage('截图保存失败', 'error'); };
+    const fail = function () { showMessage(t('msg.snapSaveFail'), 'error'); };
     try {
         canvas.toBlob(function (blob) {
             if (!blob) {
@@ -526,7 +531,7 @@ function captureStreamPreview() {
             a.click();
             a.remove();
             setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-            showMessage('已保存截图 ' + filename, 'success');
+            showMessage(t('msg.snapSaved', { name: filename }), 'success');
         }, 'image/jpeg', 0.92);
     } catch (e) {
         fail();
@@ -550,7 +555,7 @@ function setGbTalkBtnState(active) {
     const btn = document.getElementById('streamPreviewTalkBtn');
     if (!btn) return;
     btn.classList.toggle('is-talking', !!active);
-    btn.textContent = active ? '停止喊话' : '麦克风';
+    btn.textContent = active ? t('msg.stopTalk') : t('msg.mic');
 }
 
 function stopGbTalkPush() {
@@ -578,14 +583,14 @@ function stopGbTalk(silent) {
         '/channels/' + encodeURIComponent(sess.channel_id) + '/broadcast/stop', { method: 'POST' })
         .catch(function () {})
         .then(function () {
-            if (!silent) showMessage('已停止喊话', 'success');
+            if (!silent) showMessage(t('msg.talkStopped'), 'success');
         });
 }
 
 async function startGbTalk() {
     const sess = gbPreviewSession;
     if (!sess || !sess.device_id || !sess.channel_id) {
-        showMessage('仅国标预览可喊话', 'error');
+        showMessage(t('msg.talkGbOnly'), 'error');
         return;
     }
     if (gbTalkBusy) return;
@@ -633,13 +638,13 @@ async function startGbTalk() {
         if (!bj.success) throw new Error(bj.message || 'Broadcast 失败');
         gbTalkActive = true;
         gbTalkBusy = false;
-        showMessage('麦克风已开，可对着喊话', 'success');
+        showMessage(t('msg.talkOn'), 'success');
     } catch (e) {
         gbTalkBusy = false;
         gbTalkActive = false;
         setGbTalkBtnState(false);
         stopGbTalkPush();
-        showMessage('喊话失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.talkFail', { err: (e.message || e) }), 'error');
     }
 }
 
@@ -669,10 +674,10 @@ function gbPtzSend(action, silent) {
         })
         .then(function (r) { return fetchJsonOrThrow(r); })
         .then(function (j) {
-            if (!j.success && !silent) showMessage(j.message || '云台失败', 'error');
+            if (!j.success && !silent) showMessage(j.message || t('msg.ptzFail'), 'error');
         })
         .catch(function (e) {
-            if (!silent) showMessage('云台失败: ' + (e.message || e), 'error');
+            if (!silent) showMessage(t('msg.ptzFail') + ': ' + (e.message || e), 'error');
         });
 }
 

@@ -5,6 +5,7 @@ async function loadDetectionCatalog() {
     try {
         const response = await fetch('/api/detection-catalog');
         detectionCatalog = await response.json();
+        window.detectionCatalog = detectionCatalog;
         const el = document.getElementById('detectionCapabilityCount');
         if (el && Array.isArray(detectionCatalog)) {
             el.textContent = String(detectionCatalog.length);
@@ -20,12 +21,12 @@ function fillAlertFilterTypeOptions() {
     const sel = document.getElementById('alertFilterType');
     if (!sel) return;
     const cur = sel.value;
-    sel.innerHTML = '<option value="">全部类型</option>';
+    sel.innerHTML = '<option value="">' + t('alerts.allTypes') + '</option>';
     if (detectionCatalog && detectionCatalog.length) {
         detectionCatalog.forEach(item => {
             const o = document.createElement('option');
             o.value = item.name_zh;
-            o.textContent = item.name_zh + ' / ' + item.name_en;
+            o.textContent = catalogLabel(item);
             sel.appendChild(o);
         });
     }
@@ -41,7 +42,7 @@ async function ensureAlertFilterStreamsSelect() {
     try {
         const r = await fetch('/api/streams');
         const streams = await r.json();
-        sel.innerHTML = '<option value="">全部视频</option>';
+        sel.innerHTML = '<option value="">' + t('alerts.allVideos') + '</option>';
         (streams || []).forEach(s => {
             if (!s.id) return;
             const o = document.createElement('option');
@@ -80,22 +81,22 @@ function updateStreamDetectionSummary(streamItem) {
     const enabled = [];
     detectionCatalog.forEach(item => {
         if (d[item.key]) {
-            enabled.push(`${item.name_zh}${item.class_id !== null && item.class_id !== undefined ? ' (#' + item.class_id + ')' : ''}`);
+            enabled.push(`${catalogLabel(item)}${item.class_id !== null && item.class_id !== undefined ? ' (#' + item.class_id + ')' : ''}`);
         }
     });
     const total = detectionCatalog.length;
     const n = enabled.length;
     if (!n) {
-        summaryEl.innerHTML = '<strong style="color:#c92a2a;">尚未勾选检测类型，拉流在线也不会产生告警。</strong>请点「算法配置」勾选后保存。';
+        summaryEl.innerHTML = '<strong style="color:#c92a2a;">' + t('policy.noTypes') + '</strong>';
         return;
     }
     let extra = '';
     if (d.fatigue_driving && streamItem._dms_status) {
         const st = streamItem._dms_status;
         const col = st.supported === true ? '#2b8a3e' : (st.supported == null ? '#868e96' : '#c92a2a');
-        extra = `<br><span style="color:${col}">疲劳驾驶准入：${escapeHtml(st.reason_zh || '评估中')}</span>`;
+        extra = `<br><span style="color:${col}">${t('policy.fatigueGate', { reason: escapeHtml(st.reason_zh || t('common.loading')) })}</span>`;
     }
-    summaryEl.innerHTML = `<strong>本流已开启 ${n}/${total} 项</strong>（系统均支持）` +
+    summaryEl.innerHTML = `<strong>${t('policy.enabledN', { n: n, total: total })}</strong>${t('policy.supported')}` +
         `：<span style="color:#212529">${enabled.slice(0, 12).join('、')}${enabled.length > 12 ? '…' : ''}</span>` + extra;
 }
 
@@ -105,9 +106,9 @@ function renderDetectionModalList(filterText) {
     const q = (filterText || '').trim().toLowerCase();
     list.innerHTML = '';
     const groups = [
-        { id: 'coco', title: 'COCO 80 类', match: (it) => it.source === 'coco' },
-        { id: 'builtin', title: '内置扩展', match: (it) => it.source === 'builtin' },
-        { id: 'specialist', title: '专模（自训 / 导入）', match: (it) => it.source === 'specialist' },
+        { id: 'coco', title: t('policy.groupCoco'), match: (it) => it.source === 'coco' },
+        { id: 'builtin', title: t('policy.groupBuiltin'), match: (it) => it.source === 'builtin' },
+        { id: 'specialist', title: t('policy.groupSpec'), match: (it) => it.source === 'specialist' },
     ];
     const appendItem = (item) => {
         const hay = (item.name_zh + ' ' + item.name_en + ' ' + item.key).toLowerCase();
@@ -117,12 +118,16 @@ function renderDetectionModalList(filterText) {
         const checked = !!detectionModalDraft[item.key];
         const isSpec = item.source === 'specialist';
         const delBtn = isSpec && item.deletable
-            ? `<button type="button" class="btn-specialist-delete" data-specialist-key="${item.key}" title="删除专模" style="margin-right:8px;padding:4px 8px;font-size:12px;">删除</button>`
+            ? `<button type="button" class="btn-specialist-delete" data-specialist-key="${item.key}" title="${escapeHtml(t('policy.delSpec'))}" style="margin-right:8px;padding:4px 8px;font-size:12px;">${t('common.delete')}</button>`
             : '';
+        const mainName = catalogLabel(item);
+        const otherName = (window.VisionAI && VisionAI.i18n.getLocale() === 'en')
+            ? (item.name_zh || '')
+            : (item.name_en || '');
         row.innerHTML = `
             <div style="flex:1;min-width:0;">
-                <div class="switch-name">${item.name_zh}${isSpec ? ' <span style="background:#e7f5ff;color:#1971c2;padding:1px 6px;border-radius:4px;font-size:11px;">专模</span>' : ''} <span style="color:#868e96;font-weight:400;">/ ${item.name_en}</span></div>
-                <div class="detection-key-hint">${isSpec ? ((item.origin === 'imported') ? '导入专模' : '训练专模') : '系统支持检测'} · 键 ${item.key}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
+                <div class="switch-name">${escapeHtml(mainName)}${isSpec ? ' <span style="background:#e7f5ff;color:#1971c2;padding:1px 6px;border-radius:4px;font-size:11px;">' + t('policy.specTag') + '</span>' : ''} <span style="color:#868e96;font-weight:400;">/ ${escapeHtml(otherName)}</span></div>
+                <div class="detection-key-hint">${isSpec ? ((item.origin === 'imported') ? t('policy.imported') : t('policy.trained')) : t('policy.sysDetect')} · ${t('policy.keyHint', { key: item.key })}${item.class_id !== null && item.class_id !== undefined ? ' · COCO #' + item.class_id : ''}</div>
             </div>
             ${delBtn}
             <label class="switch" style="flex-shrink:0;">
@@ -152,7 +157,7 @@ function renderDetectionModalList(filterText) {
             ev.stopPropagation();
             const key = this.getAttribute('data-specialist-key');
             if (!key) return;
-            if (!window.confirm('确定删除专模「' + key + '」？权重将移除，各流检测配置中的该项也会被清除。')) return;
+            if (!window.confirm(t('policy.delSpecConfirm', { key: key }))) return;
             try {
                 const resp = await fetch('/api/training/specialists/' + encodeURIComponent(key), {
                     method: 'DELETE',
@@ -160,14 +165,14 @@ function renderDetectionModalList(filterText) {
                 });
                 const data = await resp.json().catch(() => ({}));
                 if (!resp.ok || !data.success) {
-                    alert(data.message || '删除失败');
+                    alert(data.message || t('policy.delSpecFail'));
                     return;
                 }
                 if (detectionModalDraft) delete detectionModalDraft[key];
                 await loadDetectionCatalog();
                 renderDetectionModalList(document.getElementById('detectionConfigSearch').value);
             } catch (e) {
-                alert('删除失败: ' + e);
+                alert(t('policy.delSpecFail') + ': ' + e);
             }
         });
     });
@@ -230,8 +235,10 @@ function formatAlertTime(tsRaw) {
     const time = new Date(tsRaw || '');
     if (Number.isNaN(time.getTime())) return String(tsRaw || '');
     try {
-        return time.toLocaleString('zh-CN', { hour12: false, timeZone: appTimezone });
+        const loc = (window.VisionAI && VisionAI.i18n.getLocale() === 'en') ? 'en-US' : 'zh-CN';
+        return time.toLocaleString(loc, { hour12: false, timeZone: appTimezone });
     } catch (e) {
-        return time.toLocaleString('zh-CN', { hour12: false });
+        const loc = (window.VisionAI && VisionAI.i18n.getLocale() === 'en') ? 'en-US' : 'zh-CN';
+        return time.toLocaleString(loc, { hour12: false });
     }
 }

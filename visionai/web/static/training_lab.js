@@ -40,6 +40,84 @@
 
   const $ = (id) => document.getElementById(id);
 
+
+  function tr(key, vars) {
+    return typeof window.t === 'function' ? window.t(key, vars) : key;
+  }
+
+  function typeLabel(zh) {
+    return typeof window.formatType === 'function' ? window.formatType(zh) : (zh || '');
+  }
+
+  function specialistLabel(sp) {
+    if (!sp) return '';
+    if (typeof window.catalogLabel === 'function') return window.catalogLabel(sp);
+    return sp.name_zh || sp.name_en || sp.key || '';
+  }
+
+  function currentLocale() {
+    if (window.VisionAI && VisionAI.i18n && typeof VisionAI.i18n.getLocale === 'function') {
+      return VisionAI.i18n.getLocale();
+    }
+    return 'zh';
+  }
+
+  function templateTitle(tpl) {
+    if (!tpl) return '';
+    if (currentLocale() === 'en') {
+      return tpl.title_en || tpl.title || tpl.id || '';
+    }
+    return tpl.title || tpl.title_en || tpl.id || '';
+  }
+
+  function templateDesc(tpl) {
+    if (!tpl) return '';
+    if (currentLocale() === 'en') {
+      return tpl.description_en || tpl.description || '';
+    }
+    return tpl.description || tpl.description_en || '';
+  }
+
+  function jobStatusText(status) {
+    if (status === 'completed') return tr('training.jobDone');
+    if (status === 'failed') return tr('training.jobFailed');
+    return tr('training.jobRunning');
+  }
+
+  function sampleStatusText(status) {
+    if (status === 'reviewed') return tr('training.sampleReviewed');
+    if (status === 'draft') return tr('training.sampleDraft');
+    if (status === 'negative') return tr('training.sampleNeg');
+    return tr('training.sampleUnlabeled');
+  }
+
+  function projectBadgeText(p) {
+    if (!p) return '';
+    var extra = '';
+    if (state.deployTarget) extra = ' [' + state.deployTarget + ']';
+    else if (state.deployMode === 'specialist') extra = ' ' + tr('training.badgeSpecialist');
+    return ' · ' + p.title + extra;
+  }
+
+  function fillTemplateSelect() {
+    var sel = $('np-template');
+    if (!sel) return;
+    var keep = sel.value;
+    sel.innerHTML = '';
+    (state.templates || []).forEach(function (tpl) {
+      var o = document.createElement('option');
+      o.value = tpl.id;
+      o.textContent =
+        templateTitle(tpl) + (tpl.id !== 'custom' ? ' (' + (tpl.classes || []).join(',') + ')' : '');
+      sel.appendChild(o);
+    });
+    if (keep && Array.from(sel.options).some(function (o) { return o.value === keep; })) {
+      sel.value = keep;
+    }
+    applyTemplateToForm(sel.value || 'smoking');
+  }
+
+
   async function api(path, opts) {
     const r = await fetch(path, {
       credentials: 'same-origin',
@@ -111,7 +189,7 @@
       if (it.detections && it.detections.length) {
         var pre = document.createElement('pre');
         pre.className = 'tl-val-det';
-        pre.textContent = '命中（≥显示阈值）: ' + JSON.stringify(it.detections, null, 2);
+        pre.textContent = tr('training.hitAbove') + JSON.stringify(it.detections, null, 2);
         row.appendChild(pre);
       }
       if (it.candidates && it.candidates.length) {
@@ -119,12 +197,10 @@
         preC.className = 'tl-val-det';
         var floor = it.candidate_conf_floor != null ? it.candidate_conf_floor : '';
         preC.textContent =
-          '候选（conf≥' +
-          floor +
-          '，含低于显示阈值 ' +
-          (it.conf_threshold != null ? it.conf_threshold : '') +
-          ' 的框）:\n' +
-          JSON.stringify(it.candidates, null, 2);
+          tr('training.candHead', {
+            floor: floor,
+            th: it.conf_threshold != null ? it.conf_threshold : '',
+          }) + JSON.stringify(it.candidates, null, 2);
         row.appendChild(preC);
       }
       div.appendChild(row);
@@ -141,7 +217,7 @@
   async function loadWeightOptions() {
     var sel = $('val-weights');
     if (!sel) return;
-    sel.innerHTML = '<option value="">\u2014 \u9009\u62e9\u672c\u9879\u76ee\u5df2\u8bad\u7ec3\u6743\u91cd \u2014</option>';
+    sel.innerHTML = '<option value="">' + tr('training.pickWeights') + '</option>';
     if (!state.projectId) return;
     var r = await api('/api/training/projects/' + state.projectId + '/weights');
     var items = await r.json();
@@ -162,12 +238,12 @@
 
   async function deleteProjectEntry(p, ev) {
     if (ev) ev.stopPropagation();
-    var msg = '确定删除训练项目「' + (p.title || p.id) + '」？\n本地截图、标注与 runs 将全部删除且不可恢复。';
+    var msg = tr('training.delProjectConfirm', { title: p.title || p.id });
     if (!window.confirm(msg)) return;
     const r = await api('/api/training/projects/' + encodeURIComponent(p.id), { method: 'DELETE' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.success) {
-      alert(j.message || '删除失败');
+      alert(j.message || tr('training.delFail'));
       return;
     }
     if (state.projectId === p.id) {
@@ -215,15 +291,15 @@
           '<strong>' +
           esc(p.title) +
           '</strong><br><span class="tl-muted">' +
-          esc(p.labeled_count + '/' + p.image_count + ' 已标注') +
+          esc(tr('training.labeledCount', { a: p.labeled_count, b: p.image_count })) +
           '</span>';
         body.addEventListener('click', () => selectProject(p.id));
 
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'tl-project-del';
-        btn.setAttribute('aria-label', '删除项目');
-        btn.setAttribute('title', '删除项目');
+        btn.setAttribute('aria-label', tr('training.delProjectAria'));
+        btn.setAttribute('title', tr('training.delProjectAria'));
         btn.textContent = '\u2715';
         btn.addEventListener('click', (ev) => deleteProjectEntry(p, ev));
 
@@ -244,7 +320,7 @@
     if (!list.length) {
       const o = document.createElement('option');
       o.value = '';
-      o.textContent = '— 暂无项目，请新建 —';
+      o.textContent = tr('training.noProjects');
       sel.appendChild(o);
       sel.value = '';
       return;
@@ -266,13 +342,13 @@
     const r = await api('/api/training/redis-streams');
     const streams = await r.json();
     const sel = $('stream-picker');
-    sel.innerHTML = '<option value="">— 可选：Redis 中的流 —</option>';
+    sel.innerHTML = '<option value="">' + tr('training.streamPlaceholder') + '</option>';
     streams.forEach((s) => {
       const u = (s.rtsp_url || '').trim();
       if (!u) return;
       const o = document.createElement('option');
       o.value = u;
-      o.textContent = (s.name || s.id || '流') + ' — ' + u.substring(0, 48);
+      o.textContent = (s.name || s.id || tr('training.streamFallback')) + ' — ' + u.substring(0, 48);
       sel.appendChild(o);
     });
   }
@@ -310,26 +386,26 @@
     if (!box) return;
     box.classList.remove('tl-hidden');
     var clsLines = (h.class_names || []).map(function (name, i) {
-      return name + ': ' + ((h.boxes_per_class && h.boxes_per_class[i]) || 0) + ' 框';
+      return tr('training.boxCount', { name: name, n: (h.boxes_per_class && h.boxes_per_class[i]) || 0 });
     });
-    var splitHint =
-      '划分预估 train/val/test ≈ ' +
-      (h.train_images_estimated || '?') +
-      '/' +
-      (h.val_images_estimated || '?') +
-      '/' +
-      (h.test_images_estimated || '?');
+    var splitHint = tr('training.splitHint', {
+      a: h.train_images_estimated || '?',
+      b: h.val_images_estimated || '?',
+      c: h.test_images_estimated || '?',
+    });
     box.innerHTML =
       '<div class="tl-health-row ' +
       (h.can_train ? 'ok' : 'warn') +
       '">' +
-      '<strong>数据检查</strong> 已审核 ' +
-      h.labeled_images +
-      ' / 草稿 ' +
-      (h.draft_images || 0) +
-      ' / 总图 ' +
-      h.total_images +
-      (h.can_train ? ' · 可开训' : ' · 未达开训门槛') +
+      '<strong>' +
+      esc(tr('training.healthTitle')) +
+      '</strong> ' +
+      esc(tr('training.reviewedN', { n: h.labeled_images })) +
+      ' / ' +
+      esc(tr('training.draftN', { n: h.draft_images || 0 })) +
+      ' / ' +
+      esc(tr('training.totalN', { n: h.total_images })) +
+      (h.can_train ? ' · ' + esc(tr('training.canTrain')) : ' · ' + esc(tr('training.cannotTrain'))) +
       '</div>' +
       '<div class="tl-muted">' +
       esc(splitHint) +
@@ -381,7 +457,7 @@
     if (!items.length) {
       var empty = document.createElement('li');
       empty.className = 'tl-muted';
-      empty.textContent = '尚无已部署专模';
+      empty.textContent = tr('training.noSpecialists');
       ul.appendChild(empty);
       return;
     }
@@ -392,19 +468,19 @@
       inner.className = 'tl-project-inner';
         inner.innerHTML =
         '<strong>' +
-        esc(sp.name_zh || sp.key) +
+        esc(specialistLabel(sp)) +
         '</strong> <span class="tl-muted">(' +
         esc(sp.key) +
         ' · ' +
         esc(sp.kind || '') +
-        (sp.origin === 'imported' ? ' · 导入' : ' · 自训') +
+        (sp.origin === 'imported' ? ' · ' + tr('training.originImport') : ' · ' + tr('training.originTrain')) +
         ')</span>';
       var del = document.createElement('button');
       del.type = 'button';
       del.className = 'tl-btn tl-btn-ghost tl-btn-sm';
-      del.textContent = '删除';
+      del.textContent = tr('training.delete');
       del.addEventListener('click', function () {
-        deleteSpecialist(sp.key, sp.name_zh || sp.key);
+        deleteSpecialist(sp.key, specialistLabel(sp));
       });
       li.appendChild(inner);
       li.appendChild(del);
@@ -415,7 +491,7 @@
   async function deleteSpecialist(key, label) {
     if (
       !window.confirm(
-        '确定删除专模「' + label + '」（键 ' + key + '）？\n权重将移除，各流检测配置中的该项也会被清除。'
+        tr('training.delSpecialistConfirm', { label: label, key: key })
       )
     ) {
       return;
@@ -425,7 +501,7 @@
       return {};
     });
     if (!r.ok || !j.success) {
-      alert(j.message || '删除失败');
+      alert(j.message || tr('training.delFail'));
       return;
     }
     await loadSpecialists();
@@ -434,16 +510,7 @@
   async function loadTemplates() {
     var r = await api('/api/training/templates');
     state.templates = await r.json();
-    var sel = $('np-template');
-    if (!sel) return;
-    sel.innerHTML = '';
-    state.templates.forEach(function (t) {
-      var o = document.createElement('option');
-      o.value = t.id;
-      o.textContent = t.title + (t.id !== 'custom' ? ' (' + (t.classes || []).join(',') + ')' : '');
-      sel.appendChild(o);
-    });
-    applyTemplateToForm(sel.value || 'smoking');
+    fillTemplateSelect();
   }
 
   function applyTemplateToForm(tid) {
@@ -451,7 +518,7 @@
       return x.id === tid;
     });
     if (!t) return;
-    if ($('np-template-desc')) $('np-template-desc').textContent = t.description || '';
+    if ($('np-template-desc')) $('np-template-desc').textContent = templateDesc(t);
     if (t.classes && t.classes.length && $('np-classes')) {
       $('np-classes').value = t.classes.join(', ');
     }
@@ -494,15 +561,7 @@
     state.deployMode = (p && p.deploy_mode) || null;
     state.templateId = (p && p.template_id) || null;
     state.calibKey = (p && p.calib_specialist_key) || null;
-    $('current-project-label').textContent = p
-      ? '\u00b7 ' +
-        p.title +
-        (state.deployTarget
-          ? ' [' + state.deployTarget + ']'
-          : state.deployMode === 'specialist'
-            ? ' [专模]'
-            : '')
-      : '';
+    $('current-project-label').textContent = projectBadgeText(p);
     fillClassPicker();
     setProjectActionButtons(!!id);
     await loadSamples();
@@ -536,7 +595,7 @@
     sel.innerHTML = '';
     const all = document.createElement('option');
     all.value = '';
-    all.textContent = '全部';
+    all.textContent = tr('training.classAll');
     sel.appendChild(all);
     state.projectClasses.forEach((name, i) => {
       const o = document.createElement('option');
@@ -559,7 +618,7 @@
   async function deleteSampleEntry(filename, ev) {
     if (ev) ev.stopPropagation();
     if (
-      !window.confirm('确定从数据集中移除「' + filename + '」？\n对应标注文件（若有）会一并删除。')
+      !window.confirm(tr('training.delSampleConfirm', { filename: filename }))
     ) {
       return;
     }
@@ -569,7 +628,7 @@
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.success) {
-      alert(j.message || '删除失败');
+      alert(j.message || tr('training.delFail'));
       return;
     }
     if (state.imageName === filename) {
@@ -599,14 +658,7 @@
             : status === 'negative'
               ? 'neg'
               : '';
-      const statusText =
-        status === 'reviewed'
-          ? '已审核'
-          : status === 'draft'
-            ? '草稿待审'
-            : status === 'negative'
-              ? '负样本（误报回流，直接计入训练）'
-              : '未标注';
+      const statusText = sampleStatusText(status);
 
       const body = document.createElement('div');
       body.className = 'tl-sample-body';
@@ -625,8 +677,8 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'tl-sample-del';
-      btn.setAttribute('aria-label', '删除样本');
-      btn.setAttribute('title', '删除样本');
+      btn.setAttribute('aria-label', tr('training.delSampleAria'));
+      btn.setAttribute('title', tr('training.delSampleAria'));
       btn.textContent = '\u2715';
       btn.addEventListener('click', (ev) => deleteSampleEntry(row.filename, ev));
 
@@ -658,7 +710,7 @@
   async function saveLabels(opts) {
     const quiet = opts && opts.quiet;
     if (!state.projectId || !state.imageName || !state.naturalW) {
-      if (!quiet) $('label-status').textContent = '请先选择图片';
+      if (!quiet) $('label-status').textContent = tr('training.pickImageFirst');
       return false;
     }
     const nw = state.naturalW;
@@ -670,18 +722,18 @@
     });
     const j = await r.json();
     if (j.success) {
-      if (!quiet) $('label-status').textContent = '已保存 ' + j.lines + ' 个框';
+      if (!quiet) $('label-status').textContent = tr('training.savedBoxes', { n: j.lines });
       await loadSamples();
       return true;
     }
-    $('label-status').textContent = j.message || '保存失败';
+    $('label-status').textContent = j.message || tr('training.saveFail');
     return false;
   }
 
   async function navigateSample(delta) {
     const idx = currentSampleIndex();
     if (idx < 0) {
-      $('label-status').textContent = '请先选择一张样本';
+      $('label-status').textContent = tr('training.pickSampleFirst');
       return;
     }
     const nextIdx = idx + delta;
@@ -689,11 +741,9 @@
     const ok = await saveLabels({ quiet: true });
     if (!ok) return;
     await openSample(state.sampleFiles[nextIdx]);
-    $('label-status').textContent =
-      (delta < 0 ? '已保存并上一张 · ' : '已保存并下一张 · ') +
-      (nextIdx + 1) +
-      ' / ' +
-      state.sampleFiles.length;
+    $('label-status').textContent = tr(delta < 0 ? 'training.savedPrev' : 'training.savedNext', {
+      pos: nextIdx + 1 + ' / ' + state.sampleFiles.length,
+    });
   }
 
   function cloneBoxes(boxes) {
@@ -760,13 +810,13 @@
   function undoBoxes() {
     if (state.historyIndex <= 0) return;
     applyHistoryIndex(state.historyIndex - 1);
-    $('label-status').textContent = '已撤销';
+    $('label-status').textContent = tr('training.undone');
   }
 
   function redoBoxes() {
     if (state.historyIndex >= state.history.length - 1) return;
     applyHistoryIndex(state.historyIndex + 1);
-    $('label-status').textContent = '已重做';
+    $('label-status').textContent = tr('training.redone');
   }
 
   function updateAnnoButtons() {
@@ -988,7 +1038,7 @@
     state.selectedBox = -1;
     pushHistory();
     redraw();
-    $('label-status').textContent = '已删除选中框';
+    $('label-status').textContent = tr('training.deletedBox');
   }
 
   const canvasEl = $('anno-canvas');
@@ -1205,7 +1255,7 @@
   $('btn-preview').addEventListener('click', async function () {
     const url = $('rtsp-url').value.trim();
     if (!url.toLowerCase().startsWith('rtsp')) {
-      alert('请输入 rtsp:// 地址');
+      alert(tr('training.needRtsp'));
       return;
     }
     const img = $('preview-img');
@@ -1229,23 +1279,19 @@
       await loadSamples();
       await openSample(j.filename);
     } else {
-      alert(j.message || '截帧失败');
+      alert(j.message || tr('training.captureFail'));
     }
   });
 
   $('btn-train').addEventListener('click', async function () {
     if (!state.projectId) {
-      alert('请先选择项目');
+      alert(tr('training.pickProject'));
       return;
     }
     var health = await refreshDatasetHealth();
     if (health && !health.can_train) {
-      alert(
-        '未达开训门槛，已禁止强制开训：\n' +
-          (health.errors || []).join('\n') +
-          '\n\n请补齐已审核样本（绿点）后再训。'
-      );
-      $('train-status').textContent = '未达门槛';
+      alert(tr('training.trainGateBlocked', { errors: (health.errors || []).join('\n') }));
+      $('train-status').textContent = tr('training.trainGateShort');
       return;
     }
     const body = {
@@ -1262,14 +1308,14 @@
     });
     const j = await r.json();
     if (!r.ok || !j.success) {
-      $('train-status').textContent = j.message || '启动失败';
+      $('train-status').textContent = j.message || tr('training.jobStartFail');
       if (j.health) refreshDatasetHealth();
       return;
     }
     $('train-job-panel').classList.remove('tl-hidden');
     $('job-id').textContent = j.job_id;
     state.lastJobId = j.job_id;
-    $('train-status').textContent = '任务已启动';
+    $('train-status').textContent = tr('training.jobStarted');
     $('job-log-link').href = '/api/training/jobs/' + j.job_id + '/log';
     $('job-weights-link').classList.add('tl-hidden');
     $('btn-deploy').classList.add('tl-hidden');
@@ -1285,7 +1331,7 @@
     if (!r.ok) return;
     const j = await r.json();
     $('job-status').textContent =
-      j.status === 'completed' ? '已完成' : j.status === 'failed' ? '失败' : '运行中…';
+      jobStatusText(j.status);
     if (j.status === 'completed') {
       $('job-weights-link').href = '/api/training/jobs/' + jobId + '/weights';
       $('job-weights-link').classList.remove('tl-hidden');
@@ -1302,7 +1348,7 @@
             ' · R: ' +
             Number(j.recall != null ? j.recall : j.evaluation.recall).toFixed(4);
         } else if (j.evaluation) {
-          valLine = 'Val 评估失败: ' + esc(j.evaluation.error || '');
+          valLine = esc(tr('training.valEvalFail', { err: j.evaluation.error || '' }));
         }
         var testLine = '';
         if (j.test_evaluation && j.test_evaluation.ok) {
@@ -1316,18 +1362,18 @@
             ' · R: ' +
             Number(j.test_recall != null ? j.test_recall : j.test_evaluation.recall).toFixed(4);
         } else if (j.test_evaluation) {
-          testLine = '<br>Test 评估失败: ' + esc(j.test_evaluation.error || '');
+          testLine = '<br>' + esc(tr('training.testEvalFail', { err: j.test_evaluation.error || '' }));
         }
         var gateLine = '';
         if (j.deploy_ready && canShowDeployButton()) {
-          gateLine = '<br><span class="tl-gate-ok">已达上线门禁，可部署</span>';
+          gateLine = '<br><span class="tl-gate-ok">' + esc(tr('training.gateOkDeploy')) + '</span>';
           $('btn-deploy').classList.remove('tl-hidden');
         } else if (j.deploy_ready) {
-          gateLine = '<br><span class="tl-gate-ok">已达上线门禁</span>';
+          gateLine = '<br><span class="tl-gate-ok">' + esc(tr('training.gateOk')) + '</span>';
           $('btn-deploy').classList.add('tl-hidden');
         } else {
           gateLine =
-            '<br><span class="tl-gate-bad">未达上线门禁</span> ' +
+            '<br><span class="tl-gate-bad">' + esc(tr('training.gateBad')) + '</span> ' +
             esc((j.deploy_gate_errors || []).join('；'));
           $('btn-deploy').classList.add('tl-hidden');
         }
@@ -1347,7 +1393,7 @@
   $('btn-deploy').addEventListener('click', async function () {
     if (!state.projectId || !state.lastJobId) return;
     if (!canShowDeployButton()) {
-      alert('当前项目不可部署');
+      alert(tr('training.cannotDeploy'));
       return;
     }
     var body = {
@@ -1362,14 +1408,14 @@
       var keyDefault = state.calibKey || sd.key_suggestion || 'custom_model';
       var key = window.prompt(
         state.calibKey
-          ? '专模键名（校准项目将同名覆盖线上专模 ' + state.calibKey + '）'
-          : '专模键名（小写 a-z 开头，如 smoking）',
+          ? tr('training.promptKeyCalib', { key: state.calibKey })
+          : tr('training.promptKey'),
         keyDefault
       );
       if (!key || !key.trim()) return;
-      var nameZh = window.prompt('中文显示名', sd.name_zh || key.trim());
+      var nameZh = window.prompt(tr('training.promptNameZh'), sd.name_zh || key.trim());
       if (nameZh === null) return;
-      var kind = window.prompt('类型：scene / person_event / violation', sd.kind || 'person_event');
+      var kind = window.prompt(tr('training.promptKind'), sd.kind || 'person_event');
       if (!kind || !kind.trim()) return;
       body.deploy_mode = 'specialist';
       body.key = key.trim();
@@ -1384,14 +1430,14 @@
       if (
         !window.confirm(
           (overwrite
-            ? '将覆盖线上专模 ' + body.key + '（旧权重自动备份），插件热加载后立即生效。继续？'
-            : '部署专模到 models/specialists/' + body.key + '？插件将热加载，可在管理平台检测类型中勾选。继续？')
+            ? tr('training.confirmOverwrite', { key: body.key })
+            : tr('training.confirmDeploy', { key: body.key }))
         )
       ) {
         return;
       }
     } else {
-      alert('内置部署目标已下线，请使用专模部署（自定义或场景模板）。');
+      alert(tr('training.builtinGone'));
       return;
     }
     var r = await api('/api/training/projects/' + state.projectId + '/deploy', {
@@ -1399,8 +1445,8 @@
       body: JSON.stringify(body),
     });
     var j = await r.json();
-    $('deploy-status').textContent = j.message || (j.success ? '部署成功' : '部署失败');
-    if (!j.success) alert(j.message || '部署失败');
+    $('deploy-status').textContent = j.message || tr(j.success ? 'training.deployOk' : 'training.deployFail');
+    if (!j.success) alert(j.message || tr('training.deployFail'));
     else if (specialist) loadSpecialists().catch(function () {});
   });
 
@@ -1412,12 +1458,12 @@
     if (!state.projectId) return;
     var w = resolveWeightsPath();
     if (!w) {
-      alert('请先在验证区选择已训练权重');
+      alert(tr('training.pickValWeights'));
       return;
     }
     if (
       !window.confirm(
-        '用所选权重对未标注图片写入「草稿」（labels_draft/）？\n草稿不计入训练，需人工审核或点「保存标注」后才生效。'
+        tr('training.prelabelConfirm')
       )
     )
       return;
@@ -1426,7 +1472,7 @@
       body: JSON.stringify({ weights_path: w, conf: 0.25, only_unlabeled: true }),
     });
     var j = await r.json();
-    alert(j.message || (j.success ? '完成' : '失败'));
+    alert(j.message || tr(j.success ? 'training.done' : 'training.fail'));
     if (j.success) {
       await loadSamples();
       await refreshDatasetHealth();
@@ -1436,13 +1482,13 @@
   if ($('btn-approve-all')) {
     $('btn-approve-all').addEventListener('click', async function () {
       if (!state.projectId) return;
-      if (!window.confirm('将全部预标注草稿提升为已审核？请确认草稿质量。')) return;
+      if (!window.confirm(tr('training.approveConfirm'))) return;
       var r = await api('/api/training/projects/' + state.projectId + '/labels/approve', {
         method: 'POST',
         body: JSON.stringify({ all: true }),
       });
       var j = await r.json();
-      alert(j.message || (j.success ? '完成' : '失败'));
+      alert(j.message || tr(j.success ? 'training.done' : 'training.fail'));
       if (j.success) {
         await loadSamples();
         await refreshDatasetHealth();
@@ -1475,7 +1521,7 @@
     var el = $('calib-summary');
     if (el) {
       el.textContent = state.snapItems.length
-        ? '准确 ' + c.tp + ' · 误报 ' + c.fp + ' · 未研判 ' + c.unjudged
+        ? tr('training.calibSummary', { tp: c.tp, fp: c.fp, un: c.unjudged })
         : '';
     }
     var btn = $('btn-calib-import');
@@ -1504,7 +1550,7 @@
       img.loading = 'lazy';
       img.alt = '';
       img.src = '/api/training/snapshots/image?path=' + encodeURIComponent(it.path);
-      img.title = '点击放大预览';
+      img.title = tr('training.zoomPreview');
       img.addEventListener('click', function () {
         openImgPreview(img.src);
       });
@@ -1520,12 +1566,12 @@
       var btnTp = document.createElement('button');
       btnTp.type = 'button';
       btnTp.className = 'tl-verdict tl-verdict-tp' + (v === 'tp' ? ' on' : '');
-      btnTp.textContent = '准确';
+      btnTp.textContent = tr('training.verdictTp');
       btnTp.addEventListener('click', function () { setSnapVerdict(it.path, 'tp'); });
       var btnFp = document.createElement('button');
       btnFp.type = 'button';
       btnFp.className = 'tl-verdict tl-verdict-fp' + (v === 'fp' ? ' on' : '');
-      btnFp.textContent = '误报';
+      btnFp.textContent = tr('training.verdictFp');
       btnFp.addEventListener('click', function () { setSnapVerdict(it.path, 'fp'); });
       ops.appendChild(btnTp);
       ops.appendChild(btnFp);
@@ -1578,7 +1624,7 @@
     var sel = $('calib-det-type');
     if (!sel) return;
     var prev = sel.value;
-    sel.innerHTML = '<option value="">— 检测类型（仅支持专模）—</option>';
+    sel.innerHTML = '<option value="">' + tr('training.calibTypeOnly') + '</option>';
     try {
       var r = await api('/api/detections?limit=500');
       var j = await r.json();
@@ -1595,15 +1641,15 @@
       trainable.forEach(function (t) {
         var o = document.createElement('option');
         o.value = t;
-        o.textContent = t + '（' + counts[t] + ' 条）';
+        o.textContent = tr('training.typeCount', { type: typeLabel(t), n: counts[t] });
         sel.appendChild(o);
       });
       if (!trainable.length) {
         var eo = document.createElement('option');
         eo.value = '';
         eo.textContent = (state.specialists || []).length
-          ? '— 已部署专模暂无告警记录 —'
-          : '— 尚无已部署专模 —';
+          ? tr('training.noAlertsForSp')
+          : tr('training.noSpecialists');
         sel.appendChild(eo);
       }
       if (prev && counts[prev] && findSpecialistForType(prev)) sel.value = prev;
@@ -1627,20 +1673,20 @@
     state.calibProjectId = null;
     if (loadBtn) loadBtn.disabled = !type;
     if (!type) {
-      if (spName) spName.textContent = '—';
-      if (target) target.textContent = '—';
+      if (spName) spName.textContent = tr('training.dash');
+      if (target) target.textContent = tr('training.dash');
       if (newBtn) newBtn.classList.add('tl-hidden');
       updateCalibSummary();
       return;
     }
     if (!sp) {
-      if (spName) spName.textContent = '无（该告警类型不是专模，暂不支持校准）';
-      if (target) target.textContent = '—';
+      if (spName) spName.textContent = tr('training.notSpecialistType');
+      if (target) target.textContent = tr('training.dash');
       if (newBtn) newBtn.classList.add('tl-hidden');
       updateCalibSummary();
       return;
     }
-    if (spName) spName.textContent = (sp.name_zh || sp.key) + '（' + sp.key + '）';
+    if (spName) spName.textContent = specialistLabel(sp) + '（' + sp.key + '）';
     var pid = sp.source_project_id || '';
     var proj = pid && (state.projects || []).find(function (p) { return p.id === pid; });
     var projFromKey = !proj && (state.projects || []).find(function (p) {
@@ -1650,11 +1696,11 @@
       var found = proj || projFromKey;
       state.calibProjectId = found.id;
       if (target) {
-        target.textContent = found.title + (proj ? '（原训练项目）' : '（已有校准项目）');
+        target.textContent = found.title + (proj ? tr('training.origProject') : tr('training.existingCalib'));
       }
       if (newBtn) newBtn.classList.add('tl-hidden');
     } else {
-      if (target) target.textContent = '导入时将自动创建校准项目（也可点右侧按钮自定义名称先建）';
+      if (target) target.textContent = tr('training.willAutoCreate');
       if (newBtn) newBtn.classList.remove('tl-hidden');
     }
     updateCalibSummary();
@@ -1665,7 +1711,7 @@
     if (state.calibProjectId) return state.calibProjectId;
     var sp = getCalibSpecialist();
     if (!sp) return null;
-    var title = (sp.name_zh || sp.key) + '-校准-' + Math.floor(Date.now() / 1000);
+    var title = tr('training.calibNameTpl', { name: specialistLabel(sp) || sp.key, ts: Math.floor(Date.now() / 1000) });
     var r = await api('/api/training/projects', {
       method: 'POST',
       body: JSON.stringify({
@@ -1677,13 +1723,13 @@
     });
     var j = await r.json();
     if (!j.success) {
-      alert(j.message || '创建校准项目失败');
+      alert(j.message || tr('training.createCalibFail'));
       return null;
     }
     await loadProjects();
     state.calibProjectId = j.project.id;
     var target = $('calib-target-project');
-    if (target) target.textContent = j.project.title + '（自动创建）';
+    if (target) target.textContent = j.project.title + tr('training.autoCreated');
     var newBtn = $('btn-calib-new-project');
     if (newBtn) newBtn.classList.add('tl-hidden');
     syncCalibTrainBlock();
@@ -1704,8 +1750,8 @@
       var sp = getCalibSpecialist();
       if (!sp) return;
       var defaultName =
-        (sp.name_zh || sp.key) + '-校准-' + Math.floor(Date.now() / 1000);
-      var title = window.prompt('校准项目名称（可自定义）', defaultName);
+        tr('training.calibNameTpl', { name: specialistLabel(sp) || sp.key, ts: Math.floor(Date.now() / 1000) });
+      var title = window.prompt(tr('training.promptCalibName'), defaultName);
       if (title === null) return;
       title = title.trim() || defaultName;
       var r = await api('/api/training/projects', {
@@ -1719,13 +1765,13 @@
       });
       var j = await r.json();
       if (!j.success) {
-        alert(j.message || '创建校准项目失败');
+        alert(j.message || tr('training.createCalibFail'));
         return;
       }
       await loadProjects();
       state.calibProjectId = j.project.id;
       var target = $('calib-target-project');
-      if (target) target.textContent = j.project.title + '（新建）';
+      if (target) target.textContent = j.project.title + tr('training.newlyCreated');
       $('btn-calib-new-project').classList.add('tl-hidden');
       updateCalibSummary();
       syncCalibTrainBlock();
@@ -1738,7 +1784,7 @@
       if (!detType) return;
       var q = '?limit=200&detection_type=' + encodeURIComponent(detType);
       var status = $('calib-status');
-      if (status) status.textContent = '加载中…';
+      if (status) status.textContent = tr('training.loading');
       var r = await api('/api/detections' + q);
       var j = await r.json().catch(function () { return {}; });
       var rows = (j && j.data) || [];
@@ -1761,8 +1807,8 @@
       renderSnapGrid();
       if (status) {
         status.textContent = state.snapItems.length
-          ? (skippedRemote ? skippedRemote + ' 条记录截图不在本地（对象存储），已跳过' : '')
-          : '该类型暂无可用的本地告警截图';
+          ? (skippedRemote ? tr('training.skippedRemote', { n: skippedRemote }) : '')
+          : tr('training.noLocalSnaps');
       }
     });
   }
@@ -1775,7 +1821,7 @@
       if (!pid) return;
       var judged = state.snapItems.filter(function (it) { return calibVerdictOf(it); });
       if (!judged.length) {
-        alert('请先逐张研判：标记「准确」或「误报」');
+        alert(tr('training.judgeFirst'));
         return;
       }
       var verdicts = {};
@@ -1790,15 +1836,14 @@
       });
       var j = await r.json();
       var msg =
-        '已导入 ' + (j.count || 0) + ' 张（负样本 ' + (j.negative_count || 0) +
-        ' · 准确 ' + (j.positive_count || 0) + '）';
+        tr('training.importedN', { count: j.count || 0, neg: j.negative_count || 0, pos: j.positive_count || 0 });
       if (j.autolabel) {
         msg += j.autolabel.success
-          ? '；准确样本已用专模当前权重自动标注 ' + (j.autolabel.written || 0) + ' 张'
-          : '；自动标注失败：' + (j.autolabel.message || '');
+          ? tr('training.autolabelOk', { n: j.autolabel.written || 0 })
+          : tr('training.autolabelFail', { err: j.autolabel.message || '' });
       }
       var status = $('calib-status');
-      if (status) status.textContent = msg + '，可直接开始校准训练';
+      if (status) status.textContent = msg + tr('training.canCalibTrain');
       state.snapItems = [];
       state.snapVerdicts = {};
       renderSnapGrid();
@@ -1828,16 +1873,17 @@
     var r = await api('/api/training/projects/' + state.calibProjectId + '/dataset-health');
     var h = await r.json().catch(function () { return {}; });
     el.textContent =
-      '校准项目：已审核 ' + (h.labeled_images || 0) +
-      ' 张 · 负样本 ' + (h.negative_count || 0) +
-      ' 张 · 草稿 ' + (h.draft_images || 0) +
-      ' 张（开训至少需已审核 ≥ 3 张，建议 ≥ 8 张）';
+      tr('training.calibStats', {
+        labeled: h.labeled_images || 0,
+        neg: h.negative_count || 0,
+        draft: h.draft_images || 0,
+      });
     var sp = getCalibSpecialist();
     var preHint = $('calib-pretrained-hint');
     if (preHint) {
       preHint.textContent = (sp && sp.weights_exists)
-        ? '将在专模当前权重上微调'
-        : '专模权重未下载，将从 yolo26s.pt 起训（可执行 scripts/download_weapon_specialists.py）';
+        ? tr('training.finetuneHint')
+        : tr('training.noWeightsHint');
     }
     var trainBtn = $('btn-calib-train');
     if (trainBtn) trainBtn.disabled = (h.labeled_images || 0) < 3;
@@ -1848,7 +1894,7 @@
       if (!r.ok) return;
       var j = await r.json();
       $('calib-job-status').textContent =
-        j.status === 'completed' ? '已完成' : j.status === 'failed' ? '失败' : '运行中…';
+        jobStatusText(j.status);
       if (j.status === 'completed') {
         var em = $('calib-job-metrics');
         if (em && j.test_evaluation) {
@@ -1858,10 +1904,10 @@
               '</b> · P: ' + Number(j.test_evaluation.precision).toFixed(4) +
               ' · R: ' + Number(j.test_evaluation.recall).toFixed(4) +
               (j.deploy_ready
-                ? '<br><span class="tl-gate-ok">已达上线门禁，可覆盖部署</span>'
-                : '<br><span class="tl-gate-bad">未达上线门禁：' +
+                ? '<br><span class="tl-gate-ok">' + esc(tr('training.gateOkOverwrite')) + '</span>'
+                : '<br><span class="tl-gate-bad">' + esc(tr('training.gateBadColon')) +
                   esc((j.deploy_gate_errors || []).join('；')) + '</span>')
-            : '测试集评估失败: ' + esc(j.test_evaluation.error || '');
+            : esc(tr('training.testEvalFailShort', { err: j.test_evaluation.error || '' }));
         }
         if (j.deploy_ready) $('btn-calib-deploy').classList.remove('tl-hidden');
         else $('btn-calib-deploy').classList.add('tl-hidden');
@@ -1889,12 +1935,12 @@
         var negs = hh.negative_count || 0;
         var hints = [];
         if (labeled < 8) {
-          hints.push('准确样本仅 ' + labeled + ' 张（建议 ≥ 8），测试集评估可能不稳定');
+          hints.push(tr('training.fewPos', { n: labeled }));
         }
         if (negs < 1) {
-          hints.push('没有误报负样本，本次校准对抑制误报帮助有限');
+          hints.push(tr('training.noNeg'));
         }
-        if (hints.length && !window.confirm(hints.join('\n') + '\n\n仍要开始校准训练？')) {
+        if (hints.length && !window.confirm(hints.join('\n') + tr('training.stillCalib'))) {
           return;
         }
       } catch (e) { /* 健康检查失败不阻塞 */ }
@@ -1912,13 +1958,13 @@
       });
       var j = await r.json();
       if (!r.ok || !j.success) {
-        $('calib-train-status').textContent = j.message || '启动失败';
+        $('calib-train-status').textContent = j.message || tr('training.jobStartFail');
         return;
       }
       $('calib-job-panel').classList.remove('tl-hidden');
       $('calib-job-id').textContent = j.job_id;
       state.calibLastJobId = j.job_id;
-      $('calib-train-status').textContent = '任务已启动';
+      $('calib-train-status').textContent = tr('training.jobStarted');
       $('calib-job-log-link').href = '/api/training/jobs/' + j.job_id + '/log';
       $('btn-calib-deploy').classList.add('tl-hidden');
       $('calib-job-metrics').classList.add('tl-hidden');
@@ -1936,8 +1982,7 @@
       if (!pid || !sp || !state.calibLastJobId) return;
       if (
         !window.confirm(
-          '将用本次校准权重覆盖线上专模 ' + sp.key +
-          '（旧权重自动备份），插件热加载后立即生效。继续？'
+          tr('training.overwriteCalibConfirm', { key: sp.key })
         )
       ) {
         return;
@@ -1964,7 +2009,7 @@
       });
       var j = await r.json();
       $('calib-deploy-status').textContent =
-        j.message || (j.success ? '已覆盖部署' : '部署失败');
+        j.message || tr(j.success ? 'training.overwritten' : 'training.deployFail');
       if (j.success) {
         loadSpecialists().catch(function () {});
       }
@@ -1975,7 +2020,7 @@
     if (!state.projectId) return;
     var w = resolveWeightsPath();
     if (!w) {
-      alert('请先选择权重');
+      alert(tr('training.pickWeightsFirst'));
       return;
     }
     var applyCfg = $('threshold-apply-config') && $('threshold-apply-config').checked;
@@ -1990,7 +2035,7 @@
     var pre = $('threshold-result');
     if (!pre) return;
     if (!r.ok || !j.success) {
-      pre.textContent = j.message || '分析失败';
+      pre.textContent = j.message || tr('training.analyzeFail');
       return;
     }
     pre.textContent = JSON.stringify(j, null, 2);
@@ -2014,24 +2059,24 @@
       return {};
     });
     if (!r.ok || !j.success) {
-      if ($('val-upload-status')) $('val-upload-status').textContent = j.message || '\u4e0a\u4f20\u5931\u8d25';
+      if ($('val-upload-status')) $('val-upload-status').textContent = j.message || tr('training.uploadFail');
       return;
     }
     state.lastUploadedValidateFile = j.filename;
     if ($('val-upload-status')) {
       $('val-upload-status').textContent =
-        '\u5df2\u4e0a\u4f20\uff1a' + j.filename + '\uff08\u9009\u300c\u5355\u6b21\uff1a\u4e0a\u4f20\u56fe\u7247\u300d\u540e\u70b9\u6267\u884c\u5355\u6b21\u9a8c\u8bc1\uff09';
+        tr('training.uploadedAs', { name: j.filename });
     }
   });
 
   $('btn-val-once').addEventListener('click', async function () {
     if (!state.projectId) {
-      alert('\u8bf7\u5148\u9009\u62e9\u9879\u76ee');
+      alert(tr('training.pickProject'));
       return;
     }
     var w = resolveWeightsPath();
     if (!w) {
-      alert('\u8bf7\u9009\u62e9\u6216\u586b\u5199\u6743\u91cd\u8def\u5f84');
+      alert(tr('training.pickOrPasteWeights'));
       return;
     }
     var srcEl = document.querySelector('input[name="val-src"]:checked');
@@ -2047,14 +2092,14 @@
       body.source = 'upload';
       body.filename = state.lastUploadedValidateFile;
       if (!body.filename) {
-        alert('\u8bf7\u5148\u9009\u62e9\u5e76\u4e0a\u4f20\u4e00\u5f20\u56fe\u7247');
+        alert(tr('training.uploadImageFirst'));
         return;
       }
     } else {
       body.source = 'rtsp';
       body.rtsp_url = $('rtsp-url').value.trim();
       if (!body.rtsp_url.toLowerCase().startsWith('rtsp')) {
-        alert('RTSP \u5730\u5740\u65e0\u6548');
+        alert(tr('training.badRtsp'));
         return;
       }
     }
@@ -2066,7 +2111,7 @@
       return {};
     });
     if (!r.ok || !j.success) {
-      alert(j.message || '\u9a8c\u8bc1\u5931\u8d25');
+      alert(j.message || tr('training.validateFail'));
       return;
     }
     await refreshValidateLogs();
@@ -2076,12 +2121,12 @@
     if (!state.projectId) return;
     var w = resolveWeightsPath();
     if (!w) {
-      alert('\u8bf7\u9009\u62e9\u6216\u586b\u5199\u6743\u91cd');
+      alert(tr('training.pickWeightsShort'));
       return;
     }
     var rtsp = $('rtsp-url').value.trim();
     if (!rtsp.toLowerCase().startsWith('rtsp')) {
-      alert('\u8bf7\u5148\u5728\u4e0a\u65b9\u586b\u5199\u6709\u6548\u7684 RTSP\u5730\u5740');
+      alert(tr('training.needRtspAbove'));
       return;
     }
     var r = await api('/api/training/projects/' + state.projectId + '/validate/start', {
@@ -2100,12 +2145,12 @@
       return {};
     });
     if (!r.ok || !j.success) {
-      alert(j.message || '\u542f\u52a8\u5931\u8d25');
+      alert(j.message || tr('training.startFail'));
       return;
     }
     state.validateRunning = true;
     setValidateUiRunning(true);
-    if ($('val-cycle-status')) $('val-cycle-status').textContent = '\u5faa\u73af\u9a8c\u8bc1\u8fd0\u884c\u4e2d\uff082s \u5237\u65b0\u65e5\u5fd7\uff09\u2026';
+    if ($('val-cycle-status')) $('val-cycle-status').textContent = tr('training.cycleRunning');
     startValidatePolling();
     await refreshValidateLogs();
   });
@@ -2120,7 +2165,7 @@
     await r.json().catch(function () {});
     state.validateRunning = false;
     setValidateUiRunning(false);
-    if ($('val-cycle-status')) $('val-cycle-status').textContent = '\u5df2\u505c\u6b62\u5faa\u73af\u9a8c\u8bc1';
+    if ($('val-cycle-status')) $('val-cycle-status').textContent = tr('training.cycleStopped');
     await refreshValidateLogs();
   });
 
@@ -2251,7 +2296,7 @@
     $('btn-del-project').addEventListener('click', function () {
       var p = (state.projects || []).find(function (x) { return x.id === state.projectId; });
       if (!p) {
-        alert('请先选择要删除的项目');
+        alert(tr('training.pickProjectToDel'));
         return;
       }
       deleteProjectEntry(p, null);
@@ -2279,11 +2324,11 @@
     const template_id = ($('np-template') && $('np-template').value) || 'custom';
     const r = await api('/api/training/projects', {
       method: 'POST',
-      body: JSON.stringify({ title: title || '未命名训练', classes, template_id }),
+      body: JSON.stringify({ title: title || tr('training.untitled'), classes, template_id }),
     });
     const j = await r.json();
     if (!j.success) {
-      alert(j.message || '创建失败');
+      alert(j.message || tr('training.createFail'));
       return;
     }
     $('modal-new').classList.add('tl-hidden');
@@ -2293,14 +2338,43 @@
     await selectProject(j.project.id);
   });
 
-  loadTemplates()
-    .then(function () {
-      return loadProjects();
-    })
-    .then(function () {
-      return loadSpecialists();
-    })
-    .then(loadStreams);
+  function rerenderLabLocale() {
+    renderProjectSelect();
+    if (state.projectId) {
+      var p = (state.projects || []).find(function (x) { return x.id === state.projectId; });
+      if ($('current-project-label')) $('current-project-label').textContent = projectBadgeText(p);
+      refreshDatasetHealth().catch(function () {});
+      loadSamples().catch(function () {});
+    }
+    loadStreams().catch(function () {});
+    loadSpecialists().catch(function () {});
+    fillTemplateSelect();
+    loadWeightOptions().catch(function () {});
+    fillClassPicker();
+    renderSnapGrid();
+    loadCalibAlertTypes().catch(function () {});
+  }
+
+  window.__visionaiOnLocaleChange = function () {
+    rerenderLabLocale();
+  };
+
+  async function bootLab() {
+    if (window.VisionAI && VisionAI.i18n) {
+      VisionAI.i18n.mountLangSwitch(document.getElementById('langSwitch'));
+      await VisionAI.i18n.ready();
+    }
+    try {
+      var cr = await fetch('/api/detection-catalog', { credentials: 'same-origin' });
+      var cat = await cr.json();
+      window.detectionCatalog = Array.isArray(cat) ? cat : (cat.items || cat.data || []);
+    } catch (e) { /* ignore */ }
+    await loadTemplates();
+    await loadProjects();
+    await loadSpecialists();
+    await loadStreams();
+  }
+  bootLab();
 
   if ($('btn-refresh-specialists')) {
     $('btn-refresh-specialists').addEventListener('click', function () {
@@ -2332,10 +2406,10 @@
       var fileInput = $('import-file');
       var status = $('import-inspect-status');
       if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-        alert('请先选择权重文件');
+        alert(tr('training.pickWeightFile'));
         return;
       }
-      if (status) status.textContent = '读取中…';
+      if (status) status.textContent = tr('training.reading');
       var fd = new FormData();
       fd.append('file', fileInput.files[0]);
       var r = await fetch('/api/training/specialists/inspect', {
@@ -2347,7 +2421,7 @@
         return {};
       });
       if (!r.ok || !j.success) {
-        if (status) status.textContent = j.message || '读取失败';
+        if (status) status.textContent = j.message || tr('training.readFail');
         return;
       }
       var cls = j.classes || [];
@@ -2355,14 +2429,11 @@
         $('import-classes').value = cls.join(',');
       }
       if (status) {
-        status.textContent =
-          (j.filename || '') +
-          ' · ' +
-          cls.length +
-          ' 类：' +
-          cls.map(function (c, i) {
-            return i + '=' + c;
-          }).join(', ');
+        status.textContent = tr('training.classCount', {
+          file: j.filename || '',
+          n: cls.length,
+          list: cls.map(function (c, i) { return i + '=' + c; }).join(', '),
+        });
       }
     });
   }
@@ -2374,24 +2445,24 @@
       if (!fileInput || !fileInput.files || !fileInput.files[0]) {
         var url = ($('import-weights-url') && $('import-weights-url').value.trim()) || '';
         if (!url) {
-          alert('请先选择权重文件或填写权重 URL');
+          alert(tr('training.pickFileOrUrl'));
           return;
         }
       }
       var key = ($('import-key') && $('import-key').value.trim()) || '';
       if (!key) {
-        alert('请填写专模键名 key');
+        alert(tr('training.needKey'));
         return;
       }
       var nameZh = ($('import-name-zh') && $('import-name-zh').value.trim()) || key;
       if (
         !window.confirm(
-          '确认导入专模「' + nameZh + '」（键 ' + key + '）？\n同名键将备份旧权重后覆盖。'
+          tr('training.confirmImport', { name: nameZh, key: key })
         )
       ) {
         return;
       }
-      if (status) status.textContent = '导入中…';
+      if (status) status.textContent = tr('training.importing');
       var fd = new FormData();
       if (fileInput && fileInput.files && fileInput.files[0]) {
         fd.append('file', fileInput.files[0]);
@@ -2423,11 +2494,11 @@
         return {};
       });
       if (!r.ok || !j.success) {
-        if (status) status.textContent = j.message || '导入失败';
-        alert(j.message || '导入失败');
+        if (status) status.textContent = j.message || tr('training.importFail');
+        alert(j.message || tr('training.importFail'));
         return;
       }
-      if (status) status.textContent = j.message || '已导入';
+      if (status) status.textContent = j.message || tr('training.imported');
       await loadSpecialists();
     });
   }

@@ -7,119 +7,119 @@
     <div id="detectionConfigModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="detectionConfigTitle">
             <div class="config-modal-header">
-                <h3 id="detectionConfigTitle">算法配置</h3>
-                <button type="button" class="config-modal-close" id="detectionConfigModalCloseBtn" aria-label="关闭">&times;</button>
+                <h3 id="detectionConfigTitle" data-i18n="modal.algoTitle">算法配置</h3>
+                <button type="button" class="config-modal-close" id="detectionConfigModalCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
-                <p style="font-size: 13px; color: #495057; margin: 0; flex-shrink:0;">以下为当前预训练模型支持的类别；每项均可单独开启或关闭。修改后请点击「保存当前操作」写入本条视频（仍需保存配置并重启服务后生效）。</p>
-                <input type="text" class="config-modal-search" id="detectionConfigSearch" placeholder="按中文或英文名称筛选…" style="flex-shrink:0;">
+                <p style="font-size: 13px; color: #495057; margin: 0; flex-shrink:0;" data-i18n="modal.algoHint">以下为当前预训练模型支持的类别；每项均可单独开启或关闭。修改后请点击「保存当前操作」写入本条视频（仍需保存配置并重启服务后生效）。</p>
+                <input type="text" class="config-modal-search" id="detectionConfigSearch" data-i18n-placeholder="modal.algoSearch" placeholder="按中文或英文名称筛选…" style="flex-shrink:0;">
                 <div class="detection-config-scroll">
                 <div class="config-modal-scroll" id="detectionConfigList"></div>
                 <div id="faceRecogConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
-                    <strong style="font-size:14px;">人脸识别 · 触发类型</strong>
-                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;">勾选后才会写入告警记录；需先在<a href="/face-library" target="_blank">人脸库</a>录入人员。</p>
+                    <strong style="font-size:14px;" data-i18n="modal.faceTrigger">人脸识别 · 触发类型</strong>
+                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;"><span data-i18n="modal.faceHint">勾选后才会写入告警记录；需先在人脸库录入人员。</span> <a href="/face-library" target="_blank" data-i18n="modal.faceLib">人脸库</a></p>
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
-                        <input type="checkbox" id="frTriggerKnown" style="width:auto;"> 库内匹配（known）
+                        <input type="checkbox" id="frTriggerKnown" style="width:auto;"> <span data-i18n="modal.known">库内匹配（known）</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
-                        <input type="checkbox" id="frTriggerUnknown" style="width:auto;"> 陌生人（unknown）
+                        <input type="checkbox" id="frTriggerUnknown" style="width:auto;"> <span data-i18n="modal.stranger">陌生人（unknown）</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
-                        <input type="checkbox" id="frGenderAge" style="width:auto;"> 性别与年龄
+                        <input type="checkbox" id="frGenderAge" style="width:auto;"> <span data-i18n="modal.genderAge">性别与年龄</span>
                     </label>
-                    <p style="font-size:12px;color:#6c757d;margin:0 0 10px 24px;">勾选后在画框与告警中附带性别、年龄（需 models/buffalo_l/genderage.onnx）。</p>
-                    <label style="font-size:13px;margin-top:8px;">相似度阈值（留空用全局默认 0.45）</label>
+                    <p style="font-size:12px;color:#6c757d;margin:0 0 10px 24px;" data-i18n="modal.genderAgeHint">勾选后在画框与告警中附带性别、年龄（需 models/buffalo_l/genderage.onnx）。</p>
+                    <label style="font-size:13px;margin-top:8px;" data-i18n="modal.simTh">相似度阈值（留空用全局默认 0.45）</label>
                     <input type="text" id="frThreshold" placeholder="0.45" style="width:120px;padding:6px 8px;margin-bottom:8px;">
-                    <label style="font-size:13px;">持续时长秒（留空用全局默认 2.0）</label>
+                    <label style="font-size:13px;" data-i18n="modal.holdSec">持续时长秒（留空用全局默认 2.0）</label>
                     <input type="text" id="frMinDuration" placeholder="2.0" style="width:120px;padding:6px 8px;margin-bottom:8px;">
-                    <label style="font-size:13px;">画面旋转（摄像头倒置时选 180°）</label>
+                    <label style="font-size:13px;" data-i18n="modal.rotate">画面旋转（摄像头倒置时选 180°）</label>
                     <select id="frRotate" style="padding:6px 8px;min-width:120px;">
-                        <option value="">默认（0°）</option>
+                        <option value="" data-i18n="modal.rotate0">默认（0°）</option>
                         <option value="90">90°</option>
                         <option value="180">180°</option>
                         <option value="270">270°</option>
                     </select>
                 </div>
                 <div id="plateRecogConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
-                    <strong style="font-size:14px;">车牌识别 · 触发类型</strong>
-                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;">勾选后才会写入告警记录；需先在<a href="/plate-library" target="_blank">车牌库</a>录入号码。与专模「车牌检测」（仅颜色）二选一时优先本项（OCR+库）。</p>
+                    <strong style="font-size:14px;" data-i18n="modal.plateTrigger">车牌识别 · 触发类型</strong>
+                    <p style="font-size:12px;color:#6c757d;margin:6px 0 10px;"><span data-i18n="modal.plateHint">勾选后才会写入告警记录；需先在车牌库录入号码。与专模「车牌检测」（仅颜色）二选一时优先本项（OCR+库）。</span> <a href="/plate-library" target="_blank" data-i18n="modal.plateLib">车牌库</a></p>
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
-                        <input type="checkbox" id="prTriggerKnown" style="width:auto;"> 库内车牌（known）
+                        <input type="checkbox" id="prTriggerKnown" style="width:auto;"> <span data-i18n="modal.plateKnown">库内车牌（known）</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;">
-                        <input type="checkbox" id="prTriggerUnknown" style="width:auto;"> 陌生车牌（unknown）
+                        <input type="checkbox" id="prTriggerUnknown" style="width:auto;"> <span data-i18n="modal.plateUnknown">陌生车牌（unknown）</span>
                     </label>
-                    <label style="font-size:13px;margin-top:8px;">OCR 最低置信度（留空用全局默认 0.35）</label>
+                    <label style="font-size:13px;margin-top:8px;" data-i18n="modal.ocrMin">OCR 最低置信度（留空用全局默认 0.35）</label>
                     <input type="text" id="prOcrMinConf" placeholder="0.35" style="width:120px;padding:6px 8px;margin-bottom:8px;">
-                    <label style="font-size:13px;">持续时长秒（留空用全局默认 1.0）</label>
+                    <label style="font-size:13px;" data-i18n="modal.plateHold">持续时长秒（留空用全局默认 1.0）</label>
                     <input type="text" id="prMinDuration" placeholder="1.0" style="width:120px;padding:6px 8px;margin-bottom:8px;">
                 </div>
                 <div id="fatigueConfigPanel" style="display:none;margin-top:16px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
-                    <strong style="font-size:14px;">疲劳驾驶 · DMS</strong>
-                    <p id="fatigueGateHint" style="font-size:12px;color:#6c757d;margin:6px 0 10px;">仅驾驶室正脸（建议红外）。路侧/大场景会判定不支持，不告警。辅助告警，非司法鉴定。</p>
+                    <strong style="font-size:14px;" data-i18n="modal.fatigue">疲劳驾驶 · DMS</strong>
+                    <p id="fatigueGateHint" style="font-size:12px;color:#6c757d;margin:6px 0 10px;" data-i18n="modal.fatigueHint">仅驾驶室正脸（建议红外）。路侧/大场景会判定不支持，不告警。辅助告警，非司法鉴定。</p>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-                        <button type="button" class="btn-save" id="fatiguePresetUnlimited" style="padding:6px 10px;">不计流量</button>
-                        <button type="button" class="btn-restart" id="fatiguePresetSim" style="padding:6px 10px;">车台省流</button>
+                        <button type="button" class="btn-save" id="fatiguePresetUnlimited" style="padding:6px 10px;" data-i18n="modal.presetUnlimited">不计流量</button>
+                        <button type="button" class="btn-restart" id="fatiguePresetSim" style="padding:6px 10px;" data-i18n="modal.presetSim">车台省流</button>
                     </div>
                     <div class="fatigue-config-grid">
-                        <label>拉流
+                        <label><span data-i18n="modal.pull">拉流</span>
                             <select id="fgPullMode">
-                                <option value="always">常连（always）</option>
-                                <option value="burst">突发点播（burst，窗后断开）</option>
+                                <option value="always" data-i18n="modal.pullAlways">常连（always）</option>
+                                <option value="burst" data-i18n="modal.pullBurst">突发点播（burst，窗后断开）</option>
                             </select>
                         </label>
-                        <label>窗间隔秒（从上次窗结束起算）
+                        <label><span data-i18n="modal.pullInterval">窗间隔秒（从上次窗结束起算）</span>
                             <input type="text" id="fgPullInterval" placeholder="45">
                         </label>
-                        <label>窗模式
+                        <label><span data-i18n="modal.winMode">窗模式</span>
                             <select id="fgWindowMode">
-                                <option value="duration">按时长</option>
-                                <option value="frames">按帧数</option>
+                                <option value="duration" data-i18n="modal.winDuration">按时长</option>
+                                <option value="frames" data-i18n="modal.winFrames">按帧数</option>
                             </select>
                         </label>
-                        <label>密检帧率 sample_fps（5–8）
+                        <label><span data-i18n="modal.sampleFps">密检帧率 sample_fps（5–8）</span>
                             <input type="text" id="fgSampleFps" placeholder="8">
                         </label>
-                        <label>窗时长秒
+                        <label><span data-i18n="modal.winSec">窗时长秒</span>
                             <input type="text" id="fgWindowSec" placeholder="30">
                         </label>
-                        <label>窗帧数
+                        <label><span data-i18n="modal.winN">窗帧数</span>
                             <input type="text" id="fgWindowFrames" placeholder="240">
                         </label>
-                        <label>闭眼阈值 ear_close
+                        <label><span data-i18n="modal.ear">闭眼阈值 ear_close</span>
                             <input type="text" id="fgEarClose" placeholder="0.18">
                         </label>
-                        <label>PERCLOS 告警占比
+                        <label><span data-i18n="modal.perclos">PERCLOS 告警占比</span>
                             <input type="text" id="fgPerclos" placeholder="0.40">
                         </label>
-                        <label>哈欠次数
+                        <label><span data-i18n="modal.yawn">哈欠次数</span>
                             <input type="text" id="fgYawn" placeholder="2">
                         </label>
-                        <label>最短观察秒
+                        <label><span data-i18n="modal.observe">最短观察秒</span>
                             <input type="text" id="fgObserve" placeholder="4">
                         </label>
-                        <label>人脸最小宽度 px
+                        <label><span data-i18n="modal.minFace">人脸最小宽度 px</span>
                             <input type="text" id="fgMinFace" placeholder="80">
                         </label>
-                        <label>低头角度阈值
+                        <label><span data-i18n="modal.nod">低头角度阈值</span>
                             <input type="text" id="fgNodDeg" placeholder="22">
                         </label>
-                        <label>告警冷却秒
+                        <label><span data-i18n="modal.cooldown">告警冷却秒</span>
                             <input type="text" id="fgCooldown" placeholder="45">
                         </label>
-                        <label>码率估算 kbps
+                        <label><span data-i18n="modal.bitrate">码率估算 kbps</span>
                             <input type="text" id="fgBitrate" placeholder="800">
                         </label>
                         <label class="fatigue-span-2" style="display:flex;align-items:center;gap:8px;font-size:14px;">
-                            <input type="checkbox" id="fgNight" style="width:auto;margin:0;"> 夜视/红外机（略放宽眼区）
+                            <input type="checkbox" id="fgNight" style="width:auto;margin:0;"> <span data-i18n="modal.night">夜视/红外机（略放宽眼区）</span>
                         </label>
                     </div>
                     <p id="fatigueTrafficHint" style="font-size:12px;color:#495057;margin:10px 0 0;"></p>
                 </div>
                 </div>
                 <div class="button-group" style="margin-top: 0;">
-                    <button type="button" class="btn-save" id="detectionConfigSaveBtn">保存当前操作</button>
-                    <button type="button" class="btn-restart" id="detectionConfigCancelBtn">取消</button>
+                    <button type="button" class="btn-save" id="detectionConfigSaveBtn" data-i18n="modal.saveOp">保存当前操作</button>
+                    <button type="button" class="btn-restart" id="detectionConfigCancelBtn" data-i18n="common.cancel">取消</button>
                 </div>
             </div>
         </div>
@@ -128,11 +128,11 @@
     <div id="streamPreviewModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="streamPreviewTitle" style="max-width: 960px; width: min(960px, 96vw);">
             <div class="config-modal-header">
-                <h3 id="streamPreviewTitle">流预览</h3>
+                <h3 id="streamPreviewTitle" data-i18n="modal.streamPreview">流预览</h3>
                 <div class="stream-preview-header-actions">
-                    <button type="button" class="btn-save" id="streamPreviewTalkBtn" hidden>麦克风</button>
-                    <button type="button" class="btn-save" id="streamPreviewSnapshotBtn">截图保存</button>
-                    <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" aria-label="关闭">&times;</button>
+                    <button type="button" class="btn-save" id="streamPreviewTalkBtn" hidden data-i18n="modal.mic">麦克风</button>
+                    <button type="button" class="btn-save" id="streamPreviewSnapshotBtn" data-i18n="modal.snapshot">截图保存</button>
+                    <button type="button" class="config-modal-close" id="streamPreviewCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
                 </div>
             </div>
             <div class="config-modal-body">
@@ -142,31 +142,31 @@
                     </div>
                     <aside id="gbPtzPad" class="gb-ptz-pad" hidden>
                         <div class="gb-ptz-grid">
-                            <button type="button" data-gb-ptz-hold="upleft" title="左上">↖</button>
-                            <button type="button" data-gb-ptz-hold="up" title="上">↑</button>
-                            <button type="button" data-gb-ptz-hold="upright" title="右上">↗</button>
-                            <button type="button" data-gb-ptz-hold="left" title="左">←</button>
-                            <button type="button" data-gb-ptz-hold="stop" title="停止">■</button>
-                            <button type="button" data-gb-ptz-hold="right" title="右">→</button>
-                            <button type="button" data-gb-ptz-hold="downleft" title="左下">↙</button>
-                            <button type="button" data-gb-ptz-hold="down" title="下">↓</button>
-                            <button type="button" data-gb-ptz-hold="downright" title="右下">↘</button>
+                            <button type="button" data-gb-ptz-hold="upleft" data-i18n-title="modal.ptzUpLeft" title="左上">↖</button>
+                            <button type="button" data-gb-ptz-hold="up" data-i18n-title="modal.ptzUp" title="上">↑</button>
+                            <button type="button" data-gb-ptz-hold="upright" data-i18n-title="modal.ptzUpRight" title="右上">↗</button>
+                            <button type="button" data-gb-ptz-hold="left" data-i18n-title="modal.ptzLeft" title="左">←</button>
+                            <button type="button" data-gb-ptz-hold="stop" data-i18n-title="modal.ptzStop" title="停止">■</button>
+                            <button type="button" data-gb-ptz-hold="right" data-i18n-title="modal.ptzRight" title="右">→</button>
+                            <button type="button" data-gb-ptz-hold="downleft" data-i18n-title="modal.ptzDownLeft" title="左下">↙</button>
+                            <button type="button" data-gb-ptz-hold="down" data-i18n-title="modal.ptzDown" title="下">↓</button>
+                            <button type="button" data-gb-ptz-hold="downright" data-i18n-title="modal.ptzDownRight" title="右下">↘</button>
                         </div>
                         <div class="gb-ptz-zoom">
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_out">变倍-</button>
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_in">变倍+</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_out" data-i18n="modal.zoomOut">变倍-</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="zoom_in" data-i18n="modal.zoomIn">变倍+</button>
                         </div>
-                        <label class="gb-ptz-speed">速度
+                        <label class="gb-ptz-speed"><span data-i18n="modal.speed">速度</span>
                             <input type="range" id="gbPtzSpeed" min="1" max="8" step="1" value="4">
                             <span id="gbPtzSpeedVal">4</span>
                         </label>
                         <div class="gb-ptz-zoom">
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_near">聚焦近</button>
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_far">聚焦远</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_near" data-i18n="modal.focusNear">聚焦近</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="focus_far" data-i18n="modal.focusFar">聚焦远</button>
                         </div>
                         <div class="gb-ptz-zoom">
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_open">光圈+</button>
-                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_close">光圈-</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_open" data-i18n="modal.irisOpen">光圈+</button>
+                            <button type="button" class="btn-filter-apply" data-gb-ptz-hold="iris_close" data-i18n="modal.irisClose">光圈-</button>
                         </div>
                     </aside>
                 </div>
@@ -177,60 +177,60 @@
     <div id="onvifModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="onvifModalTitle" style="max-width: 920px; width: min(920px, 96vw);">
             <div class="config-modal-header">
-                <h3 id="onvifModalTitle">ONVIF 发现与接入</h3>
-                <button type="button" class="config-modal-close" id="onvifModalCloseBtn" aria-label="关闭">&times;</button>
+                <h3 id="onvifModalTitle" data-i18n="modal.onvifTitle">ONVIF 发现与接入</h3>
+                <button type="button" class="config-modal-close" id="onvifModalCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
-                <p style="font-size: 13px; color: #495057; margin: 0 0 12px 0;">
+                <p style="font-size: 13px; color: #495057; margin: 0 0 12px 0;" data-i18n="modal.onvifIntro">
                     扫描局域网 ONVIF 设备，或手动填写 IP。检测通过（状态正常）后选择码流 Profile，一键加入监控（写入 RTSP，无需再点「保存配置」）。
-                    海康等请填<strong>集成协议</strong>里的 ONVIF 用户（非网页登录用户亦可）。若本机开了 HTTP 代理，服务会绕过代理直连摄像机。
+                    海康等请填集成协议里的 ONVIF 用户（非网页登录用户亦可）。若本机开了 HTTP 代理，服务会绕过代理直连摄像机。
                 </p>
                 <div class="onvif-toolbar">
-                    <button type="button" class="btn-add" id="onvifScanBtn">扫描局域网</button>
-                    <label class="onvif-field">超时(秒)
+                    <button type="button" class="btn-add" id="onvifScanBtn" data-i18n="modal.scanLan">扫描局域网</button>
+                    <label class="onvif-field"><span data-i18n="modal.timeoutSec">超时(秒)</span>
                         <input type="number" id="onvifScanTimeout" value="5" min="1" max="20" step="1">
                     </label>
                 </div>
                 <div class="onvif-manual">
-                    <strong>手动探测</strong>
-                    <input type="text" id="onvifManualHost" placeholder="IP / 主机名" style="min-width:140px;">
-                    <input type="number" id="onvifManualPort" placeholder="端口" value="80" style="width:88px;">
-                    <button type="button" class="btn-filter-apply" id="onvifManualAddBtn">加入列表</button>
+                    <strong data-i18n="modal.manualProbe">手动探测</strong>
+                    <input type="text" id="onvifManualHost" data-i18n-placeholder="modal.hostPh" placeholder="IP / 主机名" style="min-width:140px;">
+                    <input type="number" id="onvifManualPort" data-i18n-placeholder="modal.portPh" placeholder="端口" value="80" style="width:88px;">
+                    <button type="button" class="btn-filter-apply" id="onvifManualAddBtn" data-i18n="modal.addList">加入列表</button>
                 </div>
                 <div class="onvif-table-wrap">
                     <table class="onvif-table" id="onvifDeviceTable">
                         <thead>
                             <tr>
                                 <th></th>
-                                <th>名称</th>
-                                <th>地址</th>
-                                <th>状态</th>
+                                <th data-i18n="modal.colName">名称</th>
+                                <th data-i18n="modal.colAddr">地址</th>
+                                <th data-i18n="modal.colStatus">状态</th>
                             </tr>
                         </thead>
                         <tbody id="onvifDeviceTbody">
-                            <tr><td colspan="4" style="color:#6c757d;text-align:center;">点击「扫描局域网」或手动添加 IP</td></tr>
+                            <tr><td colspan="4" style="color:#6c757d;text-align:center;" data-i18n="modal.scanHint">点击「扫描局域网」或手动添加 IP</td></tr>
                         </tbody>
                     </table>
                 </div>
                 <div class="onvif-creds">
-                    <label>用户名 <input type="text" id="onvifUsername" value="admin" autocomplete="username"></label>
-                    <label>密码
+                    <label><span data-i18n="modal.username">用户名</span> <input type="text" id="onvifUsername" value="admin" autocomplete="username"></label>
+                    <label><span data-i18n="modal.password">密码</span>
                         <span class="onvif-password-wrap">
                             <input type="password" id="onvifPassword" value="" autocomplete="current-password">
-                            <button type="button" class="onvif-pass-toggle" id="onvifPassToggle" title="显示/隐藏密码" aria-label="显示或隐藏密码">👁</button>
+                            <button type="button" class="onvif-pass-toggle" id="onvifPassToggle" data-i18n-title="modal.togglePass" data-i18n-aria="modal.togglePass" title="显示/隐藏密码" aria-label="显示或隐藏密码">👁</button>
                         </span>
                     </label>
-                    <button type="button" class="btn-filter-apply" id="onvifProbeBtn">检测选中设备</button>
+                    <button type="button" class="btn-filter-apply" id="onvifProbeBtn" data-i18n="modal.probeSelected">检测选中设备</button>
                 </div>
                 <p id="onvifStatusMsg" class="onvif-msg"></p>
                 <div class="onvif-join" id="onvifJoinPanel" style="display:none;">
-                    <label>码流 Profile
+                    <label><span data-i18n="modal.profile">码流 Profile</span>
                         <select id="onvifProfileSelect"></select>
                     </label>
-                    <label>监控名称
-                        <input type="text" id="onvifStreamName" placeholder="流名称">
+                    <label><span data-i18n="modal.monName">监控名称</span>
+                        <input type="text" id="onvifStreamName" data-i18n-placeholder="modal.streamNamePh" placeholder="流名称">
                     </label>
-                    <button type="button" class="btn-save" id="onvifAddStreamBtn">加入监控</button>
+                    <button type="button" class="btn-save" id="onvifAddStreamBtn" data-i18n="modal.addMonitor">加入监控</button>
                     <p id="onvifTalkHint" style="width:100%;font-size:13px;margin:8px 0 0 0;color:#455a64;"></p>
                 </div>
             </div>
@@ -240,20 +240,20 @@
     <div id="talkModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="talkModalTitle" style="max-width: 480px; width: min(480px, 96vw);">
             <div class="config-modal-header">
-                <h3 id="talkModalTitle">语音对讲</h3>
-                <button type="button" class="config-modal-close" id="talkModalCloseBtn" aria-label="关闭">&times;</button>
+                <h3 id="talkModalTitle" data-i18n="modal.talkTitle">语音对讲</h3>
+                <button type="button" class="config-modal-close" id="talkModalCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
                 <p id="talkModalStreamName" style="margin:0 0 8px 0;font-weight:600;"></p>
-                <p id="talkModalStatus" style="font-size:13px;color:#546e7a;margin:0 0 16px 0;">未开始</p>
-                <p style="font-size:12px;color:#78909c;margin:0 0 16px 0;line-height:1.5;">
+                <p id="talkModalStatus" style="font-size:13px;color:#546e7a;margin:0 0 16px 0;" data-i18n="modal.talkIdle">未开始</p>
+                <p style="font-size:12px;color:#78909c;margin:0 0 16px 0;line-height:1.5;" data-i18n="modal.talkHint">
                     使用 ONVIF RTSP Audio Backchannel 将麦克风音频（G.711）回传到摄像机喇叭。
                     请允许浏览器麦克风权限；对讲时请靠近麦克风说话。
                 </p>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <button type="button" class="btn-talk" id="talkStartBtn">开始对讲</button>
-                    <button type="button" class="btn-restart" id="talkStopBtn" disabled>结束对讲</button>
-                    <button type="button" class="btn-filter-apply" id="talkReprobeBtn">重新探测</button>
+                    <button type="button" class="btn-talk" id="talkStartBtn" data-i18n="modal.talkStart">开始对讲</button>
+                    <button type="button" class="btn-restart" id="talkStopBtn" disabled data-i18n="modal.talkStop">结束对讲</button>
+                    <button type="button" class="btn-filter-apply" id="talkReprobeBtn" data-i18n="modal.talkReprobe">重新探测</button>
                 </div>
                 <p id="talkModalDetail" style="font-size:12px;color:#607d8b;margin:14px 0 0 0;word-break:break-all;"></p>
             </div>
@@ -263,30 +263,30 @@
     <div id="gbChannelModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="gbChannelModalTitle" style="max-width: 980px; width: min(980px, 96vw);">
             <div class="config-modal-header">
-                <h3 id="gbChannelModalTitle">通道配置</h3>
-                <button type="button" class="config-modal-close" id="gbChannelModalCloseBtn" aria-label="关闭">&times;</button>
+                <h3 id="gbChannelModalTitle" data-i18n="modal.chTitle">通道配置</h3>
+                <button type="button" class="config-modal-close" id="gbChannelModalCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
             </div>
             <div class="config-modal-body">
                 <p id="gbChannelModalSub" style="margin:0;font-size:13px;color:#64748b;"></p>
                 <div class="gb-ch-toolbar">
-                    <button type="button" class="btn-add" id="gbChannelAddBtn" style="width:auto;min-width:120px;">➕ 新增通道</button>
-                    <button type="button" class="btn-filter-apply" id="gbChannelReloadBtn">刷新列表</button>
+                    <button type="button" class="btn-add" id="gbChannelAddBtn" style="width:auto;min-width:120px;">➕ <span data-i18n="modal.addCh">新增通道</span></button>
+                    <button type="button" class="btn-filter-apply" id="gbChannelReloadBtn" data-i18n="modal.reloadList">刷新列表</button>
                 </div>
                 <div class="config-modal-scroll" style="max-height:56vh;padding:0;border:1px solid #e9ecef;border-radius:8px;overflow:auto;">
                     <table class="gb-ch-table" id="gbChannelTable">
                         <thead>
                             <tr>
-                                <th style="width:64px;">序号</th>
-                                <th style="min-width:180px;">通道 ID</th>
-                                <th style="min-width:120px;">别名</th>
-                                <th style="min-width:168px;">在线状态</th>
-                                <th style="width:240px;">操作</th>
+                                <th style="width:64px;" data-i18n="modal.colIndex">序号</th>
+                                <th style="min-width:180px;" data-i18n="modal.colChId">通道 ID</th>
+                                <th style="min-width:120px;" data-i18n="modal.colAlias">别名</th>
+                                <th style="min-width:168px;" data-i18n="modal.colOnline">在线状态</th>
+                                <th style="width:240px;" data-i18n="modal.colOp">操作</th>
                             </tr>
                         </thead>
                         <tbody id="gbChannelTableBody"></tbody>
                     </table>
                 </div>
-                <p style="margin:0;font-size:12px;color:#94a3b8;">同一 SIP 用户下可配置多个通道；视频通道 ID 为 20 位，第 11–13 位类型码须为 131/132（海康校验）；137 是语音输出通道。新增时默认按 131 自动分配。</p>
+                <p style="margin:0;font-size:12px;color:#94a3b8;" data-i18n="modal.chHint">同一 SIP 用户下可配置多个通道；视频通道 ID 为 20 位，第 11–13 位类型码须为 131/132（海康校验）；137 是语音输出通道。新增时默认按 131 自动分配。</p>
             </div>
         </div>
     </div>

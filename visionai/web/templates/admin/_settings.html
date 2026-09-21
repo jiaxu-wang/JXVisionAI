@@ -1,12 +1,13 @@
                 <!-- 系统设置页面 -->
                 <div id="settingsPage" class="page-content" style="display: none;">
                     <div class="card">
-                        <h2>系统设置</h2>
+                        <h2 data-i18n="nav.settings">系统设置</h2>
+                        <p id="settingsMeta" class="settings-meta"></p>
                         <div id="configUnitsWrap" class="config-units-wrap">加载中…</div>
                         <div class="settings-actions">
-                            <button type="button" class="btn-save" id="saveConfigIniBtn" onclick="saveSystemConfig()">💾 保存全部修改</button>
-                            <button type="button" class="btn-restart" onclick="reloadSystemSettings()">↺ 重新加载</button>
-                            <button type="button" class="btn-restart" onclick="restartJXVisionAIService()">🔄 重启服务生效</button>
+                            <button type="button" class="btn-save" id="saveConfigIniBtn" onclick="saveSystemConfig()" data-i18n="settings.saveAll">💾 保存全部修改</button>
+                            <button type="button" class="btn-restart" onclick="reloadSystemSettings()" data-i18n="settings.reload">↺ 重新加载</button>
+                            <button type="button" class="btn-restart" onclick="restartJXVisionAIService()" data-i18n="settings.restart">🔄 重启服务生效</button>
                         </div>
                     </div>
                 </div>

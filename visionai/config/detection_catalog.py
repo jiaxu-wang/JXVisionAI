@@ -214,6 +214,16 @@ EXTENSION_LABELS_ZH: Dict[str, str] = {
     FATIGUE_KEY: "疲劳驾驶",
 }
 
+# 告警推送 / 调度 typeName 用的短英文名（与管理端 typesMap 对齐）
+EXTENSION_LABELS_EN: Dict[str, str] = {
+    CALL_KEY: "Phone call",
+    PHONE_PLAY_KEY: "Using phone",
+    GATHER_KEY: "Crowd gathering",
+    FACE_RECOG_KEY: "Face recognition",
+    PLATE_RECOG_KEY: "License plate",
+    FATIGUE_KEY: "Fatigue driving",
+}
+
 EXTENSION_CATALOG_META: List[Dict[str, str]] = [
     {
         "key": PHONE_PLAY_KEY,

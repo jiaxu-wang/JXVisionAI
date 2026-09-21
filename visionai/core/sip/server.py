@@ -6,6 +6,7 @@ import asyncio
 import logging
 import secrets
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
@@ -86,6 +87,7 @@ class SipStack:
         self._stopping = False
         self._broadcasts: Dict[str, Dict[str, Any]] = {}
         self._broadcast_waiters: Dict[str, asyncio.Future] = {}
+        self._boot_id = uuid.uuid4().hex
 
     def platform(self) -> Dict[str, Any]:
         return store.get_platform(redis_manager)
@@ -173,7 +175,12 @@ class SipStack:
 
     async def _alive_loop(self) -> None:
         while not self._stopping:
-            store.touch_sip_alive(redis_manager, ttl_sec=15)
+            store.touch_sip_alive(
+                redis_manager,
+                ttl_sec=15,
+                boot_id=self._boot_id,
+                session_count=len(self.sessions),
+            )
             await asyncio.sleep(5)
 
     async def _expire_loop(self) -> None:
@@ -301,6 +308,7 @@ class SipStack:
                 "remote_port": sess.contact_port,
                 "transport": sess.transport,
                 "via_rport": sess.via_rport,
+                "sip_boot_id": self._boot_id,
                 "note": note,
                 "channels": channels or [],
             },
@@ -778,7 +786,7 @@ class SipStack:
         if not sess:
             return {
                 "ok": False,
-                "message": "设备未在 SIP 注册：列表在线来自缓存，信令进程里没有会话。请等摄像机心跳或重新 REGISTER 后再试",
+                "message": "设备未在 SIP 注册：信令进程内存中没有该设备会话，无法点播。请等待摄像机 REGISTER 或心跳后再试",
             }
         hex_cmd, err = ptzcmd.encode_action(spec)
         if err or not hex_cmd:
@@ -1136,7 +1144,7 @@ class SipStack:
         if not sess:
             return {
                 "ok": False,
-                "message": "设备未在 SIP 注册：列表在线来自缓存，信令进程里没有会话。请等摄像机心跳或重新 REGISTER 后再试",
+                "message": "设备未在 SIP 注册：信令进程内存中没有该设备会话，无法点播。请等待摄像机 REGISTER 或心跳后再试",
             }
         device = store.get_device(redis_manager, device_id)
         channels = store.normalize_channels((device or {}).get("channels") or [])

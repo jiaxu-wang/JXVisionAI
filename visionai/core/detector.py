@@ -3,7 +3,7 @@
 
 每路流对应一个 Detector 实例。主循环由 ``__main__.run_video_processing`` 驱动：
 按 ``detection_interval`` 开一轮，窗内抽多帧 → ``detect()`` → ``process_results()`` →
-命中率聚合 → ``save_snapshot()``（一轮一张）。``detect_burst_frames=1`` 时退回单帧。
+命中率聚合 → ``save_snapshot()``（一轮按类型各存一条/一张，框不混画）。``detect_burst_frames=1`` 时退回单帧。
 
 多路并行加载同一权重文件时加锁，避免 torch.load 竞态。
 """
@@ -28,9 +28,7 @@ from visionai.config.detection_catalog import (
     FACE_RECOG_KEY,
     FATIGUE_KEY,
     PLATE_RECOG_KEY,
-    all_extension_keys,
     normalize_detections,
-    label_zh_for_class,
     label_zh_for_extension,
     person_behavior_keys,
     scene_behavior_keys,
@@ -53,6 +51,7 @@ from visionai.config.settings import (
     YOLO_MODEL,
     yolo_inference_device,
 )
+from visionai.core.alert_units import collect_alert_units, filename_slug, render_alert_frame
 from visionai.core.behaviors import BehaviorContext, run_behaviors
 from visionai.core.face_recognition_config import (
     default_face_recognition_config,
@@ -67,7 +66,10 @@ from visionai.core import pose_phone
 from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
 from visionai.utils.alert_email import notify_alert_by_email
-from visionai.utils.alert_webhook import notify_alert_by_webhooks
+from visionai.utils.alert_webhook import (
+    notify_alert_by_webhooks,
+    resolved_alert_webhook_urls,
+)
 from visionai.utils.frame_draw import draw_labeled_box, label_font_px, put_text
 
 logger = logging.getLogger(__name__)
@@ -229,7 +231,7 @@ class Detector:
             "behaviors": {FATIGUE_KEY: fg},
         }
         if fg.get("alert"):
-            self.save_snapshot(vis, detections)
+            self.save_snapshot(vis, detections, source_frame=frame)
         return fg
 
     def detect(self, frame):
@@ -324,7 +326,8 @@ class Detector:
             or plate_recog_on
             or fatigue_on
         )
-        behavior_src = frame.copy() if behavior_needed else None
+        source_frame = frame.copy()
+        behavior_src = source_frame if behavior_needed else None
 
         from visionai.core.infer_types import DetectionBox, boxes_from_ultralytics
 
@@ -743,238 +746,84 @@ class Detector:
             "gather_cluster_indices": gather_cluster_indices,
             "gather_count": gather_count,
             "behaviors": behaviors_out,
+            "_source_frame": source_frame,
         }
         return frame, detections
 
-    def save_snapshot(self, frame, detections):
+    def save_snapshot(self, frame, detections, source_frame=None):
         current_time = time.time()
         if current_time - self.last_save_time < SAVE_INTERVAL:
             return False
 
-        should_save = False
-        info = []
-        detection_types = []
-        detection_extra = None
+        src = source_frame
+        if src is None and isinstance(detections, dict):
+            src = detections.pop("_source_frame", None)
+        if src is None:
+            src = frame
 
-        by_class = detections.get("by_class", {})
-        for cid, items in by_class.items():
-            if not items:
-                continue
-            key = str(int(cid))
-            if not self.detections.get(key, False):
-                continue
-            should_save = True
-            zh = label_zh_for_class(int(cid))
-            info.append(f"{zh}: {len(items)}")
-            detection_types.append(zh)
-
-        if self.detections.get(CALL_KEY, False) and detections.get("calls"):
-            should_save = True
-            n_call = len(detections["calls"])
-            info.append(f"打电话: {n_call}")
-            detection_types.append("打电话")
-
-        if self.detections.get(PHONE_PLAY_KEY, False) and detections.get("phone_play"):
-            should_save = True
-            info.append(f"玩手机: {len(detections['phone_play'])}")
-            detection_types.append("玩手机")
-
-        if self.detections.get(GATHER_KEY, False) and detections.get("gathering_alert"):
-            n_g = len(detections.get("gather_cluster_indices") or [])
-            should_save = True
-            info.append(f"人员聚集: {n_g}")
-            detection_types.append("人员聚集")
-
-        behaviors_saved = detections.get("behaviors", {}) or {}
-
-        fr_saved = behaviors_saved.get(FACE_RECOG_KEY, {})
-        if self.detections.get(FACE_RECOG_KEY, False) and fr_saved.get("alert"):
-            alert_matches = fr_saved.get("alert_matches") or []
-            if alert_matches:
-                should_save = True
-                # 告警仍由 alert_matches 触发；检测类型与截图对齐，写入本帧全部 matches
-                # （持续时长防抖会导致「框上已有库内人+陌生人，类型却只写其中一个」）
-                frame_matches = fr_saved.get("matches") or alert_matches
-                fr_extra_matches = []
-                for m in frame_matches:
-                    name = str(m.get("person_name") or "陌生人")
-                    mt = m.get("match_type")
-                    sim = float(m.get("similarity", 0.0))
-                    gzh = m.get("gender_zh")
-                    age = m.get("age")
-                    attr = ""
-                    if gzh and age is not None:
-                        attr = f"{gzh}{age}岁"
-                    elif gzh:
-                        attr = str(gzh)
-                    elif age is not None:
-                        attr = f"{age}岁"
-                    if mt == "known":
-                        label = f"人脸识别: {name}"
-                    else:
-                        label = "人脸识别: 陌生人"
-                    if attr:
-                        label = f"{label}({attr})"
-                    if label not in detection_types:
-                        detection_types.append(label)
-                    info.append(f"{label} ({sim:.2f})")
-                    item = {
-                        "person_id": m.get("person_id"),
-                        "person_name": name,
-                        "similarity": sim,
-                        "match_type": mt,
-                        "box": m.get("box"),
-                    }
-                    if m.get("gender") is not None:
-                        item["gender"] = int(m["gender"])
-                    if age is not None:
-                        item["age"] = int(age)
-                    if gzh:
-                        item["gender_zh"] = str(gzh)
-                    fr_extra_matches.append(item)
-                if detection_extra is None:
-                    detection_extra = {}
-                detection_extra["face_recognition"] = {
-                    "trigger_types": fr_saved.get("trigger_types") or [],
-                    "matches": fr_extra_matches,
-                    "alert_matches": [
-                        {
-                            "person_id": m.get("person_id"),
-                            "person_name": str(m.get("person_name") or "陌生人"),
-                            "similarity": float(m.get("similarity", 0.0)),
-                            "match_type": m.get("match_type"),
-                        }
-                        for m in alert_matches
-                    ],
-                }
-
-        pr_saved = behaviors_saved.get(PLATE_RECOG_KEY, {})
-        if self.detections.get(PLATE_RECOG_KEY, False) and pr_saved.get("alert"):
-            alert_matches = pr_saved.get("alert_matches") or []
-            if alert_matches:
-                should_save = True
-                frame_matches = pr_saved.get("matches") or alert_matches
-                pr_extra_matches = []
-                for m in frame_matches:
-                    plate_no = str(m.get("plate_no") or "")
-                    owner = str(m.get("owner_name") or "")
-                    mt = m.get("match_type")
-                    ocr_c = float(m.get("ocr_confidence", 0.0))
-                    if mt == "known":
-                        label = f"车牌识别: 库内/{plate_no}"
-                        if owner:
-                            label = f"{label}({owner})"
-                    else:
-                        label = f"车牌识别: 陌生车牌/{plate_no}"
-                    if label not in detection_types:
-                        detection_types.append(label)
-                    info.append(f"{label} ({ocr_c:.2f})")
-                    pr_extra_matches.append(
-                        {
-                            "plate_no": plate_no,
-                            "owner_name": owner,
-                            "match_type": mt,
-                            "ocr_confidence": ocr_c,
-                            "box": m.get("box"),
-                        }
-                    )
-                if detection_extra is None:
-                    detection_extra = {}
-                detection_extra["plate_recognition"] = {
-                    "trigger_types": pr_saved.get("trigger_types") or [],
-                    "matches": pr_extra_matches,
-                    "alert_matches": [
-                        {
-                            "plate_no": str(m.get("plate_no") or ""),
-                            "owner_name": str(m.get("owner_name") or ""),
-                            "match_type": m.get("match_type"),
-                            "ocr_confidence": float(m.get("ocr_confidence", 0.0)),
-                        }
-                        for m in alert_matches
-                    ],
-                }
-
-        p_keys = person_behavior_keys()
-        fg_saved = behaviors_saved.get(FATIGUE_KEY, {})
-        if self.detections.get(FATIGUE_KEY, False) and fg_saved.get("alert"):
-            should_save = True
-            zh = label_zh_for_extension(FATIGUE_KEY)
-            reasons = fg_saved.get("reasons") or []
-            label = zh + ((" · " + "/".join(reasons)) if reasons else "")
-            if label not in detection_types:
-                detection_types.append(label)
-            info.append(f"{label} PERCLOS={float(fg_saved.get('perclos') or 0):.0%}")
-            if detection_extra is None:
-                detection_extra = {}
-            detection_extra["fatigue_driving"] = {
-                "perclos": fg_saved.get("perclos"),
-                "reasons": reasons,
-                "metrics": fg_saved.get("metrics"),
-            }
-
-        for ek in all_extension_keys():
-            if ek in (FACE_RECOG_KEY, PLATE_RECOG_KEY, PHONE_PLAY_KEY, GATHER_KEY, FATIGUE_KEY):
-                continue
-            if ek == CALL_KEY and detections.get("calls"):
-                # 已在上方按 calls 记录
-                continue
-            if not self.detections.get(ek, False):
-                continue
-            br = behaviors_saved.get(ek, {})
-            if not br.get("alert"):
-                continue
-            should_save = True
-            zh = label_zh_for_extension(ek)
-            if br.get("standalone"):
-                n = len(br.get("event_boxes") or [])
-            elif ek in p_keys or ek == CALL_KEY:
-                n = len(br.get("person_indices") or [])
-            else:
-                n = int(br.get("count") or len(br.get("boxes") or []))
-            info.append(f"{zh}: {n}")
-            detection_types.append(zh)
-
-        if not should_save:
+        units = collect_alert_units(self.detections, detections or {})
+        if not units:
             return False
 
         from visionai.utils.timeutil import app_now
 
         now = app_now()
-        timestamp = now.strftime(SAVE_FORMAT)
         save_dir = self.save_dir or SAVE_DIR
-        save_path = os.path.join(save_dir, timestamp)
+        os.makedirs(save_dir, exist_ok=True)
+        infos = []
+        any_ok = False
+        ts_name = now.strftime(SAVE_FORMAT)
+        stem, ext = os.path.splitext(ts_name)
+        for i, unit in enumerate(units):
+            try:
+                vis = render_alert_frame(src, detections, unit)
+                slug = filename_slug(unit.label)
+                save_path = os.path.join(save_dir, f"{stem}_{i:02d}_{slug}{ext}")
+                if not cv2.imwrite(save_path, vis):
+                    logger.error("[%s] 写入截图失败: %s", self.stream_name, save_path)
+                    continue
+                rec_ok = self._persist_alert(
+                    save_path=save_path,
+                    detection_types=[unit.label],
+                    extra=unit.extra,
+                    now=now,
+                    seq=i,
+                )
+                if rec_ok:
+                    any_ok = True
+                    infos.append(unit.info)
+            except Exception as e:
+                logger.error("[%s] 保存类型 %s 截图失败: %s", self.stream_name, unit.label, e)
+
+        if any_ok:
+            self.last_save_time = current_time
+            logger.info("[%s] 检测到: %s，已按类型分别保存", self.stream_name, ", ".join(infos))
+        return any_ok
+
+    def _persist_alert(self, save_path, detection_types, extra, now, seq=0):
+        from visionai.config.settings import ALERT_QUEUE_ENABLED
+        from visionai.core.alert_queue import enqueue_alert_job
+
+        record_id = f"{int(now.timestamp())}_{int(seq):02d}"
+        if ALERT_QUEUE_ENABLED:
+            job = {
+                "stream_name": self.stream_name,
+                "stream_id": (self.stream_id or "").strip(),
+                "detection_types": list(detection_types),
+                "image_path": save_path,
+                "timestamp": now.isoformat(timespec="seconds"),
+                "extra": extra,
+                "record_id": record_id,
+                "alert_emails": list(self.alert_emails or []),
+                "alert_email_enabled": bool(self.alert_email_enabled),
+                "alert_webhook_urls": list(self.alert_webhook_urls or []),
+                "alert_webhook_enabled": bool(self.alert_webhook_enabled),
+            }
+            if enqueue_alert_job(job):
+                return True
+            logger.warning("[%s] 告警入队失败，回退同步写库", self.stream_name)
 
         try:
-            cv2.imwrite(save_path, frame)
-            self.last_save_time = current_time
-
-            # 异步告警队列：检测线程只落盘并投递，由 alert_worker 上传/写库/发信
-            from visionai.config.settings import ALERT_QUEUE_ENABLED
-            from visionai.core.alert_queue import enqueue_alert_job
-
-            if ALERT_QUEUE_ENABLED:
-                job = {
-                    "stream_name": self.stream_name,
-                    "stream_id": (self.stream_id or "").strip(),
-                    "detection_types": detection_types,
-                    "image_path": save_path,
-                    "timestamp": now.isoformat(timespec="seconds"),
-                    "extra": detection_extra,
-                    "alert_emails": list(self.alert_emails or []),
-                    "alert_email_enabled": bool(self.alert_email_enabled),
-                    "alert_webhook_urls": list(self.alert_webhook_urls or []),
-                    "alert_webhook_enabled": bool(self.alert_webhook_enabled),
-                }
-                if enqueue_alert_job(job):
-                    if info:
-                        logger.info(
-                            f"[{self.stream_name}] 检测到: {', '.join(info)}，已入告警队列"
-                        )
-                    return True
-                logger.warning(
-                    f"[{self.stream_name}] 告警入队失败，回退同步写库"
-                )
-
             object_key = None
             storage_kind = None
             store = get_object_storage()
@@ -993,8 +842,7 @@ class Detector:
                     storage_kind = ur.kind
                 except Exception as ex:
                     logger.error(
-                        f"[{self.stream_name}] 对象存储上传失败: {ex}",
-                        exc_info=True,
+                        "[%s] 对象存储上传失败: %s", self.stream_name, ex, exc_info=True
                     )
 
             path_for_redis = save_path
@@ -1004,14 +852,9 @@ class Detector:
                         os.remove(save_path)
                     except OSError as ex:
                         logger.warning(
-                            f"[{self.stream_name}] 仅对象存储时删除本地文件失败: {ex}"
+                            "[%s] 仅对象存储时删除本地文件失败: %s", self.stream_name, ex
                         )
                 path_for_redis = ""
-            if info:
-                where = object_key or path_for_redis or "(无)"
-                logger.info(
-                    f"[{self.stream_name}] 检测到: {', '.join(info)}，存储: {where}"
-                )
 
             rec_id = redis_manager.save_detection(
                 stream_name=self.stream_name,
@@ -1020,7 +863,8 @@ class Detector:
                 timestamp=now,
                 object_key=object_key,
                 storage_kind=storage_kind,
-                extra=detection_extra,
+                extra=extra,
+                record_id=record_id,
             )
             if rec_id and self.alert_emails and self.alert_email_enabled:
                 img_for_mail = (
@@ -1035,19 +879,24 @@ class Detector:
                     image_path=img_for_mail,
                     timestamp=now,
                 )
-            if rec_id and self.alert_webhook_enabled and self.alert_webhook_urls:
+            webhook_dest = resolved_alert_webhook_urls(
+                self.alert_webhook_urls,
+                stream_enabled=bool(self.alert_webhook_enabled),
+            )
+            if rec_id and webhook_dest:
                 notify_alert_by_webhooks(
                     stream_name=self.stream_name,
                     stream_id=(self.stream_id or "").strip() or None,
-                    webhook_urls=self.alert_webhook_urls,
+                    webhook_urls=webhook_dest,
                     detection_types=detection_types,
                     image_path=path_for_redis or None,
                     object_key=object_key,
                     storage_kind=storage_kind,
                     detection_id=rec_id,
                     timestamp=now,
+                    extra=extra if isinstance(extra, dict) else None,
                 )
-            return True
+            return bool(rec_id)
         except Exception as e:
-            logger.error(f"[{self.stream_name}] 保存截图失败: {e}")
+            logger.error("[%s] 保存截图失败: %s", self.stream_name, e)
             return False

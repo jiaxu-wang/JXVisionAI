@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>车牌库管理 - JXVisionAI</title>
+    <title data-i18n="plateLib.title">车牌库管理 - JXVisionAI</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     <style>
@@ -21,6 +21,11 @@
         }
         .top h1 { margin: 0; font-size: 20px; }
         .top a { color: #2196F3; text-decoration: none; margin-left: 16px; }
+        .top-actions { display: flex; align-items: center; gap: 8px; }
+        .lang-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #6c757d; }
+        .lang-switch button { border: none; background: transparent; color: #6c757d; cursor: pointer; padding: 4px 2px; font-size: 13px; }
+        .lang-switch button.active { color: #1976D2; font-weight: 600; }
+        .lang-switch-sep { color: #ced4da; }
         .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
         .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
         .card h2 { margin: 0 0 16px; font-size: 17px; }
@@ -47,51 +52,54 @@
     <div class="top">
         <div class="top-brand">
             <img src="{{ url_for('static', filename='images/logo.png') }}" alt="JXVisionAI">
-            <h1>车牌库管理</h1>
+            <h1 data-i18n="plateLib.title">车牌库管理</h1>
         </div>
-        <div>
-            <a href="/">← 返回管理端</a>
-            <a href="/logout">退出</a>
+        <div class="top-actions">
+            <div id="langSwitch" class="lang-switch"></div>
+            <a href="/" data-i18n="plateLib.back">← 返回管理端</a>
+            <a href="/logout" data-i18n="plateLib.logout">退出</a>
         </div>
     </div>
     <div class="wrap">
-        <div id="engineStatus" class="status">正在检查状态…</div>
+        <div id="engineStatus" class="status" data-i18n="plateLib.checking">正在检查状态…</div>
 
         <div class="card">
-            <h2>录入车牌</h2>
-            <p class="hint">填写大陆车牌号（如 <strong>浙F351TK</strong>）；系统会规范化（去空格、大写、易混字符修正）后写入 Redis 车牌库。</p>
+            <h2 data-i18n="plateLib.enroll">录入车牌</h2>
+            <p class="hint" data-i18n="plateLib.enrollHint">填写大陆车牌号（如 浙F351TK）；系统会规范化（去空格、大写、易混字符修正）后写入 Redis 车牌库。</p>
             <form id="enrollForm">
-                <label>车牌号 *</label>
+                <label data-i18n="plateLib.plate">车牌号 *</label>
                 <input type="text" id="enrollPlate" required placeholder="浙F351TK" autocomplete="off">
-                <label>车主/名称</label>
-                <input type="text" id="enrollName" placeholder="可选，如员工姓名或车辆备注">
-                <label>备注</label>
+                <label data-i18n="plateLib.owner">车主/名称</label>
+                <input type="text" id="enrollName" data-i18n-placeholder="plateLib.ownerPh" placeholder="可选，如员工姓名或车辆备注">
+                <label data-i18n="plateLib.note">备注</label>
                 <input type="text" id="enrollNote" placeholder="可选">
                 <div style="margin-top: 12px;">
-                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="plateLib.submit">保存</button>
                 </div>
             </form>
             <div id="enrollMsg" class="msg"></div>
         </div>
 
         <div class="card">
-            <h2>车牌列表 <span id="plateCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
+            <h2><span data-i18n="plateLib.list">车牌列表</span> <span id="plateCount" style="font-weight:400;color:#6c757d;font-size:14px;"></span></h2>
             <table>
                 <thead>
                     <tr>
-                        <th>车牌号</th>
-                        <th>名称</th>
-                        <th>备注</th>
-                        <th>录入时间</th>
-                        <th>操作</th>
+                        <th data-i18n="plateLib.colPlate">车牌号</th>
+                        <th data-i18n="plateLib.colName">名称</th>
+                        <th data-i18n="plateLib.colNote">备注</th>
+                        <th data-i18n="plateLib.colTime">录入时间</th>
+                        <th data-i18n="plateLib.colOp">操作</th>
                     </tr>
                 </thead>
                 <tbody id="plateTableBody">
-                    <tr><td colspan="5" style="text-align:center;color:#6c757d;">加载中…</td></tr>
+                    <tr><td colspan="5" style="text-align:center;color:#6c757d;" data-i18n="plateLib.loading">加载中…</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
+    <script>window.__VISIONAI_DEFAULT_LOCALE__ = {{ (ui_language or 'zh')|tojson }};</script>
+    <script src="{{ url_for('static', filename='i18n/i18n.js') }}?v=10"></script>
     <script>
         function showMsg(el, text, ok) {
             el.textContent = text;
@@ -109,23 +117,23 @@
                 const data = await r.json();
                 if (data.ocr_ready) {
                     el.className = 'status ok';
-                    el.textContent = 'OCR 引擎可用。当前库内 ' + (data.count || 0) + ' 条车牌。';
+                    el.textContent = t('plateLib.ocrOk', { n: data.count || 0 });
                 } else {
                     el.className = 'status bad';
-                    el.textContent = 'OCR 未就绪：请安装 rapidocr_onnxruntime（库管理仍可录入/删除）。当前库内 ' + (data.count || 0) + ' 条。';
+                    el.textContent = t('plateLib.ocrBad', { n: data.count || 0 });
                 }
                 renderTable(data.plates || []);
             } catch (e) {
                 el.className = 'status bad';
-                el.textContent = '加载失败：' + e.message;
+                el.textContent = t('plateLib.loadFail', { err: e.message });
             }
         }
 
         function renderTable(plates) {
             const tbody = document.getElementById('plateTableBody');
-            document.getElementById('plateCount').textContent = '(' + plates.length + ' 条)';
+            document.getElementById('plateCount').textContent = t('plateLib.count', { n: plates.length });
             if (!plates.length) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6c757d;">暂无车牌，请先录入</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6c757d;">' + t('plateLib.empty') + '</td></tr>';
                 return;
             }
             tbody.innerHTML = plates.map(p => `
@@ -134,18 +142,18 @@
                     <td>${escapeHtml(p.name || '')}</td>
                     <td>${escapeHtml(p.note || '')}</td>
                     <td>${escapeHtml((p.created_at || '').replace('T', ' '))}</td>
-                    <td><button type="button" class="btn btn-danger" data-plate="${escapeHtml(p.plate_no)}" onclick="deletePlate(this)">删除</button></td>
+                    <td><button type="button" class="btn btn-danger" data-plate="${escapeHtml(p.plate_no)}" onclick="deletePlate(this)">${t('common.delete')}</button></td>
                 </tr>
             `).join('');
         }
 
         async function deletePlate(btn) {
             const plate = btn.getAttribute('data-plate');
-            if (!plate || !confirm('确定删除车牌 ' + plate + '？')) return;
+            if (!plate || !confirm(t('plateLib.delConfirm', { plate: plate }))) return;
             const r = await fetch('/api/plate-library/' + encodeURIComponent(plate), { method: 'DELETE' });
             const data = await r.json();
             if (data.success) loadStatus();
-            else alert(data.message || '删除失败');
+            else alert(data.message || t('plateLib.delFail'));
         }
 
         document.getElementById('enrollForm').addEventListener('submit', async function(ev) {
@@ -163,18 +171,25 @@
                 });
                 const data = await r.json();
                 if (data.success) {
-                    showMsg(msg, '已保存：' + ((data.plate && data.plate.plate_no) || ''), true);
+                    showMsg(msg, t('plateLib.saved', { plate: ((data.plate && data.plate.plate_no) || '') }), true);
                     document.getElementById('enrollForm').reset();
                     loadStatus();
                 } else {
-                    showMsg(msg, data.message || '保存失败', false);
+                    showMsg(msg, data.message || t('plateLib.saveFail'), false);
                 }
             } catch (e) {
-                showMsg(msg, '请求失败：' + e.message, false);
+                showMsg(msg, t('plateLib.reqFail', { err: e.message }), false);
             }
         });
 
-        loadStatus();
+        window.__visionaiOnLocaleChange = function () { loadStatus(); };
+        document.addEventListener('DOMContentLoaded', async function () {
+            if (window.VisionAI && VisionAI.i18n) {
+                VisionAI.i18n.mountLangSwitch(document.getElementById('langSwitch'));
+                await VisionAI.i18n.ready();
+            }
+            loadStatus();
+        });
     </script>
 </body>
 </html>

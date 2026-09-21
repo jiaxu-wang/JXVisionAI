@@ -17,7 +17,7 @@ async function loadStatusData() {
         try { zlm = zlmRes && zlmRes.ok ? await zlmRes.json() : null; } catch (e) { zlm = null; }
         
         // 统计在线流数量
-        const onlineStreams = streams.filter(stream => stream.status === '在线').length;
+        const onlineStreams = streams.filter(stream => streamIsOnline(stream.status)).length;
         
         // 更新状态数据（在线数/视频总数）
         document.getElementById('streamOnlineSummary').textContent =
@@ -30,22 +30,22 @@ async function loadStatusData() {
         if (metricEl) {
             const q = metrics && metrics.alert_queue_depth != null ? metrics.alert_queue_depth : '—';
             const up = metrics && metrics.uptime_sec != null ? Math.round(metrics.uptime_sec) + 's' : '—';
-            metricEl.textContent = `队列 ${q} · 运行 ${up}`;
+            metricEl.textContent = t('overview.queueRun', { q: q, up: up });
         }
         if (zlmHint) {
             if (!zlm || !zlm.enabled) {
-                zlmHint.textContent = 'ZLM 未启用';
+                zlmHint.textContent = t('overview.zlmOff');
                 zlmHint.className = 'status status-offline';
             } else if (zlm.alive) {
                 const on = (zlm.streams || []).filter(s => s.online).length;
-                zlmHint.textContent = `ZLM 在线 · 代理 ${on}/${(zlm.streams || []).length}`;
+                zlmHint.textContent = t('overview.zlmOn', { on: on, total: (zlm.streams || []).length });
                 zlmHint.className = 'status status-online';
             } else if (zlm.reachable && zlm.auth_ok === false) {
-                zlmHint.textContent = 'ZLM 鉴权失败';
+                zlmHint.textContent = t('overview.zlmAuth');
                 zlmHint.className = 'status status-offline';
                 zlmHint.title = zlm.message || '请将 [zlm] secret 改为非默认值，并与 config/zlm/config.ini 一致后重启 zlmediakit';
             } else {
-                zlmHint.textContent = 'ZLM 不可达';
+                zlmHint.textContent = t('overview.zlmDown');
                 zlmHint.className = 'status status-offline';
             }
         }
@@ -53,16 +53,16 @@ async function loadStatusData() {
         
         if (streams.length === 0) {
             document.getElementById('streamStatus').className = 'status status-offline';
-            document.getElementById('streamStatus').textContent = '无流配置';
+            document.getElementById('streamStatus').textContent = t('overview.noStreams');
         } else if (onlineStreams === streams.length) {
             document.getElementById('streamStatus').className = 'status status-online';
-            document.getElementById('streamStatus').textContent = '全部在线';
+            document.getElementById('streamStatus').textContent = t('overview.allOnline');
         } else if (onlineStreams === 0) {
             document.getElementById('streamStatus').className = 'status status-offline';
-            document.getElementById('streamStatus').textContent = '全部离线';
+            document.getElementById('streamStatus').textContent = t('overview.allOffline');
         } else {
             document.getElementById('streamStatus').className = 'status status-online';
-            document.getElementById('streamStatus').textContent = '部分在线';
+            document.getElementById('streamStatus').textContent = t('overview.partialOnline');
         }
         
         // 加载流状态列表
@@ -70,7 +70,7 @@ async function loadStatusData() {
         streamStatusList.innerHTML = '';
         
         if (streams.length === 0) {
-            streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">暂无视频配置</p>';
+            streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">' + t('overview.noVideoCfg') + '</p>';
         } else {
             const zlmById = {};
             if (zlm && zlm.streams) {
@@ -79,7 +79,7 @@ async function loadStatusData() {
             streams.forEach(stream => {
                 const streamItem = document.createElement('div');
                 streamItem.className = 'stream-item';
-                const statusClass = stream.status === '在线' ? 'status-online' : 'status-offline';
+                const statusClass = streamIsOnline(stream.status) ? 'status-online' : 'status-offline';
                 const enabled = stream.enabled !== false;
                 const joined = isAnalysisJoined(stream);
                 const hasTypes = streamHasAnyDetection(stream);
@@ -87,28 +87,28 @@ async function loadStatusData() {
                 let enabledText;
                 if (!joined) {
                     enabledClass = 'status-warn';
-                    enabledText = '未接入分析';
+                    enabledText = t('overview.notJoined');
                 } else if (!enabled) {
                     enabledClass = 'status-offline';
-                    enabledText = '检测禁用';
+                    enabledText = t('overview.detectOff');
                 } else if (!hasTypes) {
                     enabledClass = 'status-warn';
-                    enabledText = '未配置检测类型';
+                    enabledText = t('overview.noTypes');
                 } else {
                     enabledClass = 'status-online';
-                    enabledText = '检测开启';
+                    enabledText = t('overview.detectOn');
                 }
                 const sid = stream.id || '';
                 const zs = zlmById[sid];
                 const zlmBadge = zs
-                    ? `<span class="status ${zs.online ? 'status-online' : 'status-offline'}">ZLM ${zs.online ? '代理中' : '未上线'}</span>`
+                    ? `<span class="status ${zs.online ? 'status-online' : 'status-offline'}">ZLM ${zs.online ? t('overview.zlmProxy') : t('overview.zlmNotUp')}</span>`
                     : '';
                 const isOnvif = normalizeAccessMethodClient(stream) === 'onvif';
                 const talkOk = !!stream.talk_supported;
                 const talkBadge = isOnvif
                     ? (talkOk
-                        ? `<span class="talk-badge yes">支持对讲</span>`
-                        : `<span class="talk-badge no">未确认对讲</span>`)
+                        ? `<span class="talk-badge yes">${t('overview.talkYes')}</span>`
+                        : `<span class="talk-badge no">${t('overview.talkNo')}</span>`)
                     : '';
                 const accessBadge = `<span class="access-badge">${escapeHtml(accessLabelForStream(stream))}</span>`;
                 const nameHtml = sid
@@ -121,10 +121,10 @@ async function loadStatusData() {
                             <p style="color: #6c757d; font-size: 14px; word-break: break-all;">${escapeHtml(stream.url || '')}</p>
                         </div>
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                            <span class="status ${statusClass}">${escapeHtml(stream.status)}</span>
+                            <span class="status ${statusClass}">${escapeHtml(formatStreamStatus(stream.status))}</span>
                             <span class="status ${enabledClass}">${enabledText}</span>
                             ${zlmBadge}
-                            <button type="button" class="btn-filter-apply btn-goto-access" ${sid ? '' : 'disabled'} title="跳转到对应接入配置">接入配置</button>
+                            <button type="button" class="btn-filter-apply btn-goto-access" ${sid ? '' : 'disabled'} title="${escapeHtml(t('overview.gotoAccess'))}">${t('overview.gotoAccess')}</button>
                         </div>
                     </div>
                 `;
@@ -150,10 +150,10 @@ async function loadStatusData() {
         document.getElementById('streamOnlineSummary').textContent = '（0/0）';
         document.getElementById('alertCount').textContent = '0';
         document.getElementById('streamStatus').className = 'status status-offline';
-        document.getElementById('streamStatus').textContent = '加载失败';
+        document.getElementById('streamStatus').textContent = t('overview.loadFail');
         
         const streamStatusList = document.getElementById('streamStatusList');
-        streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">加载流状态失败</p>';
+        streamStatusList.innerHTML = '<p style="color: #6c757d; text-align: center; padding: 20px;">' + t('overview.loadFail') + '</p>';
     }
 }
 

@@ -29,28 +29,28 @@ function highlightStreamCard(streamId) {
 }
 
 function showAccessTab(tab, afterLoad) {
-    const t = ACCESS_TABS[tab] ? tab : 'direct';
-    currentAccessTab = t;
+    const tabKey = ACCESS_TABS[tab] ? tab : 'direct';
+    currentAccessTab = tabKey;
     document.querySelectorAll('.access-tab-btn').forEach(function (btn) {
-        btn.classList.toggle('active', btn.getAttribute('data-access-tab') === t);
+        btn.classList.toggle('active', btn.getAttribute('data-access-tab') === tabKey);
     });
     document.querySelectorAll('.access-tab-panel').forEach(function (panel) {
-        panel.classList.toggle('active', panel.getAttribute('data-access-panel') === t);
+        panel.classList.toggle('active', panel.getAttribute('data-access-panel') === tabKey);
     });
     const pt = document.getElementById('pageTitle');
     if (pt) {
-        pt.textContent = '设备接入 · ' + (ACCESS_TAB_LABEL[t] || t);
+        pt.textContent = t('access.titleWithTab', { tab: t('access.tab.' + tabKey) });
     }
     const done = typeof afterLoad === 'function' ? afterLoad : function () {};
     let p = Promise.resolve();
-    if (t === 'direct') p = loadDirectStreams();
-    else if (t === 'onvif') p = loadOnvifStreams();
-    else if (t === 'gb28181') p = loadGb28181Streams();
+    if (tabKey === 'direct') p = loadDirectStreams();
+    else if (tabKey === 'onvif') p = loadOnvifStreams();
+    else if (tabKey === 'gb28181') p = loadGb28181Streams();
     Promise.resolve(p).then(done).catch(done);
     try {
         const q = new URLSearchParams((location.hash || '').replace(/^#/, ''));
         q.set('page', 'access');
-        q.set('tab', t);
+        q.set('tab', tabKey);
         if (pendingHighlightStreamId) q.set('stream', pendingHighlightStreamId);
         else q.delete('stream');
         history.replaceState(null, '', '#' + q.toString());
@@ -78,6 +78,10 @@ function applyVisionaiMainPage(pageKey, navEl, opts) {
         document.querySelectorAll('.page-content').forEach(function (page) {
             page.style.display = 'none';
         });
+        const contentEl = document.querySelector('.content');
+        if (contentEl) {
+            contentEl.classList.remove('is-platform-embed');
+        }
         const pageEl = document.getElementById(pageKey + 'Page');
         if (!pageEl) {
             console.warn('missing page: #' + pageKey + 'Page');
@@ -85,10 +89,18 @@ function applyVisionaiMainPage(pageKey, navEl, opts) {
         }
         pageEl.style.display = 'block';
         const pt = document.getElementById('pageTitle');
-        if (pt && pageKey === 'preview') {
-            pt.textContent = '视频预览';
-        } else if (pt && navEl && pageKey !== 'access') {
-            pt.textContent = navEl.textContent.trim();
+        if (pt && pageKey === 'access') {
+            /* title set in showAccessTab */
+        } else if (pt) {
+            const map = {
+                overview: 'nav.overview',
+                preview: 'nav.preview',
+                policy: 'nav.policy',
+                alerts: 'nav.alerts',
+                settings: 'nav.settings',
+                platform: 'nav.platform'
+            };
+            pt.textContent = t(map[pageKey] || ('nav.' + pageKey));
         }
         const afterLoad = function () {
             const sid = pendingHighlightStreamId;
@@ -112,6 +124,8 @@ function applyVisionaiMainPage(pageKey, navEl, opts) {
             loadSystemSettings();
         } else if (pageKey === 'preview') {
             schedulePreviewNavRefresh();
+        } else if (pageKey === 'platform') {
+            if (typeof loadPlatformEmbedPage === 'function') loadPlatformEmbedPage();
         }
     } catch (err) {
         console.error('navigation error', err);

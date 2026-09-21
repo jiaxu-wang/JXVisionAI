@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          grep -vE '^onnxruntime-gpu' requirements.txt > /tmp/req-cpu.txt
+          echo 'onnxruntime>=1.16.0,<2.0' >> /tmp/req-cpu.txt
+          pip install -r /tmp/req-cpu.txt
+      - name: Unit tests
+        env:
+          VISIONAI_SECRET: ci-test-secret-not-for-production
+          VISIONAI_ALLOW_PROCESS_RESTART: "0"
+        run: python -m unittest discover -s tests -v

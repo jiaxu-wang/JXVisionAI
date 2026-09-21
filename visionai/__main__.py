@@ -1,6 +1,10 @@
 """
 JXVisionAI 进程入口。
 
+生产请使用拆分进程：``python -m visionai.api``、``python -m visionai.worker``、
+``python -m visionai.alert``、``python -m visionai.sip``（或 Docker Compose）。
+本单体入口仅便于本地开发：同时拉起 Web 与检测线程。
+
 单进程内同时拉起：
   1. 每路 RTSP 的检测线程（读帧 → 到点开一轮短窗抽帧 → YOLO/行为插件 → 聚合 → 截图 → Redis/告警）
   2. Flask 管理端（默认 0.0.0.0:5000）
@@ -12,6 +16,8 @@ JXVisionAI 进程入口。
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from visionai.core.detector import Detector
 from visionai.core.detect_burst import (
@@ -46,12 +52,64 @@ from visionai.web.app import app
 from visionai.core import stream_sync
 import os
 
-from visionai.core.state_manager import set_stream_status, stream_status, stream_status_lock
+from visionai.core.state_manager import (
+    STATUS_OFFLINE,
+    STATUS_ONLINE,
+    set_stream_status,
+    stream_status,
+    stream_status_lock,
+)
 from visionai.core.redis_manager import redis_manager
 
 # 按流名跟踪处理线程，避免同一路被重复拉起
 active_threads = {}
 threads_lock = threading.Lock()
+stream_progress = {}
+stream_epoch = {}
+
+
+def _watchdog_limit_sec() -> float:
+    try:
+        from visionai.config.settings import STREAM_WATCHDOG_SEC
+
+        return max(15.0, float(STREAM_WATCHDOG_SEC))
+    except Exception:  # noqa: BLE001
+        return 120.0
+
+
+def bump_stream_epoch(thread_key: str) -> int:
+    with threads_lock:
+        nxt = int(stream_epoch.get(thread_key, 0)) + 1
+        stream_epoch[thread_key] = nxt
+        active_threads.pop(thread_key, None)
+        stream_progress.pop(thread_key, None)
+        return nxt
+
+
+def run_stream_watchdog() -> None:
+    """一路卡住超时则释放线程槽并标离线，其它路继续心跳。"""
+    log = logging.getLogger(__name__)
+    while True:
+        limit = _watchdog_limit_sec()
+        time.sleep(max(5.0, min(30.0, limit / 6.0)))
+        now = time.time()
+        stale = []
+        with threads_lock:
+            for key, ts in list(stream_progress.items()):
+                if key in active_threads and (now - float(ts or 0)) > limit:
+                    stale.append(key)
+        for key in stale:
+            name = key
+            try:
+                for s in get_streams():
+                    if stream_thread_key(s) == key:
+                        name = s.get("name") or key
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+            log.error("[看门狗] 流 %s (%s) 超过 %.0fs 无进展，释放线程槽并标离线", name, key, limit)
+            set_stream_status(name, STATUS_OFFLINE)
+            bump_stream_epoch(key)
 
 def get_streams():
     """从Redis获取流配置，如果Redis不可用则返回空列表"""
@@ -92,11 +150,13 @@ def run_video_processing(stream_info):
     stream_name = stream_info["name"]
     thread_key = stream_thread_key(stream_info)
     
-    # 注册线程
     with threads_lock:
+        my_epoch = int(stream_epoch.get(thread_key, 0))
         active_threads[thread_key] = True
+        stream_progress[thread_key] = time.time()
     
     stream_handler = None
+    detect_pool = None
     try:
         # 创建流对应的保存目录
         stream_save_dir = os.path.join(SAVE_DIR, stream_name)
@@ -120,7 +180,7 @@ def run_video_processing(stream_info):
             prepared, err = prepare_gb_stream(stream_info)
             if err or not prepared:
                 logger.error(f"[{stream_name}] 国标点播失败: {err}")
-                set_stream_status(stream_name, "离线")
+                set_stream_status(stream_name, STATUS_OFFLINE)
                 return
             stream_info = prepared
             pull_url = prepared.get("url") or None
@@ -148,11 +208,11 @@ def run_video_processing(stream_info):
                             )
                         elif not zlm_fallback:
                             logger.error(f"[{stream_name}] ZLM 代理失败且禁止直连: {proxied}")
-                            set_stream_status(stream_name, "离线")
+                            set_stream_status(stream_name, STATUS_OFFLINE)
                             return
                     elif not zlm_fallback:
                         logger.error(f"[{stream_name}] ZLM 不可用且禁止直连")
-                        set_stream_status(stream_name, "离线")
+                        set_stream_status(stream_name, STATUS_OFFLINE)
                         return
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[{stream_name}] ZLM 接入异常，将直连: {e}")
@@ -164,14 +224,14 @@ def run_video_processing(stream_info):
                 stream_handler = StreamHandler(stream_info, pull_url=None)
                 if not stream_handler.connect():
                     logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
-                    set_stream_status(stream_name, "离线")
+                    set_stream_status(stream_name, STATUS_OFFLINE)
                     return
             else:
                 logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
-                set_stream_status(stream_name, "离线")
+                set_stream_status(stream_name, STATUS_OFFLINE)
                 return
 
-        set_stream_status(stream_name, "在线")
+        set_stream_status(stream_name, STATUS_ONLINE)
         last_status_hb = time.time()
         last_gb_live = 0.0
 
@@ -185,7 +245,7 @@ def run_video_processing(stream_info):
         detector.fatigue_driving_config = normalize_fatigue_config(
             stream_info.get("fatigue_driving_config")
         )
-        set_stream_status(stream_name, "在线")
+        set_stream_status(stream_name, STATUS_ONLINE)
         last_status_hb = time.time()
         last_gb_live = 0.0
         logger.info(f"[{stream_name}] 开始处理视频流（检测）…")
@@ -234,7 +294,13 @@ def run_video_processing(stream_info):
             dms_sampler.update_cfg(latest.get("fatigue_driving_config"))
 
         # 主循环
+        detect_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="det")
         while True:
+            with threads_lock:
+                if int(stream_epoch.get(thread_key, 0)) != my_epoch:
+                    logger.warning(f"[{stream_name}] 看门狗已替换本线程，退出")
+                    break
+                stream_progress[thread_key] = time.time()
             now_loop = time.time()
             if now_loop - last_cfg_refresh >= 2.0:
                 latest_cfg = get_stream_config_current(stream_info)
@@ -260,7 +326,7 @@ def run_video_processing(stream_info):
                 if stream_handler.cap is not None:
                     stream_handler.disconnect()
                     stop_gb_play(stream_info)
-                    set_stream_status(stream_name, "在线")
+                    set_stream_status(stream_name, STATUS_ONLINE)
                 time.sleep(0.35)
                 continue
             if (
@@ -276,7 +342,7 @@ def run_video_processing(stream_info):
                     logger.warning(f"[{stream_name}] DMS 突发拉流失败，稍后重试")
                     time.sleep(2.0)
                     continue
-                set_stream_status(stream_name, "在线")
+                set_stream_status(stream_name, STATUS_ONLINE)
 
             # 读取帧
             frame = stream_handler.read_frame()
@@ -302,16 +368,16 @@ def run_video_processing(stream_info):
                                 stream_handler.url = prepared["url"]
                                 if stream_handler.reconnect():
                                     read_failure_count = 0
-                                    set_stream_status(stream_name, "在线")
+                                    set_stream_status(stream_name, STATUS_ONLINE)
                                     last_status_hb = time.time()
                                     logger.info(f"[{stream_name}] 国标重新点播后连接成功")
                                     continue
                             logger.error(f"[{stream_name}] 国标重新点播失败: {err}")
                         logger.error(f"[{stream_name}] 重新连接失败，线程退出")
-                        set_stream_status(stream_name, "离线")
+                        set_stream_status(stream_name, STATUS_OFFLINE)
                         break
                     read_failure_count = 0
-                    set_stream_status(stream_name, "在线")
+                    set_stream_status(stream_name, STATUS_ONLINE)
                     last_status_hb = time.time()
                     logger.info(f"[{stream_name}] 重新连接成功")
                 continue
@@ -327,7 +393,7 @@ def run_video_processing(stream_info):
                 did, cid = gb_ids_from_stream(stream_info)
                 if did and cid and not current_gb_rtp_name(did, cid, live_only=True):
                     logger.warning(f"[{stream_name}] 国标 RTP 无推流码率，重新点播")
-                    set_stream_status(stream_name, "离线")
+                    set_stream_status(stream_name, STATUS_OFFLINE)
                     prepared, err = prepare_gb_stream(stream_info, force=True)
                     if not prepared or not prepared.get("url"):
                         logger.error(f"[{stream_name}] 国标重新点播失败: {err}")
@@ -337,7 +403,7 @@ def run_video_processing(stream_info):
                     if not stream_handler.reconnect():
                         logger.error(f"[{stream_name}] 国标重新点播后拉流失败")
                         break
-                    set_stream_status(stream_name, "在线")
+                    set_stream_status(stream_name, STATUS_ONLINE)
                     last_status_hb = now_hb
                     logger.info(f"[{stream_name}] 国标重新点播成功 {prepared.get('url')}")
             if now_hb - last_status_hb >= 20.0:
@@ -346,10 +412,10 @@ def run_video_processing(stream_info):
                     did, cid = gb_ids_from_stream(stream_info)
                     gb_ok = bool(did and cid and current_gb_rtp_name(did, cid, live_only=True))
                 if gb_ok:
-                    set_stream_status(stream_name, "在线")
+                    set_stream_status(stream_name, STATUS_ONLINE)
                     last_status_hb = now_hb
                 else:
-                    set_stream_status(stream_name, "离线")
+                    set_stream_status(stream_name, STATUS_OFFLINE)
 
             if fatigue_on and dms_sampler.should_sample(time.time()):
                 try:
@@ -395,10 +461,26 @@ def run_video_processing(stream_info):
                 logged_empty_detections = False
                 t0 = time.time()
                 try:
+                    burst = burst_batch
+                    frame_for_detect = frame
+
+                    def _do_detect():
+                        if burst is not None:
+                            return run_burst_round(detector, burst.frames)
+                        results = detector.detect(frame_for_detect)
+                        pf, det = detector.process_results(frame_for_detect, results)
+                        return pf, det, None
+
+                    fut = detect_pool.submit(_do_detect)
+                    try:
+                        out = fut.result(timeout=_watchdog_limit_sec())
+                    except FuturesTimeoutError:
+                        logger.error(f"[{stream_name}] 检测超时（看门狗），退出本线程以便重启该路")
+                        set_stream_status(stream_name, STATUS_OFFLINE)
+                        bump_stream_epoch(thread_key)
+                        break
                     if burst_batch is not None:
-                        processed_frame, detections, stats = run_burst_round(
-                            detector, burst_batch.frames
-                        )
+                        processed_frame, detections, stats = out
                         logger.info(
                             f"[{stream_name}] 检测轮次 采样 {stats.get('got')}/{burst_batch.want} "
                             f"窗 {burst_batch.capture_ms:.0f}ms 推理 {stats.get('infer_ms')}ms "
@@ -406,8 +488,7 @@ def run_video_processing(stream_info):
                         )
                         stream_handler.flush_stale()
                     else:
-                        results = detector.detect(frame)
-                        processed_frame, detections = detector.process_results(frame, results)
+                        processed_frame, detections, _stats = out
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[{stream_name}] 本轮检测失败（保持在线）: {e}", exc_info=True)
                     continue
@@ -427,15 +508,25 @@ def run_video_processing(stream_info):
         logger.info(f"[{stream_name}] 视频处理已停止")
     except Exception as e:
         logger.error(f"[{stream_name}] 视频处理异常: {e}", exc_info=True)
-        set_stream_status(stream_name, "离线")
+        set_stream_status(stream_name, STATUS_OFFLINE)
     finally:
+        if detect_pool is not None:
+            try:
+                detect_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:  # noqa: BLE001
+                pass
         if stream_handler is not None:
-            stream_handler.disconnect()
-        set_stream_status(stream_name, "离线")
-        # 注销线程
+            try:
+                stream_handler.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
         with threads_lock:
-            if thread_key in active_threads:
-                del active_threads[thread_key]
+            still_mine = int(stream_epoch.get(thread_key, 0)) == my_epoch
+            if still_mine:
+                active_threads.pop(thread_key, None)
+                stream_progress.pop(thread_key, None)
+        if still_mine:
+            set_stream_status(stream_name, STATUS_OFFLINE)
         logger.info(f"[{stream_name}] 视频处理已退出")
 
 def run_web_server():
@@ -473,12 +564,12 @@ def check_disabled_stream_status():
                     # 尝试连接流来检查在线状态
                     stream_handler = StreamHandler(stream_info)
                     if stream_handler.connect():
-                        set_stream_status(stream_name, "在线")
+                        set_stream_status(stream_name, STATUS_ONLINE)
                         stream_handler.disconnect()
                     else:
-                        set_stream_status(stream_name, "离线")
+                        set_stream_status(stream_name, STATUS_OFFLINE)
                 except Exception as e:
-                    set_stream_status(stream_name, "离线")
+                    set_stream_status(stream_name, STATUS_OFFLINE)
             
             # 每60秒检查一次
             time.sleep(60)
@@ -521,13 +612,13 @@ def check_offline_streams():
                         prepared, err = prepare_gb_stream(stream_info)
                         if err or not prepared:
                             logger.warning(f"[离线检测] 国标点播失败 {stream_name}: {err}")
-                            set_stream_status(stream_name, "离线")
+                            set_stream_status(stream_name, STATUS_OFFLINE)
                             continue
                         start_info = prepared
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[离线检测] 国标准备失败 {stream_name}: {e}")
                     if gb:
-                        set_stream_status(stream_name, "离线")
+                        set_stream_status(stream_name, STATUS_OFFLINE)
                         continue
                 if not gb:
                     stream_handler = StreamHandler(stream_info)
@@ -542,7 +633,7 @@ def check_offline_streams():
                         continue
 
                 if not gb:
-                    set_stream_status(stream_name, "在线")
+                    set_stream_status(stream_name, STATUS_ONLINE)
                 video_thread = threading.Thread(
                     target=run_video_processing,
                     args=(start_info,),
@@ -580,7 +671,7 @@ def main():
         name = stream_info["name"]
         with stream_status_lock:
             if name not in stream_status:
-                stream_status[name] = "离线"
+                stream_status[name] = STATUS_OFFLINE
     
     # 为每个已接入分析的视频流启动一个处理线程
     for stream_info in streams:
@@ -610,6 +701,9 @@ def main():
     )
     disabled_check_thread.start()
     logger.info("已启动禁用流状态检测线程")
+
+    threading.Thread(target=run_stream_watchdog, daemon=True).start()
+    logger.info("已启动流处理看门狗")
     
     # 启动Web服务器
     run_web_server()

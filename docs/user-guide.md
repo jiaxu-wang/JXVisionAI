@@ -11,7 +11,8 @@
 | **视频预览** | 进入后左侧设备树按接入类型展开，双击视频/通道加入右侧预览墙；最多 25 路（5×5） |
 | **检测配置** | 仅已接入分析的流：勾选检测类型、告警邮箱/Webhook |
 | **历史告警** | 分页查看检测记录与截图 |
-| **系统设置** | 在线编辑 `config.ini` 各分节（basic / redis / minio / email / models / infer / zlm / preview） |
+| **系统设置** | 在线编辑 `config.ini` 各分节（含 `[integration]`） |
+| **平台接入** | 菜单始终可见。配置了 `[integration] platform_embed_url` 则嵌入该页，未配置则显示「未接入」 |
 | **人脸库管理** | 录入人员、查看照片 |
 | **车牌库管理** | 录入车牌号、名称与备注 |
 | **训练实验室** | **自训专模**（标注→训→门禁→部署）与 **导入现成专模**（上传社区 YOLO 权重）；上线后均可在检测类型目录勾选 |
@@ -42,7 +43,7 @@
 ### RTSP 直连
 
 1. **设备接入 → RTSP直连**，点击 **添加 RTSP 流**，填写名称与 RTSP URL  
-   - 密码含 `@` 时需编码为 `%40`（如 `inrico@123` → `inrico%40123`）
+   - 密码含 `@` 时需编码为 `%40`（如 `pass@word` → `pass%40word`）
 2. 点击 **保存接入配置**（改地址后需保存并重启服务才对 worker 生效）
 3. 在线后可 **预览**；点 **接入AI分析** 后到 **检测配置** 勾选检测项、配置邮件/Webhook 并保存
 4. 若修改了 `config.ini`（含 `[basic]` **`inference_device`**）或内置模型路径：Compose 执行 `docker compose restart visionai-api visionai-worker visionai-alert`；宿主机执行 `./stop.sh && ./start.sh`（或管理端「重启服务」）。**专模**（自训部署或导入）一般热加载，无需重启

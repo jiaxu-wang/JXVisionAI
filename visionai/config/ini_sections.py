@@ -37,6 +37,7 @@ VALID_ROOT_SECTIONS = frozenset(
         "preview",
         "infer",
         "zlm",
+        "integration",
         "visionai",
     }
 )
@@ -144,6 +145,13 @@ _SECTION_LOCAL_TO_CANONICAL: Dict[str, Dict[str, str]] = {
         "zlm_rtc_port": "zlm_rtc_port",
         "zlm_pull_host": "zlm_pull_host",
         "zlm_pull_rtsp_port": "zlm_pull_rtsp_port",
+    },
+    "integration": {
+        "open_api_key": "open_api_key",
+        "public_base_url": "public_base_url",
+        "outbound_webhook_url": "outbound_webhook_url",
+        "embed_frame_ancestors": "embed_frame_ancestors",
+        "platform_embed_url": "platform_embed_url",
     },
 }
 
@@ -275,6 +283,21 @@ for _k, _file_key in (
     ("zlm_pull_rtsp_port", "pull_rtsp_port"),
 ):
     CANONICAL_WRITE[_k] = ("zlm", _file_key)
+
+for _k in (
+    "open_api_key",
+    "public_base_url",
+    "outbound_webhook_url",
+    "embed_frame_ancestors",
+    "platform_embed_url",
+):
+    CANONICAL_WRITE[_k] = ("integration", _k)
+
+CANONICAL_WRITE["ui_language"] = ("ui", "language")
+_SECTION_LOCAL_TO_CANONICAL["ui"] = {
+    "language": "ui_language",
+    "ui_language": "ui_language",
+}
 
 
 def normalize_section(section: str) -> str:

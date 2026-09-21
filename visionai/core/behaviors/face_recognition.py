@@ -85,9 +85,11 @@ class FaceRecognitionBehaviorPlugin:
 
             if lib_empty:
                 match_type = "unknown"
-                person_id = None
+                person_id = face_library.UNKNOWN_PERSON_ID
                 person_name = "陌生人"
                 similarity = 0.0
+                department = ""
+                identity_id = face_library.UNKNOWN_PERSON_ID
             else:
                 person_id, similarity = face_library.match_embedding(
                     emb,
@@ -97,14 +99,21 @@ class FaceRecognitionBehaviorPlugin:
                 if person_id:
                     match_type = "known"
                     person_name = face_library.person_name(person_id)
+                    department = face_library.person_department(person_id)
+                    identity_id = face_library.person_identity_id(person_id)
                 else:
                     match_type = "unknown"
+                    person_id = face_library.UNKNOWN_PERSON_ID
                     person_name = "陌生人"
+                    department = ""
+                    identity_id = face_library.UNKNOWN_PERSON_ID
 
             m = {
                 "box": box,
                 "person_id": person_id,
+                "identity_id": identity_id,
                 "person_name": person_name,
+                "department": department,
                 "similarity": round(float(similarity), 4),
                 "match_type": match_type,
                 "face_key": fk,

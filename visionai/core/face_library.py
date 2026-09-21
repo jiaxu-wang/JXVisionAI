@@ -10,9 +10,11 @@ Redis Hash：``visionai/face_library:persons``（field = person_id）。
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime
@@ -27,6 +29,10 @@ from visionai.core.object_storage import get_object_storage
 from visionai.core.redis_manager import redis_manager
 
 logger = logging.getLogger(__name__)
+
+# 陌生人告警的稳定 person_id；调度证件号 / 下游协议不允许空值。
+UNKNOWN_PERSON_ID = "unknown"
+_RESERVED_IDENTITY = frozenset({"unknown", "stranger", "陌生人", ""})
 
 _lock = threading.Lock()
 _index: Dict[str, Dict[str, Any]] = {}
@@ -46,6 +52,42 @@ def _legacy_person_dir(person_id: str) -> str:
 
 def _new_person_id() -> str:
     return "p_" + uuid.uuid4().hex[:12]
+
+
+def normalize_identity_id(raw: Any) -> str:
+    """录入用的身份ID（工号/证件号），同时作为 Redis person_id。"""
+    return re.sub(r"\s+", "", str(raw or "")).strip()
+
+
+def resolve_person_id(raw: Any) -> str:
+    """告警协议 person_id：空值一律落成 unknown。"""
+    s = str(raw or "").strip()
+    return s if s else UNKNOWN_PERSON_ID
+
+
+def validate_identity_id(raw: Any) -> str:
+    pid = normalize_identity_id(raw)
+    if not pid:
+        raise ValueError("请填写身份ID")
+    if len(pid) > 64:
+        raise ValueError("身份ID 最长 64 个字符")
+    if pid.lower() in _RESERVED_IDENTITY or pid in _RESERVED_IDENTITY:
+        raise ValueError("身份ID 不可使用保留字 unknown / stranger")
+    return pid
+
+
+def _extract_face_or_raise(image_bgr: np.ndarray) -> np.ndarray:
+    if not face_engine.is_available():
+        raise RuntimeError("人脸识别模型未就绪，请检查 models/buffalo_l/")
+    emb = face_engine.extract_single_face_embedding(image_bgr)
+    if emb is not None:
+        return emb
+    faces = face_engine.analyze_faces(image_bgr, max_faces=3)
+    if len(faces) == 0:
+        raise ValueError("未检测到人脸，请上传正面清晰照片")
+    if len(faces) > 1:
+        raise ValueError("检测到多张人脸，请上传仅含单人的照片")
+    raise ValueError("无法提取人脸特征")
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -184,6 +226,7 @@ def _migrate_legacy_local_if_needed() -> int:
         now = meta.get("updated_at") or datetime.now().isoformat(timespec="seconds")
         redis_meta = {
             "id": pid,
+            "identity_id": str(meta.get("identity_id") or pid),
             "name": meta.get("name", ""),
             "department": meta.get("department", ""),
             "remark": meta.get("remark", ""),
@@ -245,6 +288,7 @@ def list_persons() -> List[Dict[str, Any]]:
             out.append(
                 {
                     "id": pid,
+                    "identity_id": str(meta.get("identity_id") or pid),
                     "name": meta.get("name", ""),
                     "department": meta.get("department", ""),
                     "remark": meta.get("remark", ""),
@@ -307,6 +351,161 @@ def match_embedding(
     return best_pid, best_sim
 
 
+def rank_embedding(
+    embedding: np.ndarray,
+    *,
+    watchlist: Optional[List[str]] = None,
+    top_k: int = 5,
+) -> List[Dict[str, Any]]:
+    """1:N 余弦相似度排序（不过阈值），供手动比对展示候选。"""
+    vec = _normalize_embedding(embedding)
+    watch = None
+    if watchlist:
+        watch = {str(x).strip() for x in watchlist if str(x).strip()}
+
+    per_person: Dict[str, float] = {}
+    with _lock:
+        for pid, emb in _embeddings:
+            if watch is not None and pid not in watch:
+                continue
+            sim = _cosine_similarity(vec, emb)
+            per_person[pid] = max(per_person.get(pid, -1.0), sim)
+        metas = {
+            pid: _public_meta(_index[pid])
+            for pid in per_person
+            if pid in _index
+        }
+
+    k = max(1, min(int(top_k or 5), 20))
+    ranked = sorted(per_person.items(), key=lambda x: x[1], reverse=True)[:k]
+    out: List[Dict[str, Any]] = []
+    for pid, sim in ranked:
+        meta = metas.get(pid) or {}
+        out.append(
+            {
+                "person_id": pid,
+                "identity_id": str(meta.get("identity_id") or pid),
+                "name": str(meta.get("name") or pid),
+                "department": str(meta.get("department") or ""),
+                "similarity": round(float(sim), 4),
+            }
+        )
+    return out
+
+
+def _preview_jpeg_data_url(image_bgr: np.ndarray, max_width: int = 960) -> str:
+    img = image_bgr
+    h, w = img.shape[:2]
+    if w > max_width > 0:
+        nh = max(1, int(round(h * max_width / float(w))))
+        img = cv2.resize(img, (max_width, nh))
+    raw = _encode_jpeg(img)
+    return "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _annotate_compare_faces(image_bgr: np.ndarray, faces: List[Dict[str, Any]]) -> np.ndarray:
+    vis = image_bgr.copy()
+    for item in faces:
+        box = item.get("bbox") or [0, 0, 0, 0]
+        try:
+            x1, y1, x2, y2 = [int(v) for v in box[:4]]
+        except (TypeError, ValueError):
+            continue
+        matched = bool(item.get("matched"))
+        color = (46, 160, 67) if matched else (50, 50, 210)
+        cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+        best = item.get("best") or {}
+        ident = str(best.get("identity_id") or "")
+        sim = best.get("similarity")
+        if ident and sim is not None:
+            tag = f"{ident} {float(sim):.2f}"
+        else:
+            tag = f"face{int(item.get('index') or 0)}"
+        ytxt = y1 - 6 if y1 > 18 else y2 + 16
+        cv2.putText(
+            vis,
+            tag,
+            (x1, ytxt),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+    return vis
+
+
+def compare_image(
+    image_bgr: np.ndarray,
+    *,
+    threshold: Optional[float] = None,
+    top_k: int = 5,
+    max_faces: Optional[int] = None,
+    person_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """对探测图做人脸检测 + 与库内已录入人员 1:N（或指定 1:1）比对。"""
+    from visionai.config.settings import (
+        FACE_RECOGNITION_MAX_FACES_PER_FRAME,
+        FACE_RECOGNITION_THRESHOLD,
+    )
+
+    if not face_engine.is_available():
+        raise RuntimeError("人脸识别模型未就绪，请检查 models/buffalo_l/")
+    if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
+        raise ValueError("图片无效")
+
+    if threshold is None:
+        thr = float(FACE_RECOGNITION_THRESHOLD)
+    else:
+        try:
+            thr = float(threshold)
+        except (TypeError, ValueError) as ex:
+            raise ValueError("阈值无效") from ex
+        if thr < 0 or thr > 1:
+            raise ValueError("阈值须在 0～1 之间")
+
+    watch: Optional[List[str]] = None
+    scope = "all"
+    pid = str(person_id or "").strip()
+    if pid:
+        if get_person(pid) is None:
+            raise ValueError("指定人员不存在")
+        watch = [pid]
+        scope = pid
+
+    nfaces = int(max_faces or FACE_RECOGNITION_MAX_FACES_PER_FRAME)
+    detected = face_engine.analyze_faces(image_bgr, max_faces=max(1, nfaces))
+    faces: List[Dict[str, Any]] = []
+    for det in detected:
+        ranked = rank_embedding(det["embedding"], watchlist=watch, top_k=top_k)
+        for cand in ranked:
+            cand["matched"] = float(cand["similarity"]) >= thr
+            cand["photo_url"] = (
+                "/api/face-library/" + str(cand["person_id"]) + "/photo"
+            )
+        best = ranked[0] if ranked else None
+        box = [int(v) for v in (det.get("bbox") or [0, 0, 0, 0])[:4]]
+        faces.append(
+            {
+                "index": int(det.get("index") or 0),
+                "bbox": box,
+                "det_score": round(float(det.get("det_score") or 0.0), 4),
+                "matched": bool(best and best.get("matched")),
+                "best": best,
+                "candidates": ranked,
+            }
+        )
+    vis = _annotate_compare_faces(image_bgr, faces)
+    return {
+        "threshold": round(float(thr), 4),
+        "library_count": person_count(),
+        "face_count": len(faces),
+        "scope": scope,
+        "query_jpeg": _preview_jpeg_data_url(vis),
+        "faces": faces,
+    }
+
+
 def person_name(person_id: Optional[str]) -> str:
     if not person_id:
         return "陌生人"
@@ -317,10 +516,33 @@ def person_name(person_id: Optional[str]) -> str:
         return str(meta.get("name") or person_id)
 
 
+def person_department(person_id: Optional[str]) -> str:
+    pid = resolve_person_id(person_id)
+    if pid == UNKNOWN_PERSON_ID:
+        return ""
+    with _lock:
+        meta = _index.get(pid)
+        if not meta:
+            return ""
+        return str(meta.get("department") or "")
+
+
+def person_identity_id(person_id: Optional[str]) -> str:
+    pid = resolve_person_id(person_id)
+    if pid == UNKNOWN_PERSON_ID:
+        return UNKNOWN_PERSON_ID
+    with _lock:
+        meta = _index.get(pid)
+        if not meta:
+            return pid
+        return str(meta.get("identity_id") or pid)
+
+
 def enroll_person(
     image_bgr: np.ndarray,
     *,
     name: str,
+    identity_id: str,
     department: str = "",
     remark: str = "",
 ) -> Dict[str, Any]:
@@ -329,20 +551,17 @@ def enroll_person(
     if not face_engine.is_available():
         raise RuntimeError("人脸识别模型未就绪，请检查 models/buffalo_l/")
 
+    pid = validate_identity_id(identity_id)
     store = get_object_storage()
     if store is None:
         raise RuntimeError("对象存储未启用，无法上传人脸照片（请配置 MinIO/S3）")
 
-    emb = face_engine.extract_single_face_embedding(image_bgr)
-    if emb is None:
-        faces = face_engine.analyze_faces(image_bgr, max_faces=3)
-        if len(faces) == 0:
-            raise ValueError("未检测到人脸，请上传正面清晰照片")
-        if len(faces) > 1:
-            raise ValueError("检测到多张人脸，请上传仅含单人的照片")
-        raise ValueError("无法提取人脸特征")
+    emb = _extract_face_or_raise(image_bgr)
 
-    pid = _new_person_id()
+    with _lock:
+        if pid in _index:
+            raise ValueError("身份ID 已存在")
+
     now = datetime.now().isoformat(timespec="seconds")
     object_key = _photo_object_key(pid)
     jpeg_bytes = _encode_jpeg(image_bgr)
@@ -350,6 +569,7 @@ def enroll_person(
 
     meta = {
         "id": pid,
+        "identity_id": pid,
         "name": (name or "").strip() or "未命名",
         "department": (department or "").strip(),
         "remark": (remark or "").strip(),
@@ -370,10 +590,33 @@ def enroll_person(
         raise RuntimeError("保存人脸库到 Redis 失败")
 
     with _lock:
+        if pid in _index:
+            store.delete_object(object_key)
+            raise ValueError("身份ID 已存在")
         _index[pid] = meta
         _embeddings.append((pid, _normalize_embedding(emb)))
 
-    return {"id": pid, "name": meta["name"], "message": "录入成功"}
+    return {"id": pid, "identity_id": pid, "name": meta["name"], "message": "录入成功"}
+
+
+def _photo_keys(meta: Dict[str, Any]) -> List[str]:
+    keys = []
+    for ph in meta.get("photos") or []:
+        okey = ph.get("object_key")
+        if okey:
+            keys.append(str(okey))
+    return keys
+
+
+def _set_photo_meta(meta: Dict[str, Any], person_id: str, object_key: str, storage_kind: str, now: str) -> None:
+    meta["photos"] = [
+        {
+            "id": "photo_1",
+            "object_key": object_key,
+            "storage_kind": storage_kind,
+            "created_at": now,
+        }
+    ]
 
 
 def update_person(
@@ -382,22 +625,83 @@ def update_person(
     name: Optional[str] = None,
     department: Optional[str] = None,
     remark: Optional[str] = None,
-) -> bool:
+    identity_id: Optional[str] = None,
+    image_bgr: Optional[np.ndarray] = None,
+) -> Optional[Dict[str, Any]]:
+    """更新人员资料。可改身份ID、姓名、部门、备注，以及可选换照片（同时重提特征）。"""
+    old_id = str(person_id or "").strip()
+    if not old_id:
+        return None
     with _lock:
-        meta = _index.get(person_id)
-        if not meta:
-            return False
-        if name is not None:
-            meta["name"] = str(name).strip() or meta.get("name", "")
-        if department is not None:
-            meta["department"] = str(department).strip()
-        if remark is not None:
-            meta["remark"] = str(remark).strip()
-        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        src = _index.get(old_id)
+        if not src:
+            return None
+        meta = json.loads(json.dumps(src, ensure_ascii=False))
 
-    if not redis_manager.save_face_person(person_id, meta):
-        return False
-    return True
+    new_id = old_id
+    if identity_id is not None:
+        new_id = validate_identity_id(identity_id)
+        if new_id != old_id:
+            with _lock:
+                if new_id in _index:
+                    raise ValueError("身份ID 已存在")
+
+    now = datetime.now().isoformat(timespec="seconds")
+    if name is not None:
+        meta["name"] = str(name).strip() or str(meta.get("name") or "未命名")
+    if department is not None:
+        meta["department"] = str(department).strip()
+    if remark is not None:
+        meta["remark"] = str(remark).strip()
+
+    store = get_object_storage()
+    old_keys = _photo_keys(meta)
+    new_object_key = None
+
+    if image_bgr is not None:
+        if store is None:
+            raise RuntimeError("对象存储未启用，无法更新人脸照片")
+        emb = _extract_face_or_raise(image_bgr)
+        new_object_key = _photo_object_key(new_id)
+        store.upload_bytes(_encode_jpeg(image_bgr), new_object_key, content_type="image/jpeg")
+        _set_photo_meta(meta, new_id, new_object_key, store.kind, now)
+        meta["embedding"] = _embedding_to_list(emb)
+    elif new_id != old_id:
+        if store is None:
+            raise RuntimeError("对象存储未启用，无法迁移人脸照片")
+        photo_bytes = get_photo_bytes(old_id)
+        if photo_bytes:
+            new_object_key = _photo_object_key(new_id)
+            store.upload_bytes(photo_bytes, new_object_key, content_type="image/jpeg")
+            _set_photo_meta(meta, new_id, new_object_key, store.kind, now)
+
+    meta["id"] = new_id
+    meta["identity_id"] = new_id
+    meta["updated_at"] = now
+
+    if not redis_manager.save_face_person(new_id, meta):
+        raise RuntimeError("保存人脸库到 Redis 失败")
+    if new_id != old_id:
+        redis_manager.delete_face_person(old_id)
+
+    if store and new_object_key:
+        for okey in old_keys:
+            if okey != new_object_key:
+                try:
+                    store.delete_object(okey)
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning("删除旧人脸照片失败 %s: %s", okey, ex)
+
+    emb = _embedding_from_meta(meta)
+    with _lock:
+        _index.pop(old_id, None)
+        _index[new_id] = meta
+        rest = [(p, e) for p, e in _embeddings if p != old_id]
+        if emb is not None:
+            rest.append((new_id, emb))
+        _embeddings[:] = rest
+
+    return _public_meta(meta)
 
 
 def delete_person(person_id: str) -> bool:

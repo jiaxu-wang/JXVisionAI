@@ -41,10 +41,10 @@ async function loadAlertsData(page = 1) {
             renderPagination(result.total, page);
             currentPage = page;
         } else {
-            showMessage('加载检测记录失败: ' + result.message, 'error');
+            showMessage(t('alerts.loadFail', { err: result.message }), 'error');
         }
     } catch (error) {
-        showMessage('加载检测记录失败: ' + error.message, 'error');
+        showMessage(t('alerts.loadFail', { err: error.message }), 'error');
     }
 }
 
@@ -54,7 +54,7 @@ function renderAlertsTable(detections) {
     tableBody.innerHTML = '';
     
     if (detections.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6c757d; padding: 30px;">暂无检测记录</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6c757d; padding: 30px;">' + t('alerts.empty') + '</td></tr>';
         return;
     }
     
@@ -67,7 +67,7 @@ function renderAlertsTable(detections) {
         const types = Array.isArray(detection.detection_types)
             ? detection.detection_types
             : [];
-        const detectionType = [...new Set(types.map(String))].join(', ');
+        const detectionType = [...new Set(types.map(function (x) { return formatType(String(x)); }))].join(', ');
         
         // 统一走后端回源（对象存储或本地绝对路径均可）；避免前端误拼绝对路径
         let imageUrl = '';
@@ -97,7 +97,7 @@ function renderAlertsTable(detections) {
             <td>${detection.stream_name}</td>
             <td>${detectionType}</td>
             <td><img src="${imgSrc}" class="alert-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4='"></td>
-            <td><button class="btn-delete" onclick="deleteAlert('${detection.id}')">删除</button></td>
+            <td><button class="btn-delete" onclick="deleteAlert('${detection.id}')">${t('common.delete')}</button></td>
         `;
         tableBody.appendChild(row);
     });
@@ -111,7 +111,7 @@ function renderPagination(total, currentPage) {
     let html = '';
     
     // 上一页
-    html += `<button onclick="loadAlertsData(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>`;
+    html += `<button onclick="loadAlertsData(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>${t('alerts.prev')}</button>`;
     
     // 页码
     if (totalPages <= 5) {
@@ -146,12 +146,12 @@ function renderPagination(total, currentPage) {
     html += `
         <span style="margin-left: 10px; display: flex; align-items: center; gap: 5px;">
             <input type="number" id="pageInput" min="1" max="${totalPages}" value="${currentPage}" style="width: 60px; padding: 6px; border: 1px solid #ced4da; border-radius: 4px; text-align: center;">
-            <button onclick="jumpToPage()" style="padding: 6px 12px; border: 1px solid #ced4da; background: white; border-radius: 4px; cursor: pointer;">跳转</button>
+            <button onclick="jumpToPage()" style="padding: 6px 12px; border: 1px solid #ced4da; background: white; border-radius: 4px; cursor: pointer;">${t('alerts.jump')}</button>
         </span>
     `;
     
     // 下一页
-    html += `<button onclick="loadAlertsData(${currentPage + 1})" ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}>下一页</button>`;
+    html += `<button onclick="loadAlertsData(${currentPage + 1})" ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}>${t('alerts.next')}</button>`;
     
     pagination.innerHTML = html;
 }
@@ -165,13 +165,13 @@ function jumpToPage() {
     if (page >= 1 && page <= totalPages) {
         loadAlertsData(page);
     } else {
-        showMessage('页码超出范围', 'error');
+        showMessage(t('alerts.pageRange'), 'error');
     }
 }
 
 // 删除告警
 async function deleteAlert(id) {
-    if (confirm('确定要删除这条检测记录吗？')) {
+    if (confirm(t('alerts.delOne'))) {
         try {
             const response = await fetch(`/api/detections/${id}`, {
                 method: 'DELETE'
@@ -179,13 +179,13 @@ async function deleteAlert(id) {
             const result = await response.json();
             
             if (result.success) {
-                showMessage('检测记录已删除', 'success');
+                showMessage(t('alerts.deleted'), 'success');
                 loadAlertsData(currentPage);
             } else {
-                showMessage('删除失败: ' + result.message, 'error');
+                showMessage(t('alerts.delFail', { err: result.message }), 'error');
             }
         } catch (error) {
-            showMessage('删除失败: ' + error.message, 'error');
+            showMessage(t('alerts.delFail', { err: error.message }), 'error');
         }
     }
 }
@@ -224,11 +224,11 @@ document.getElementById('alertsPageSizeSelect')?.addEventListener('change', func
 document.getElementById('deleteSelectedBtn')?.addEventListener('click', async function() {
     const selectedCheckboxes = document.querySelectorAll('.alert-checkbox:checked');
     if (selectedCheckboxes.length === 0) {
-        showMessage('请先选择要删除的检测记录', 'error');
+        showMessage(t('alerts.selectFirst'), 'error');
         return;
     }
     
-    if (confirm(`确定要删除${selectedCheckboxes.length}条检测记录吗？`)) {
+    if (confirm(t('alerts.delN', { n: selectedCheckboxes.length }))) {
         try {
             const ids = Array.from(selectedCheckboxes).map(cb => cb.value);
             const response = await fetch('/api/detections/batch', {
@@ -244,10 +244,10 @@ document.getElementById('deleteSelectedBtn')?.addEventListener('click', async fu
                 showMessage(result.message, 'success');
                 loadAlertsData(currentPage);
             } else {
-                showMessage('删除失败: ' + result.message, 'error');
+                showMessage(t('alerts.delFail', { err: result.message }), 'error');
             }
         } catch (error) {
-            showMessage('删除失败: ' + error.message, 'error');
+            showMessage(t('alerts.delFail', { err: error.message }), 'error');
         }
     }
 });

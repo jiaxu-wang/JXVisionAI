@@ -3,7 +3,7 @@
 
 // 退出登录
 function logout() {
-    if (confirm('确定要退出登录吗？')) {
+    if (confirm(t('msg.logoutConfirm'))) {
         window.location.href = '/logout';
     }
 }
@@ -35,7 +35,7 @@ function setOnvifMsg(text, kind) {
 }
 function statusBadge(status) {
     const s = status || 'pending';
-    const label = s === 'normal' ? '正常' : (s === 'failed' ? '失败' : '未验证');
+    const label = s === 'normal' ? t('onvif.statusNormal') : (s === 'failed' ? t('onvif.statusFailed') : t('onvif.statusPending'));
     const cls = s === 'normal' ? 'normal' : (s === 'failed' ? 'failed' : 'pending');
     return `<span class="onvif-badge ${cls}">${label}</span>`;
 }
@@ -43,7 +43,7 @@ function renderOnvifDevices() {
     const tb = document.getElementById('onvifDeviceTbody');
     if (!tb) return;
     if (!onvifDevices.length) {
-        tb.innerHTML = '<tr><td colspan="4" style="color:#6c757d;text-align:center;">暂无设备</td></tr>';
+        tb.innerHTML = '<tr><td colspan="4" style="color:#6c757d;text-align:center;">' + t('onvif.noDevices') + '</td></tr>';
         return;
     }
     tb.innerHTML = onvifDevices.map((d, i) => {
@@ -70,7 +70,7 @@ function selectedOnvifDevice() {
     return onvifDevices[onvifSelectedIdx];
 }
 async function onvifScan() {
-    setOnvifMsg('正在扫描局域网…');
+    setOnvifMsg(t('onvif.scanning'));
     const timeout = parseFloat(document.getElementById('onvifScanTimeout')?.value || '5');
     try {
         const res = await fetch('/api/onvif/discover', {
@@ -80,7 +80,7 @@ async function onvifScan() {
         });
         const data = await res.json();
         if (!data.success) {
-            setOnvifMsg(data.message || '扫描失败', 'error');
+            setOnvifMsg(data.message || t('onvif.scanFail'), 'error');
             return;
         }
         onvifDevices = (data.devices || []).map(d => ({ ...d, status: 'pending', error: '' }));
@@ -89,16 +89,16 @@ async function onvifScan() {
         onvifProfiles = [];
         document.getElementById('onvifJoinPanel').style.display = 'none';
         renderOnvifDevices();
-        setOnvifMsg(onvifDevices.length ? `发现 ${onvifDevices.length} 台设备` : '未发现设备（可改用手动 IP；Docker 桥接网络可能扫不到）', onvifDevices.length ? 'ok' : '');
+        setOnvifMsg(onvifDevices.length ? t('onvif.foundN', { n: onvifDevices.length }) : t('onvif.noneFound'), onvifDevices.length ? 'ok' : '');
     } catch (e) {
-        setOnvifMsg('扫描请求失败: ' + e, 'error');
+        setOnvifMsg(t('onvif.scanReqFail', { err: e }), 'error');
     }
 }
 function onvifManualAdd() {
     const host = (document.getElementById('onvifManualHost')?.value || '').trim();
     const port = parseInt(document.getElementById('onvifManualPort')?.value || '80', 10) || 80;
     if (!host) {
-        setOnvifMsg('请填写 IP / 主机名', 'error');
+        setOnvifMsg(t('onvif.needHost'), 'error');
         return;
     }
     const key = `${host}:${port}`;
@@ -116,17 +116,17 @@ function onvifManualAdd() {
     onvifProfiles = [];
     document.getElementById('onvifJoinPanel').style.display = 'none';
     renderOnvifDevices();
-    setOnvifMsg('已加入列表，请填写账号密码后检测', 'ok');
+    setOnvifMsg(t('onvif.addedList'), 'ok');
 }
 async function onvifProbeSelected() {
     const dev = selectedOnvifDevice();
     if (!dev) {
-        setOnvifMsg('请先选择设备', 'error');
+        setOnvifMsg(t('onvif.selectFirst'), 'error');
         return;
     }
     const username = document.getElementById('onvifUsername')?.value || '';
     const password = document.getElementById('onvifPassword')?.value || '';
-    setOnvifMsg(`正在检测 ${dev.host}…`);
+    setOnvifMsg(t('onvif.probing', { host: dev.host }));
     document.getElementById('onvifJoinPanel').style.display = 'none';
     try {
         const res = await fetch('/api/onvif/probe', {
@@ -142,7 +142,7 @@ async function onvifProbeSelected() {
         const data = await res.json();
         if (!data.success && !data.ok) {
             dev.status = 'failed';
-            dev.error = data.error || data.message || '探测失败';
+            dev.error = data.error || data.message || t('onvif.probeFail');
             onvifProbeInfo = null;
             renderOnvifDevices();
             setOnvifMsg(dev.error, 'error');
@@ -158,17 +158,17 @@ async function onvifProbeSelected() {
         const talkHint = document.getElementById('onvifTalkHint');
         if (talkHint) {
             if (data.talk_supported) {
-                talkHint.innerHTML = `<span class="talk-badge yes">支持对讲</span> ${escapeHtml(data.talk_detail || data.talk_protocol || 'ONVIF RTSP Backchannel')}`;
+                talkHint.innerHTML = `<span class="talk-badge yes">${t('onvif.talkYes')}</span> ${escapeHtml(data.talk_detail || data.talk_protocol || 'ONVIF RTSP Backchannel')}`;
                 talkHint.style.color = '#00695c';
             } else {
-                talkHint.innerHTML = `<span class="talk-badge no">未检测到对讲</span> ${escapeHtml(data.talk_detail || '设备可能未开放 Audio Backchannel（加入后仍可在设备接入页重新探测）')}`;
+                talkHint.innerHTML = `<span class="talk-badge no">${t('onvif.talkNo')}</span> ${escapeHtml(data.talk_detail || t('onvif.talkNoDetail'))}`;
                 talkHint.style.color = '#607d8b';
             }
         }
-        setOnvifMsg('设备正常，正在加载码流 Profile…', 'ok');
+        setOnvifMsg(t('onvif.deviceOkLoading'), 'ok');
         await onvifLoadProfiles();
     } catch (e) {
-        setOnvifMsg('检测失败: ' + e, 'error');
+        setOnvifMsg(t('onvif.probeErr', { err: e }), 'error');
     }
 }
 async function onvifLoadProfiles() {
@@ -189,7 +189,7 @@ async function onvifLoadProfiles() {
         });
         const data = await res.json();
         if (!data.success) {
-            setOnvifMsg(data.message || '获取 Profile 失败', 'error');
+            setOnvifMsg(data.message || t('onvif.profilesFail'), 'error');
             return;
         }
         onvifProfiles = data.profiles || [];
@@ -206,11 +206,11 @@ async function onvifLoadProfiles() {
         document.getElementById('onvifStreamName').value = defaultName;
         document.getElementById('onvifJoinPanel').style.display = 'flex';
         const talkPart = (onvifProbeInfo && onvifProbeInfo.talk_supported)
-            ? '；已检测到 ONVIF 对讲能力'
-            : '；未检测到对讲（仍可加入监控）';
-        setOnvifMsg(`设备正常，共 ${onvifProfiles.length} 路码流，选择后可加入监控` + talkPart, 'ok');
+            ? t('onvif.talkDetected')
+            : t('onvif.talkNotDetected');
+        setOnvifMsg(t('onvif.deviceOkProfiles', { n: onvifProfiles.length }) + talkPart, 'ok');
     } catch (e) {
-        setOnvifMsg('加载 Profile 失败: ' + e, 'error');
+        setOnvifMsg(t('onvif.loadProfilesFail', { err: e }), 'error');
     }
 }
 function hostFromRtsp(url) {
@@ -224,18 +224,18 @@ function hostFromRtsp(url) {
 async function onvifAddToMonitor() {
     const dev = selectedOnvifDevice();
     if (!dev || dev.status !== 'normal') {
-        setOnvifMsg('仅状态「正常」的设备可加入监控', 'error');
+        setOnvifMsg(t('onvif.onlyNormal'), 'error');
         return;
     }
     const idx = parseInt(document.getElementById('onvifProfileSelect')?.value || '0', 10);
     const prof = onvifProfiles[idx];
     if (!prof || !prof.rtsp_url) {
-        setOnvifMsg('请选择有效的 Profile', 'error');
+        setOnvifMsg(t('onvif.pickProfile'), 'error');
         return;
     }
     const name = (document.getElementById('onvifStreamName')?.value || '').trim();
     if (!name) {
-        setOnvifMsg('请填写监控名称', 'error');
+        setOnvifMsg(t('onvif.needName'), 'error');
         return;
     }
     // 弱提示：同 host 可能已在监控中
@@ -243,12 +243,12 @@ async function onvifAddToMonitor() {
         const existing = await (await fetch('/api/streams')).json();
         const host = hostFromRtsp(prof.rtsp_url) || dev.host;
         const dup = (existing || []).some(s => hostFromRtsp(s.url || '') === host);
-        if (dup && !confirm(`监控列表中可能已有来自 ${host} 的流，仍要加入吗？`)) {
+        if (dup && !confirm(t('msg.dupStream', { host: host }))) {
             return;
         }
     } catch (_) { /* ignore */ }
 
-    setOnvifMsg('正在加入监控…');
+    setOnvifMsg(t('onvif.joining'));
     try {
         const res = await fetch('/api/onvif/add-stream', {
             method: 'POST',
@@ -271,17 +271,17 @@ async function onvifAddToMonitor() {
         });
         const data = await res.json();
         if (!data.success) {
-            setOnvifMsg(data.message || '加入失败', 'error');
+            setOnvifMsg(data.message || t('onvif.joinFail'), 'error');
             return;
         }
-        setOnvifMsg(data.message || '已接入平台', 'ok');
+        setOnvifMsg(data.message || t('onvif.joined'), 'ok');
         closeOnvifModal();
         if (typeof loadOnvifStreams === 'function') await loadOnvifStreams();
         if (typeof loadStatusData === 'function') await loadStatusData();
         goToPage('access', { tab: 'onvif', streamId: (data.stream && data.stream.id) || '' });
-        alert((data.message || '已接入平台') + '：' + name);
+        alert((data.message || t('onvif.joined')) + '：' + name);
     } catch (e) {
-        setOnvifMsg('加入失败: ' + e, 'error');
+        setOnvifMsg(t('onvif.joinErr', { err: e }), 'error');
     }
 }
 
@@ -343,13 +343,13 @@ async function loadGb28181Platform() {
         const sipHint = document.getElementById('gbSipReadyHint');
         if (sipHint) {
             sipHint.textContent = data.sip_ready
-                ? '信令进程在线，设备可按复制参数注册。'
-                : '信令进程未运行：请启动 visionai-sip（compose 服务或 ./start.sh）。';
+                ? t('gb.sipOnlineHint')
+                : t('gb.sipOfflineHint');
             sipHint.style.color = data.sip_ready ? '#155724' : '#856404';
         }
         const hint = document.getElementById('gbPlatformHint');
         if (hint) {
-            hint.textContent = '「复制参数」同时给出上级平台与本机 SIP 用户/认证ID/通道编码，对照设备国标页填写。媒体 IP 不会写入复制清单。';
+            hint.textContent = t('gb.copyHint');
         }
     } catch (e) {
         /* ignore */
@@ -382,10 +382,10 @@ async function saveGb28181Platform() {
             body: JSON.stringify(body)
         });
         const data = await res.json();
-        showMessage(data.success ? '平台参数已保存' : (data.message || '失败'), data.success ? 'success' : 'error');
+        showMessage(data.success ? t('msg.platformSaved') : (data.message || t('common.fail')), data.success ? 'success' : 'error');
         if (data.success) await loadGb28181Platform();
     } catch (e) {
-        showMessage('保存失败: ' + e, 'error');
+        showMessage(t('msg.saveFail', { err: e }), 'error');
     }
 }
 
@@ -437,13 +437,13 @@ function gbDevTableHeadHtml() {
     return `<table class="gb-dev-table">
         <thead>
             <tr>
-                <th class="gb-col-check"><input type="checkbox" id="gbDevCheckAll" title="全选"></th>
+                <th class="gb-col-check"><input type="checkbox" id="gbDevCheckAll" title="${t('gb.colCheck')}"></th>
                 <th class="gb-col-id">ID</th>
-                <th>SIP用户</th>
-                <th>SIP用户名/认证ID</th>
-                <th>SIP用户密码</th>
-                <th>状态</th>
-                <th>操作</th>
+                <th>${t('gb.sipUser')}</th>
+                <th>${t('gb.sipUserAuth')}</th>
+                <th>${t('gb.sipPassword')}</th>
+                <th>${t('gb.status')}</th>
+                <th>${t('gb.ops')}</th>
             </tr>
         </thead>
         <tbody></tbody>
@@ -456,19 +456,19 @@ function gbSipRowHtml(opts) {
     const isDraft = !!opts.draft;
     const did = opts.sip_user || '';
     const online = String(opts.status || '').toLowerCase() === 'online';
-    const stLabel = isDraft ? '—' : (online ? '在线' : (String(opts.status || '') === 'unknown' ? '未知' : '离线'));
+    const stLabel = isDraft ? '—' : (online ? t('common.online') : (String(opts.status || '') === 'unknown' ? t('common.unknown') : t('common.offline')));
     const stClass = online ? 'status-online' : 'status-offline';
     const chCount = Number(opts.channel_count || 0) || 0;
     const rowId = opts.row_id != null ? String(opts.row_id) : (isDraft ? '—' : '');
     const monitoredCount = Number(opts.monitored_count || 0) || 0;
     const streamId = String(opts.monitor_stream_id || '');
     const actions = isDraft
-        ? `<button type="button" class="btn-save" data-gb-save-create>保存</button>
-           <button type="button" class="btn-restart" data-gb-cancel-create>取消</button>`
-        : `<button type="button" class="btn-filter-apply" data-gb-channels>通道 (${chCount})</button>
-           <button type="button" class="btn-save" data-gb-save-edit>保存</button>
-           <button type="button" class="btn-filter-apply" data-copy-cfg>复制</button>
-           <button type="button" class="btn-delete" data-del-sip>删除</button>`;
+        ? `<button type="button" class="btn-save" data-gb-save-create>${t('common.save')}</button>
+           <button type="button" class="btn-restart" data-gb-cancel-create>${t('common.cancel')}</button>`
+        : `<button type="button" class="btn-filter-apply" data-gb-channels>${t('gb.channels', { n: chCount })}</button>
+           <button type="button" class="btn-save" data-gb-save-edit>${t('common.save')}</button>
+           <button type="button" class="btn-filter-apply" data-copy-cfg>${t('gb.copy')}</button>
+           <button type="button" class="btn-delete" data-del-sip>${t('common.delete')}</button>`;
     const sipId = String(did || opts.auth_id || '');
     const stHtml = isDraft
         ? '—'
@@ -477,9 +477,9 @@ function gbSipRowHtml(opts) {
         <tr class="${isDraft ? 'gb-dev-draft' : ''}" data-sip-row="1" data-sip-user="${escapeHtml(did)}" data-channel-id="${escapeHtml(String(opts.channel_id || ''))}" data-cfg="${opts.cfg_attr || ''}" data-copy-err="${escapeHtml(opts.copy_err || '')}" data-channel-count="${chCount}" data-monitored-count="${monitoredCount}" data-stream-id="${escapeHtml(streamId)}">
             <td class="gb-col-check"><input type="checkbox" class="gb-dev-check" ${isDraft ? 'disabled' : ''}></td>
             <td class="gb-col-id">${escapeHtml(rowId)}</td>
-            <td><input type="text" class="gb-f-name" value="${String(opts.name || '').replace(/"/g, '&quot;')}" placeholder="SIP用户"></td>
-            <td><input type="text" class="gb-f-sip gb-f-auth" value="${sipId.replace(/"/g, '&quot;')}" readonly title="自动分配，用户名与认证ID相同"></td>
-            <td><input type="text" class="gb-f-password" value="${String(opts.password || '').replace(/"/g, '&quot;')}" placeholder="密码" autocomplete="off"></td>
+            <td><input type="text" class="gb-f-name" value="${String(opts.name || '').replace(/"/g, '&quot;')}" placeholder="${t('gb.sipUserPh')}"></td>
+            <td><input type="text" class="gb-f-sip gb-f-auth" value="${sipId.replace(/"/g, '&quot;')}" readonly title="${t('gb.autoAssign')}"></td>
+            <td><input type="text" class="gb-f-password" value="${String(opts.password || '').replace(/"/g, '&quot;')}" placeholder="${t('gb.passwordPh')}" autocomplete="off"></td>
             <td>${stHtml}</td>
             <td><div class="gb-sip-actions">${actions}</div></td>
         </tr>
@@ -501,9 +501,9 @@ function closeGbChannelModal() {
 
 function gbChannelStatusLabel(st) {
     const s = String(st || '').toLowerCase();
-    if (s === 'online') return { text: '在线', cls: 'status-online' };
-    if (s === 'unknown') return { text: '未知', cls: 'status-offline' };
-    return { text: '离线', cls: 'status-offline' };
+    if (s === 'online') return { text: t('common.online'), cls: 'status-online' };
+    if (s === 'unknown') return { text: t('common.unknown'), cls: 'status-offline' };
+    return { text: t('common.offline'), cls: 'status-offline' };
 }
 
 function normalizeGbChannelsClient(channels) {
@@ -539,12 +539,12 @@ function normalizeGbChannelsClient(channels) {
 async function fetchGbDeviceById(deviceId) {
     const r = await fetch('/api/gb28181/devices');
     const j = await fetchJsonOrThrow(r);
-    if (!j.success) throw new Error(j.message || '加载账号失败');
+    if (!j.success) throw new Error(j.message || t('gb.loadAccountFail'));
     const devices = j.devices || [];
     const found = devices.find(function (d) {
         return String(d.sip_user || d.device_id || '') === String(deviceId);
     });
-    if (!found) throw new Error('账号不存在');
+    if (!found) throw new Error(t('gb.accountMissing'));
     // 兼容旧数据：仅有 channel_id 时合成一条通道
     if ((!found.channels || !found.channels.length) && found.channel_id) {
         found.channels = [{
@@ -559,7 +559,7 @@ async function fetchGbDeviceById(deviceId) {
 }
 
 async function saveGbDeviceChannels(channels) {
-    if (!gbChannelModalDevice) throw new Error('未加载账号');
+    if (!gbChannelModalDevice) throw new Error(t('gb.notLoaded'));
     const d = gbChannelModalDevice;
     const normalized = normalizeGbChannelsClient(channels);
     const payload = {
@@ -580,7 +580,7 @@ async function saveGbDeviceChannels(channels) {
         body: JSON.stringify(payload)
     });
     const j = await fetchJsonOrThrow(r);
-    if (!j.success) throw new Error(j.message || '保存失败');
+    if (!j.success) throw new Error(j.message || t('common.save') + ' ' + t('common.fail'));
     gbChannelModalDevice = j.device || { ...d, channels: normalized };
     gbChannelModalDevice.channels = normalizeGbChannelsClient(
         (j.device && j.device.channels) || normalized
@@ -599,9 +599,9 @@ async function allocateNextChannelId() {
     } catch (e) { /* fallback below */ }
     const r2 = await fetch('/api/gb28181/preview-ids');
     const j2 = await fetchJsonOrThrow(r2);
-    if (!j2.success) throw new Error(j2.message || '无法分配通道编码');
+    if (!j2.success) throw new Error(j2.message || t('gb.allocChFail'));
     const cid = (j2.allocation && j2.allocation.channel_id) || '';
-    if (!cid) throw new Error('无法分配通道编码');
+    if (!cid) throw new Error(t('gb.allocChFail'));
     return String(cid);
 }
 
@@ -611,7 +611,7 @@ function renderGbChannelRows(channels) {
     const list = normalizeGbChannelsClient(channels);
     const devOnline = String((gbChannelModalDevice && gbChannelModalDevice.status) || '').toLowerCase() === 'online';
     if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">暂无通道，点击「新增通道」添加。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">' + t('gb.noChAdd') + '</td></tr>';
         return;
     }
     tbody.innerHTML = list.map(function (ch) {
@@ -622,15 +622,15 @@ function renderGbChannelRows(channels) {
         return `<tr data-channel-id="${escapeHtml(cid)}" data-stream-id="${escapeHtml(String(ch.stream_id || ''))}">
             <td><input type="number" class="gb-ch-index" min="1" value="${escapeHtml(String(idx))}" style="width:56px;"></td>
             <td><input type="text" class="gb-ch-id" value="${escapeHtml(cid)}"></td>
-            <td><input type="text" class="gb-ch-alias" value="${escapeHtml(alias)}" placeholder="别名"></td>
-            <td class="gb-ch-status"><span class="status ${st.cls}">${st.text}</span>${ch.monitored ? ' <span class="status status-online">已接入分析</span>' : ''}</td>
+            <td><input type="text" class="gb-ch-alias" value="${escapeHtml(alias)}" placeholder="${t('gb.aliasPh')}"></td>
+            <td class="gb-ch-status"><span class="status ${st.cls}">${st.text}</span>${ch.monitored ? ' <span class="status status-online">' + t('access.joinedAnalyze') + '</span>' : ''}</td>
             <td><div class="gb-ch-actions">
-                <button type="button" class="btn-preview" data-gb-ch-preview ${devOnline ? '' : 'disabled title="设备离线，无法点播"'}>预览</button>
-                <button type="button" class="btn-save" data-gb-ch-save>保存</button>
+                <button type="button" class="btn-preview" data-gb-ch-preview ${devOnline ? '' : 'disabled title="' + t('gb.offlineNoPlay') + '"'}>${t('common.preview')}</button>
+                <button type="button" class="btn-save" data-gb-ch-save>${t('common.save')}</button>
                 ${ch.monitored
-                    ? `<button type="button" class="btn-save" data-gb-ch-policy>检测配置</button>`
-                    : `<button type="button" class="btn-save" data-gb-ch-monitor ${devOnline ? '' : 'disabled title="设备离线，无法接入分析"'}>接入分析</button>`}
-                <button type="button" class="btn-delete" data-gb-ch-del>删除</button>
+                    ? `<button type="button" class="btn-save" data-gb-ch-policy>${t('access.gotoPolicy')}</button>`
+                    : `<button type="button" class="btn-save" data-gb-ch-monitor ${devOnline ? '' : 'disabled title="' + t('gb.offlineNoAnalyze') + '"'}>${t('gb.joinAnalyze')}</button>`}
+                <button type="button" class="btn-delete" data-gb-ch-del>${t('common.delete')}</button>
             </div></td>
         </tr>`;
     }).join('');
@@ -660,7 +660,7 @@ function renderGbChannelRows(channels) {
                 closeGbChannelModal();
                 goToPage('policy', { streamId: sid });
             } else {
-                showMessage('未找到对应检测配置', 'error');
+                showMessage(t('msg.noDetectCfg'), 'error');
             }
         });
     });
@@ -677,20 +677,20 @@ async function startGbChannelPreview(deviceId, channelId) {
     deviceId = (deviceId || '').trim();
     channelId = (channelId || '').trim();
     if (!deviceId || !channelId) {
-        showMessage('缺少设备或通道', 'error');
+        showMessage(t('msg.needDevCh'), 'error');
         return;
     }
-    showMessage('正在点播…', 'success');
+    showMessage(t('msg.inviting'), 'success');
     try {
         const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(deviceId) +
             '/channels/' + encodeURIComponent(channelId) + '/preview', { method: 'POST' });
         const j = await fetchJsonOrThrow(r);
         if (!j.success) {
-            showMessage(j.message || '点播失败', 'error');
+            showMessage(j.message || t('msg.playFail'), 'error');
             return;
         }
         if (j.media_online === false) {
-            showMessage(j.message || 'Invite 已发送，媒体尚未上线', 'error');
+            showMessage(j.message || t('msg.invitePending'), 'error');
         }
         const zlmStream = j.zlm_stream || '';
         if (zlmStream) {
@@ -710,9 +710,9 @@ async function startGbChannelPreview(deviceId, channelId) {
             });
             return;
         }
-        showMessage('未返回媒体流', 'error');
+        showMessage(t('msg.noMedia'), 'error');
     } catch (e) {
-        showMessage('点播失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.playFail') + ': ' + (e.message || e), 'error');
     }
 }
 
@@ -720,10 +720,10 @@ async function postGbJoinMonitor(deviceId, channelId) {
     deviceId = (deviceId || '').trim();
     channelId = (channelId || '').trim();
     if (!deviceId || !channelId) {
-        showMessage('缺少设备或通道', 'error');
+        showMessage(t('msg.needDevCh'), 'error');
         return null;
     }
-    showMessage('正在接入分析…', 'success');
+    showMessage(t('msg.joiningAnalyze'), 'success');
     const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(deviceId) +
         '/channels/' + encodeURIComponent(channelId) + '/monitor', { method: 'POST' });
     const j = await fetchJsonOrThrow(r);
@@ -748,24 +748,24 @@ async function joinGbChannelMonitor(tr) {
     try {
         const j = await postGbJoinMonitor(gbChannelModalDeviceId, channel_id);
         if (!j) return;
-        showMessage(j.success ? (j.message || '已接入分析') : (j.message || '失败'), j.success ? 'success' : 'error');
+        showMessage(j.success ? (j.message || t('msg.joinedAnalyze')) : (j.message || t('common.fail')), j.success ? 'success' : 'error');
         const sid = (j.stream && j.stream.id) || '';
         if (j.success && sid) gotoPolicyForStream(sid);
     } catch (e) {
-        showMessage('接入分析失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.joinAnalyzeFail', { err: (e.message || e) }), 'error');
     }
 }
 
 async function loadGbChannelModalList() {
     if (!gbChannelModalDeviceId) return;
     const tbody = document.getElementById('gbChannelTableBody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">加载中…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;padding:18px 10px;">' + t('common.loading') + '</td></tr>';
     try {
         const d = await fetchGbDeviceById(gbChannelModalDeviceId);
         gbChannelModalDevice = d;
         const sub = document.getElementById('gbChannelModalSub');
         if (sub) {
-            sub.textContent = 'SIP 用户: ' + (d.sip_user || gbChannelModalDeviceId) +
+            sub.textContent = t('msg.sipUser') + ': ' + (d.sip_user || gbChannelModalDeviceId) +
                 (d.name ? '　·　' + d.name : '');
         }
         renderGbChannelRows(d.channels || []);
@@ -783,7 +783,7 @@ async function openGbChannelModal(deviceId, deviceName) {
     if (!gbChannelModalDeviceId) return;
     const modal = document.getElementById('gbChannelModal');
     const title = document.getElementById('gbChannelModalTitle');
-    if (title) title.textContent = '通道配置' + (deviceName ? ' · ' + deviceName : '');
+    if (title) title.textContent = deviceName ? t('gb.titleWithName', { name: deviceName }) : t('modal.chTitle');
     if (modal) {
         modal.classList.add('show');
         modal.setAttribute('aria-hidden', 'false');
@@ -793,7 +793,7 @@ async function openGbChannelModal(deviceId, deviceName) {
 
 async function addGbChannel() {
     if (!gbChannelModalDeviceId) return;
-    const alias = window.prompt('通道别名（可留空）', '') || '';
+    const alias = window.prompt(t('gb.chAliasPrompt'), '') || '';
     try {
         if (!gbChannelModalDevice) {
             gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
@@ -803,15 +803,15 @@ async function addGbChannel() {
         channels.push({
             index: channels.length + 1,
             channel_id: cid,
-            alias: alias.trim() || ('通道' + (channels.length + 1)),
+            alias: alias.trim() || t('gb.channelN', { n: channels.length + 1 }),
             status: 'offline'
         });
         const saved = await saveGbDeviceChannels(channels);
-        showMessage('已新增通道', 'success');
+        showMessage(t('msg.chAdded'), 'success');
         renderGbChannelRows(saved);
         await loadGb28181Devices();
     } catch (e) {
-        showMessage('新增失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.addFail', { err: (e.message || e) }), 'error');
     }
 }
 
@@ -823,7 +823,7 @@ async function saveGbChannelRow(tr) {
     const indexRaw = tr.querySelector('.gb-ch-index')?.value;
     const index = parseInt(indexRaw, 10);
     if (!channel_id) {
-        showMessage('通道 ID 不能为空', 'error');
+        showMessage(t('msg.chIdRequired'), 'error');
         return;
     }
     try {
@@ -836,7 +836,7 @@ async function saveGbChannelRow(tr) {
             if (channels[i].channel_id !== oldId) continue;
             found = true;
             if (channel_id !== oldId && channels.some(function (c) { return c.channel_id === channel_id; })) {
-                throw new Error('通道 ID 已存在');
+                throw new Error(t('gb.chIdExists'));
             }
             channels[i].channel_id = channel_id;
             channels[i].alias = alias || channel_id;
@@ -844,20 +844,20 @@ async function saveGbChannelRow(tr) {
             if (Number.isFinite(index)) channels[i].index = index;
             break;
         }
-        if (!found) throw new Error('通道不存在');
+        if (!found) throw new Error(t('gb.chMissing'));
         const saved = await saveGbDeviceChannels(channels);
-        showMessage('通道已保存', 'success');
+        showMessage(t('msg.chSaved'), 'success');
         renderGbChannelRows(saved);
         await loadGb28181Devices();
     } catch (e) {
-        showMessage('保存失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.saveFail', { err: (e.message || e) }), 'error');
     }
 }
 
 async function deleteGbChannelRow(tr) {
     if (!tr || !gbChannelModalDeviceId) return;
     const cid = tr.getAttribute('data-channel-id') || '';
-    if (!cid || !confirm('确定删除通道 ' + cid + '？')) return;
+    if (!cid || !confirm(t('msg.delChConfirm', { cid: cid }))) return;
     try {
         if (!gbChannelModalDevice) {
             gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
@@ -865,11 +865,11 @@ async function deleteGbChannelRow(tr) {
         const channels = normalizeGbChannelsClient(gbChannelModalDevice.channels || [])
             .filter(function (c) { return c.channel_id !== cid; });
         const saved = await saveGbDeviceChannels(channels);
-        showMessage('通道已删除', 'success');
+        showMessage(t('msg.chDeleted'), 'success');
         renderGbChannelRows(saved);
         await loadGb28181Devices();
     } catch (e) {
-        showMessage('删除失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.delFail', { err: (e.message || e) }), 'error');
     }
 }
 
@@ -887,14 +887,14 @@ function bindGbSipListActions(box) {
                 text = decodeURIComponent((card && card.getAttribute('data-cfg')) || '');
             } catch (e) { text = ''; }
             if (!text) {
-                showMessage('无可复制参数', 'error');
+                showMessage(t('msg.nothingToCopy'), 'error');
                 return;
             }
             try {
                 await navigator.clipboard.writeText(text);
-                showMessage('已复制设备端国标参数', 'success');
+                showMessage(t('msg.copiedGb'), 'success');
             } catch (e) {
-                prompt('复制以下参数到摄像机', text);
+                prompt(t('msg.copiedGb'), text);
             }
         });
     });
@@ -902,14 +902,14 @@ function bindGbSipListActions(box) {
         btn.addEventListener('click', async function () {
             const card = gbSipRowEl(this);
             const id = card && card.getAttribute('data-sip-user');
-            if (!id || !confirm('确定删除整行 SIP 账号 ' + id + '？')) return;
+            if (!id || !confirm(t('msg.delSipConfirm', { id: id }))) return;
             try {
                 const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(id), { method: 'DELETE' });
                 const j = await fetchJsonOrThrow(r);
-                showMessage(j.success ? '已删除' : (j.message || '失败'), j.success ? 'success' : 'error');
+                showMessage(j.success ? t('access.deleted') : (j.message || t('common.fail')), j.success ? 'success' : 'error');
                 if (j.success) await loadGb28181Devices();
             } catch (e) {
-                showMessage('删除失败: ' + (e.message || e), 'error');
+                showMessage(t('msg.delFail', { err: (e.message || e) }), 'error');
             }
         });
     });
@@ -929,7 +929,7 @@ function bindGbSipListActions(box) {
             const name = card.querySelector('.gb-f-name')?.value.trim() || '';
             const password = card.querySelector('.gb-f-password')?.value || '';
             if (!name) {
-                showMessage('SIP用户不能为空', 'error');
+                showMessage(t('msg.sipUserRequired'), 'error');
                 return;
             }
             try {
@@ -939,10 +939,10 @@ function bindGbSipListActions(box) {
                     body: JSON.stringify({ name, password })
                 });
                 const j = await fetchJsonOrThrow(r);
-                showMessage(j.success ? '已保存修改' : (j.message || '失败'), j.success ? 'success' : 'error');
+                showMessage(j.success ? t('msg.editSaved') : (j.message || t('common.fail')), j.success ? 'success' : 'error');
                 if (j.success) await loadGb28181Devices();
             } catch (e) {
-                showMessage('保存失败: ' + (e.message || e), 'error');
+                showMessage(t('msg.saveFail', { err: (e.message || e) }), 'error');
             }
         });
     });
@@ -986,9 +986,9 @@ function renderGb28181DeviceList(devices, hintText) {
     box.innerHTML = gbDevTableHeadHtml();
     const tbody = box.querySelector('tbody');
     if (!all.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">' + t('gb.emptyDevices') + '</td></tr>';
     } else if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">当前筛选下没有设备。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">' + t('gb.emptyFilter') + '</td></tr>';
     } else {
         tbody.innerHTML = list.map(function (d, i) {
             const did = d.sip_user || d.device_id || '';
@@ -1027,8 +1027,8 @@ async function fetchJsonOrThrow(res) {
     } catch (e) {
         const snip = (text || '').replace(/\s+/g, ' ').slice(0, 120);
         throw new Error(
-            '接口返回非 JSON（HTTP ' + res.status + '）。请重启 visionai-api 后硬刷新。' +
-            (snip ? ' 片段: ' + snip : '')
+            t('gb.badJson', { status: res.status }) +
+            (snip ? t('gb.badJsonSnip', { snip: snip }) : '')
         );
     }
     if (!res.ok && !(data && data.message)) {
@@ -1045,7 +1045,7 @@ async function refreshGb28181DraftIds(opts) {
     opts = opts || {};
     const draft = gbDraftRow();
     if (!draft) {
-        if (opts.fromToolbar) showMessage('请先点「新建」', 'error');
+        if (opts.fromToolbar) showMessage(t('msg.clickNewFirst'), 'error');
         return;
     }
     const errEl = document.getElementById('gbDraftErr');
@@ -1055,7 +1055,7 @@ async function refreshGb28181DraftIds(opts) {
         if (!data.success) {
             if (errEl) {
                 errEl.style.display = 'block';
-                errEl.textContent = data.message || '无法分配编码';
+                errEl.textContent = data.message || t('msg.allocFail');
             }
             return;
         }
@@ -1101,7 +1101,7 @@ async function startGb28181CreateDraft() {
     draft.querySelector('[data-gb-cancel-create]')?.addEventListener('click', function () {
         draft.remove();
         if (!tbody.querySelector('tr[data-sip-row]')) {
-            tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">暂无设备。点击「新建」添加一行。</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="color:#6c757d;padding:16px 12px;">' + t('gb.emptyDevices') + '</td></tr>';
         }
     });
     draft.querySelector('[data-gb-save-create]')?.addEventListener('click', saveGb28181CreateDraft);
@@ -1116,11 +1116,11 @@ async function saveGb28181CreateDraft() {
     const name = draft.querySelector('.gb-f-name')?.value.trim() || '';
     const password = draft.querySelector('.gb-f-password')?.value || '';
     if (!name) {
-        showMessage('请填写 SIP用户', 'error');
+        showMessage(t('msg.needSipUser'), 'error');
         return;
     }
     if (!password) {
-        showMessage('请填写密码', 'error');
+        showMessage(t('msg.needPassword'), 'error');
         return;
     }
     try {
@@ -1137,20 +1137,20 @@ async function saveGb28181CreateDraft() {
         });
         const data = await fetchJsonOrThrow(res);
         if (!data.success) {
-            showMessage(data.message || '失败', 'error');
+            showMessage(data.message || t('common.fail'), 'error');
             return;
         }
         const d = data.device || {};
         const text = gbCameraCfgText(data.camera_config, d, password);
         try {
             await navigator.clipboard.writeText(text);
-            showMessage('已创建 ' + (d.sip_user || '') + '，请点「通道配置」添加通道；参数已复制', 'success');
+            showMessage(t('msg.createdCopy', { user: (d.sip_user || '') }), 'success');
         } catch (e) {
-            showMessage('已创建 ' + (d.sip_user || '') + '，请点「通道配置」添加通道', 'success');
+            showMessage(t('msg.created', { user: (d.sip_user || '') }), 'success');
         }
         await loadGb28181Devices();
     } catch (e) {
-        showMessage('创建失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.createFail', { err: (e.message || e) }), 'error');
     }
 }
 
@@ -1163,7 +1163,7 @@ async function loadGb28181Devices() {
         renderGb28181DeviceList(data.devices || [], data.hint || '');
         schedulePreviewNavRefresh();
     } catch (e) {
-        box.innerHTML = '<p style="color:#c62828;">加载账号失败: ' + escapeHtml(String(e.message || e)) + '</p>';
+        box.innerHTML = '<p style="color:#c62828;">' + t('gb.loadAccountsFail', { err: escapeHtml(String(e.message || e)) }) + '</p>';
     }
 }
 
@@ -1172,14 +1172,14 @@ async function refreshGb28181Status() {
         const res = await fetch('/api/gb28181/refresh-status', { method: 'POST' });
         const data = await fetchJsonOrThrow(res);
         if (!data.success) {
-            showMessage(data.message || '刷新失败', 'error');
+            showMessage(data.message || t('msg.refreshFail'), 'error');
             return;
         }
         renderGb28181DeviceList(data.devices || [], data.message || '');
         schedulePreviewNavRefresh();
-        showMessage(data.message || '已刷新', 'success');
+        showMessage(data.message || t('msg.refreshed'), 'success');
     } catch (e) {
-        showMessage('刷新失败: ' + (e.message || e), 'error');
+        showMessage(t('msg.refreshFail') + ': ' + (e.message || e), 'error');
     }
 }
 
@@ -1302,7 +1302,7 @@ function setTalkUi(status, detail) {
     if (stopBtn) stopBtn.disabled = !talkState.sending;
     if (startBtn) {
         startBtn.classList.toggle('talking', !!talkState.sending);
-        startBtn.textContent = talkState.sending ? '对讲中…' : '开始对讲';
+        startBtn.textContent = talkState.sending ? t('msg.talking') : t('msg.talkStart');
     }
 }
 async function openTalkModal(streamId, streamName, knownSupported) {
@@ -1315,7 +1315,7 @@ async function openTalkModal(streamId, streamName, knownSupported) {
         modal.classList.add('show');
         modal.setAttribute('aria-hidden', 'false');
     }
-    setTalkUi(knownSupported ? '已标记支持对讲，可直接开始' : '正在自动探测 ONVIF Backchannel…', '');
+    setTalkUi(knownSupported ? t('talkJs.ready') : t('talkJs.autoProbe'), '');
     // 无论是否已标记，点开都先跑一次探测，避免「没反应」
     await talkReprobe(false);
 }
@@ -1329,7 +1329,7 @@ async function closeTalkModal() {
 }
 async function talkReprobe(silentFail) {
     if (!talkState.streamId) return;
-    setTalkUi('正在探测 ONVIF RTSP Audio Backchannel…', '');
+    setTalkUi(t('talkJs.probing'), '');
     try {
         const res = await fetch('/api/talk/probe', {
             method: 'POST',
@@ -1338,12 +1338,12 @@ async function talkReprobe(silentFail) {
         });
         const data = await res.json();
         if (!data.success) {
-            setTalkUi('探测失败', data.message || '');
+            setTalkUi(t('talkJs.probeFail'), data.message || '');
             return;
         }
         const ok = !!data.talk_supported;
         setTalkUi(
-            ok ? '探测成功：支持对讲' : '探测结果：不支持 / 未开放 Backchannel',
+            ok ? t('talkJs.probeOk') : t('talkJs.probeNo'),
             data.detail || data.error || data.sdp_summary || ''
         );
         const accessPage = document.getElementById('accessPage');
@@ -1358,12 +1358,12 @@ async function talkReprobe(silentFail) {
         }
         if (typeof loadStatusData === 'function') await loadStatusData();
     } catch (e) {
-        if (!silentFail) setTalkUi('探测异常', String(e));
+        if (!silentFail) setTalkUi(t('talkJs.probeErr'), String(e));
     }
 }
 async function talkStart() {
     if (!talkState.streamId || talkState.sending) return;
-    setTalkUi('正在建立对讲会话…', '');
+    setTalkUi(t('talkJs.starting'), '');
     try {
         const res = await fetch('/api/talk/start', {
             method: 'POST',
@@ -1372,16 +1372,16 @@ async function talkStart() {
         });
         const data = await res.json();
         if (!data.success) {
-            setTalkUi('无法开始对讲', data.message || JSON.stringify(data.probe || {}));
+            setTalkUi(t('talkJs.cannotStart'), data.message || JSON.stringify(data.probe || {}));
             return;
         }
         talkState.sessionId = data.session_id;
         talkState.codec = data.codec || 'PCMA';
         talkState.sending = true;
-        setTalkUi('对讲中：请对着麦克风说话', data.detail || '');
+        setTalkUi(t('talkJs.speaking'), data.detail || '');
         await talkStartMic(talkState.codec);
     } catch (e) {
-        setTalkUi('开始对讲失败', String(e));
+        setTalkUi(t('talkJs.startFail'), String(e));
         talkState.sending = false;
     }
 }
@@ -1471,7 +1471,7 @@ async function talkStop(quiet) {
             });
         } catch (_) {}
     }
-    if (!quiet) setTalkUi('已结束对讲', '');
+    if (!quiet) setTalkUi(t('talkJs.stopped'), '');
 }
 
 document.getElementById('talkModalCloseBtn')?.addEventListener('click', closeTalkModal);
@@ -1489,7 +1489,7 @@ document.getElementById('onvifPassToggle')?.addEventListener('click', () => {
     const show = input.type === 'password';
     input.type = show ? 'text' : 'password';
     btn.textContent = show ? '🙈' : '👁';
-    btn.title = show ? '隐藏密码' : '显示密码';
+    btn.title = show ? t('onvif.hidePass') : t('onvif.showPass');
 });
 
 
@@ -1600,6 +1600,6 @@ document.getElementById('detectionConfigSaveBtn')?.addEventListener('click', fun
     readFatiguePanelToDraft();
     detectionConfigTargetItem._fatigue_driving_config = JSON.parse(JSON.stringify(detectionFatigueDraft));
     updateStreamDetectionSummary(detectionConfigTargetItem);
-    showMessage('已写入本条算法配置（请再点「保存检测配置」生效；检测策略热更新，无需重启）', 'success');
+    showMessage(t('msg.algoSaved'), 'success');
     closeDetectionConfigModal();
 });

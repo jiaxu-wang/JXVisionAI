@@ -1,0 +1,51 @@
+JXVisionAI
+Copyright (C) 2024-2026 JX
+
+This product is licensed under the GNU Affero General Public License v3.0
+or later. See LICENSE.
+
+If you modify this software and run it as a network service, AGPL section 13
+requires you to offer the corresponding source of your modified version to
+users of that service.
+
+This distribution does not include model weights, enrolled face photos, or
+alert snapshots. Download scripts and SOURCE.md files describe where to
+obtain third-party weights.
+
+---------------------------------------------------------------------------
+Third-party software and models (not licensed as JXVisionAI source)
+
+Ultralytics YOLO26
+  License: GNU Affero General Public License v3.0
+  https://github.com/ultralytics/ultralytics
+  YOLO26 weights are obtained separately (scripts/download_yolo26.sh).
+
+InsightFace buffalo_l (SCRFD / ArcFace / genderage ONNX)
+  Used for face detection and recognition. Follow InsightFace model terms
+  when you download buffalo_l into models/buffalo_l/.
+  https://github.com/deepinsight/insightface
+
+ZLMediaKit
+  Used as an optional media server (Docker image zlmediakit/zlmediakit).
+  https://github.com/ZLMediaKit/ZLMediaKit
+  Comply with ZLMediaKit's license when redistributing that binary/image.
+
+ONNX Runtime
+  https://github.com/microsoft/onnxruntime
+  MIT License.
+
+OpenCV, Flask, Redis, NumPy, and other Python dependencies
+  See each package's metadata on PyPI. Listed in requirements.txt.
+
+Firearm / knife specialist weights (optional, not in Git)
+  gun:  Hugging Face Subh775/Firearm_Detection_Yolov8n  — models/specialists/gun/SOURCE.md
+  knife: Hugging Face Subh775/Threat-Detection-YOLOv8n — models/specialists/knife/SOURCE.md
+  These are community models. Using weapon-detection weights may be
+  restricted by local law and by the model authors' terms. They are not
+  part of the default install.
+
+RapidOCR
+  Optional plate OCR. Apache-2.0 (see package metadata).
+
+visionai-inferd (optional C++ daemon under native/inferd/)
+  Same AGPL-3.0 as this repository unless a file states otherwise.

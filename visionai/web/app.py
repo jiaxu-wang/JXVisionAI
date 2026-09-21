@@ -20,7 +20,6 @@ from flask import (
     jsonify,
     request,
     Response,
-    send_file,
     send_from_directory,
     session,
     redirect,
@@ -32,7 +31,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from visionai.config.settings import (
     AUTO_REFRESH_INTERVAL,
+    ALLOW_PROCESS_RESTART,
+    PLATFORM_EMBED_URL,
     SECRET,
+    SESSION_SECRET,
     SMTP_ALERT_ENABLED,
     SMTP_FROM,
     SMTP_HOST,
@@ -73,6 +75,7 @@ from visionai.config.ini_manager import (
     config_meta,
     patch_config_updates,
     read_structured_units,
+    read_ui_language,
 )
 from visionai.core import stream_sync
 
@@ -89,7 +92,7 @@ except Exception:  # noqa: BLE001
     stream_status = {}
     stream_status_lock = None
 
-    def get_stream_status(name, default="离线"):
+    def get_stream_status(name, default="offline"):
         return default
 
     def get_all_stream_statuses():
@@ -112,17 +115,55 @@ except ImportError:
 
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+
+
+@app.context_processor
+def _inject_ui_language():
+    return {"ui_language": read_ui_language()}
+
+
 # 挂载源码改模板后免重建镜像；进程内仍须重启一次才能丢掉已编译的旧模板缓存
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.auto_reload = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-app.secret_key = SECRET
+app.secret_key = SESSION_SECRET
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+
+@app.before_request
+def _reject_stale_login():
+    if not session.get("logged_in"):
+        return
+    if not SECRET or session.get("secret_fp") != str(hash(SECRET)):
+        session.clear()
+
+
+@app.after_request
+def _embed_frame_ancestors(resp):
+    from visionai.utils.embed_token import configured_frame_ancestors
+
+    origins = configured_frame_ancestors()
+    if origins:
+        resp.headers["Content-Security-Policy"] = (
+            "frame-ancestors 'self' " + " ".join(origins)
+        )
+        resp.headers.pop("X-Frame-Options", None)
+    return resp
 
 # 登录验证装饰器
 def login_required(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         if 'logged_in' not in session or not session['logged_in']:
+            path = request.path or ""
+            wants_json = (
+                path.startswith("/api/")
+                or request.is_json
+                or "application/json" in (request.headers.get("Accept") or "")
+            )
+            if wants_json:
+                return jsonify({"success": False, "message": "unauthorized"}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -401,15 +442,30 @@ def api_zlm_webrtc_push():
 @login_required
 def index():
     """管理界面首页"""
-    return render_template('admin.html')
+    return render_template('admin.html', platform_embed_url=PLATFORM_EMBED_URL)
+
+@app.route("/embed")
+def embed_login():
+    """一次性 token 换管理页 Session，供对接方 iframe / 新窗口打开本管理端。"""
+    from visionai.utils.embed_token import consume_embed_token
+
+    token = (request.args.get("token") or "").strip()
+    if not consume_embed_token(token):
+        return redirect(url_for("login"))
+    session["logged_in"] = True
+    session["via_embed"] = True
+    session["secret_fp"] = str(hash(SECRET))
+    return redirect(url_for("index"))
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """登录页面"""
     if request.method == 'POST':
         secret_key = request.form.get('secret_key')
-        if secret_key == SECRET:
+        if SECRET and secret_key == SECRET:
             session['logged_in'] = True
+            session['secret_fp'] = str(hash(SECRET))
             return redirect(url_for('index'))
         else:
             return render_template('login.html', error='秘钥错误')
@@ -506,7 +562,7 @@ def get_streams():
         apply_analyze_field(stream_copy)
         # 添加状态信息（Redis 跨进程；worker 写入，API 读取）
         nm = (stream.get("name") or "").strip()
-        stream_copy['status'] = get_stream_status(nm, "离线")
+        stream_copy['status'] = get_stream_status(nm, "offline")
         sid = str(stream.get("id") or "").strip()
         stream_copy['dms_status'] = dms_map.get(sid) if sid else None
         streams_with_status.append(stream_copy)
@@ -575,7 +631,7 @@ def save_streams():
             for stream in streams:
                 n = (stream.get("name") or "").strip()
                 if n and n not in known:
-                    set_stream_status(n, "离线")
+                    set_stream_status(n, "offline")
             stream_sync.notify_streams_changed()
             return jsonify({'success': True, 'message': '视频配置保存成功'})
         else:
@@ -717,7 +773,7 @@ def onvif_add_stream():
         return jsonify({"success": False, "message": "写入 Redis 失败"}), 500
 
     if name not in get_all_stream_statuses():
-        set_stream_status(name, "离线")
+        set_stream_status(name, "offline")
     stream_sync.notify_streams_changed()
 
     streams = redis_manager.get_streams() or []
@@ -828,7 +884,7 @@ def delete_stream_api(stream_id: str):
     _try_remove_zlm_proxy(stream_id)
     if name:
         try:
-            set_stream_status(name, "离线")
+            set_stream_status(name, "offline")
         except Exception:  # noqa: BLE001
             pass
     stream_sync.notify_streams_changed()
@@ -1475,7 +1531,7 @@ def gb28181_join_monitor(device_id: str, channel_id: str):
     if not redis_manager.save_stream(stream):
         return jsonify({"success": False, "message": "写入 Redis 失败"}), 500
     if name not in get_all_stream_statuses():
-        set_stream_status(name, "离线")
+        set_stream_status(name, "offline")
     stream_sync.notify_streams_changed()
     return jsonify(
         {
@@ -1729,68 +1785,40 @@ def serve_snapshot(filename):
 @login_required
 def alert_image(detection_id):
     """历史告警缩略图：对象存储或本地路径各选其一。"""
-    if not redis_manager:
-        abort(503)
-    doc = redis_manager.get_detection_by_id(detection_id)
-    if not doc:
-        abort(404)
-    if doc.get("object_key"):
-        st = get_object_storage()
-        if st:
-            try:
-                body = st.get_object_bytes(doc["object_key"])
-                return Response(body, mimetype="image/jpeg")
-            except Exception:
-                # 对象存储不可用时回退本地路径（上传失败/仅本地保留场景）
-                pass
-    ip = doc.get("image_path") or ""
-    if ip and os.path.isfile(ip):
-        return send_file(ip, mimetype="image/jpeg")
-    # 兼容仅存文件名或相对路径的旧数据
-    if ip:
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        candidates = [
-            ip,
-            os.path.join(project_root, ip.lstrip("./")),
-            os.path.join(project_root, "snapshots", os.path.basename(ip)),
-        ]
-        for cand in candidates:
-            if cand and os.path.isfile(cand):
-                return send_file(cand, mimetype="image/jpeg")
-    abort(404)
+    from visionai.web.alert_media import detection_image_response
+
+    resp, status = detection_image_response(detection_id)
+    if resp is not None:
+        return resp
+    abort(status)
 
 @app.route('/api/restart', methods=['POST'])
 @login_required
 def restart_service():
-    """重启服务"""
+    """仅当显式开启 VISIONAI_ALLOW_PROCESS_RESTART=1 时，用项目脚本重启宿主机进程。"""
+    if not ALLOW_PROCESS_RESTART:
+        return jsonify(
+            {
+                "success": False,
+                "message": "进程重启已禁用。Compose 请 docker compose restart；宿主机设置 VISIONAI_ALLOW_PROCESS_RESTART=1",
+            }
+        ), 403
     try:
-        # 获取项目根目录
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        # 使用项目脚本重启，保留 start.sh 中的环境变量设置
-        restart_script = f'''#!/bin/bash
-cd {project_root}
-./stop.sh
-sleep 2
-./start.sh
-'''
-        
-        script_path = '/tmp/restart_visionai.sh'
-        with open(script_path, 'w') as f:
-            f.write(restart_script)
-        
-        os.chmod(script_path, 0o755)
-        
-        # 使用nohup在后台运行重启脚本
-        subprocess.Popen(['nohup', '/bin/bash', script_path], 
-                        stdout=open('/dev/null', 'w'), 
-                        stderr=open('/dev/null', 'w'))
-        
-        # 返回成功响应
-        return jsonify({'success': True, 'message': '服务重启中...'})
-        
+        stop_sh = os.path.join(project_root, "stop.sh")
+        start_sh = os.path.join(project_root, "start.sh")
+        if not (os.path.isfile(stop_sh) and os.path.isfile(start_sh)):
+            return jsonify({"success": False, "message": "未找到 start.sh/stop.sh"}), 500
+        subprocess.Popen(
+            ["/bin/bash", "-c", "./stop.sh; sleep 2; ./start.sh"],
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return jsonify({"success": True, "message": "服务重启中..."})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
+        return jsonify({"success": False, "message": str(e)})
 
 @app.route('/logout')
 @login_required
@@ -1812,11 +1840,14 @@ def face_library_page():
 def api_face_library_list():
     from visionai.core import face_engine, face_library
 
+    from visionai.config.settings import FACE_RECOGNITION_THRESHOLD
+
     return jsonify(
         {
             "persons": face_library.list_persons(),
             "count": face_library.person_count(),
             "engine_ready": face_engine.is_available(),
+            "threshold": FACE_RECOGNITION_THRESHOLD,
         }
     )
 
@@ -1829,8 +1860,11 @@ def api_face_library_enroll():
     from visionai.core import face_library
 
     name = (request.form.get("name") or "").strip()
+    identity_id = (request.form.get("identity_id") or "").strip()
     department = (request.form.get("department") or "").strip()
     remark = (request.form.get("remark") or "").strip()
+    if not identity_id:
+        return jsonify({"success": False, "message": "请填写身份ID"}), 400
     if not name:
         return jsonify({"success": False, "message": "请填写姓名"}), 400
     photo = request.files.get("photo")
@@ -1843,9 +1877,117 @@ def api_face_library_enroll():
         return jsonify({"success": False, "message": "图片格式无效"}), 400
     try:
         result = face_library.enroll_person(
-            img, name=name, department=department, remark=remark
+            img,
+            name=name,
+            identity_id=identity_id,
+            department=department,
+            remark=remark,
         )
         return jsonify({"success": True, **result})
+    except ValueError as ex:
+        return jsonify({"success": False, "message": str(ex)}), 400
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+def _face_compare_opts():
+    from visionai.config.settings import FACE_RECOGNITION_THRESHOLD
+
+    if request.is_json and request.method in ("POST", "PUT", "PATCH"):
+        data = request.get_json(silent=True) or {}
+    else:
+        data = {}
+    raw_thr = (
+        data.get("threshold")
+        if "threshold" in data
+        else (request.form.get("threshold") or request.args.get("threshold"))
+    )
+    raw_top = (
+        data.get("top_k")
+        if "top_k" in data
+        else (request.form.get("top_k") or request.args.get("top_k"))
+    )
+    person_id = (
+        data.get("person_id")
+        if "person_id" in data
+        else (request.form.get("person_id") or request.args.get("person_id") or "")
+    )
+    threshold = FACE_RECOGNITION_THRESHOLD
+    if raw_thr is not None and str(raw_thr).strip() != "":
+        try:
+            threshold = float(raw_thr)
+        except (TypeError, ValueError):
+            raise ValueError("阈值无效")
+        if threshold < 0 or threshold > 1:
+            raise ValueError("阈值须在 0～1 之间")
+    top_k = 5
+    if raw_top is not None and str(raw_top).strip() != "":
+        try:
+            top_k = int(raw_top)
+        except (TypeError, ValueError):
+            raise ValueError("候选数量无效")
+    return threshold, top_k, str(person_id or "").strip()
+
+
+@app.route('/api/face-library/compare', methods=['POST'])
+@login_required
+def api_face_library_compare():
+    import cv2
+    import numpy as np
+    from visionai.core import face_library
+
+    photo = request.files.get("photo")
+    if not photo or not photo.filename:
+        return jsonify({"success": False, "message": "请上传要比对的人脸图"}), 400
+    buf = np.frombuffer(photo.read(), dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({"success": False, "message": "图片格式无效"}), 400
+    try:
+        threshold, top_k, person_id = _face_compare_opts()
+        if not person_id:
+            return jsonify({"success": False, "message": "请选择已录入人员"}), 400
+        result = face_library.compare_image(
+            img, threshold=threshold, top_k=top_k, person_id=person_id
+        )
+        return jsonify({"success": True, "source": "upload", **result})
+    except ValueError as ex:
+        return jsonify({"success": False, "message": str(ex)}), 400
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+
+
+@app.route('/api/face-library/compare-stream', methods=['POST'])
+@login_required
+def api_face_library_compare_stream():
+    from visionai.core import face_library, stream_frame
+
+    body = request.get_json(silent=True) or {}
+    stream_id = str(
+        body.get("stream_id")
+        or request.form.get("stream_id")
+        or request.args.get("stream_id")
+        or ""
+    ).strip()
+    if not stream_id:
+        return jsonify({"success": False, "message": "请选择一路在线视频"}), 400
+    try:
+        threshold, top_k, person_id = _face_compare_opts()
+        if not person_id:
+            return jsonify({"success": False, "message": "请选择已录入人员"}), 400
+        frame, stream = stream_frame.grab_online_stream_frame(stream_id)
+        result = face_library.compare_image(
+            frame, threshold=threshold, top_k=top_k, person_id=person_id
+        )
+        return jsonify(
+            {
+                "success": True,
+                "source": "stream",
+                "stream_id": stream.get("id") or stream_id,
+                "stream_name": stream.get("name") or "",
+                **result,
+            }
+        )
     except ValueError as ex:
         return jsonify({"success": False, "message": str(ex)}), 400
     except Exception as ex:  # noqa: BLE001
@@ -1866,18 +2008,52 @@ def api_face_library_get(person_id):
 @app.route('/api/face-library/<person_id>', methods=['PUT'])
 @login_required
 def api_face_library_update(person_id):
+    import cv2
+    import numpy as np
     from visionai.core import face_library
 
-    data = request.get_json(silent=True) or {}
-    ok = face_library.update_person(
-        person_id,
-        name=data.get("name"),
-        department=data.get("department"),
-        remark=data.get("remark"),
-    )
-    if not ok:
+    is_multipart = bool(request.content_type and "multipart/form-data" in request.content_type)
+    if is_multipart:
+        name = request.form.get("name")
+        department = request.form.get("department")
+        remark = request.form.get("remark")
+        identity_id = request.form.get("identity_id")
+        photo = request.files.get("photo")
+        img = None
+        if photo and photo.filename:
+            buf = np.frombuffer(photo.read(), dtype=np.uint8)
+            img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+            if img is None:
+                return jsonify({"success": False, "message": "图片格式无效"}), 400
+    else:
+        data = request.get_json(silent=True) or {}
+        name = data.get("name")
+        department = data.get("department")
+        remark = data.get("remark")
+        identity_id = data.get("identity_id")
+        img = None
+
+    if identity_id is not None and not str(identity_id).strip():
+        return jsonify({"success": False, "message": "请填写身份ID"}), 400
+    if name is not None and not str(name).strip():
+        return jsonify({"success": False, "message": "请填写姓名"}), 400
+
+    try:
+        person = face_library.update_person(
+            person_id,
+            name=name,
+            department=department,
+            remark=remark,
+            identity_id=identity_id,
+            image_bgr=img,
+        )
+    except ValueError as ex:
+        return jsonify({"success": False, "message": str(ex)}), 400
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"success": False, "message": str(ex)}), 500
+    if not person:
         return jsonify({"success": False, "message": "人员不存在"}), 404
-    return jsonify({"success": True, "message": "更新成功"})
+    return jsonify({"success": True, "message": "更新成功", "person": person})
 
 
 @app.route('/api/face-library/<person_id>', methods=['DELETE'])
@@ -2004,8 +2180,10 @@ def api_plate_library_reload():
     )
 
 
+from visionai.web.open_api import init_open_api  # noqa: E402
 from visionai.web.training_routes import init_training_lab  # noqa: E402
 
+init_open_api(app)
 init_training_lab(app)
 
 if __name__ == '__main__':

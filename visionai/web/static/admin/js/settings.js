@@ -1,8 +1,9 @@
 /* JXVisionAI admin — extracted from templates/admin.html; classic globals, load order matters. */
 /* settings.js */
 
-// 显示消息
 let settingsFormDirty = false;
+let lastSettingsUnits = null;
+let lastSettingsMeta = null;
 
 function escapeHtml(s) {
     return String(s)
@@ -12,16 +13,48 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
+function settingsLocale() {
+    if (typeof getLocale === 'function') return getLocale();
+    if (window.VisionAI && VisionAI.i18n && typeof VisionAI.i18n.getLocale === 'function') {
+        return VisionAI.i18n.getLocale();
+    }
+    return 'zh';
+}
+
+function localeText(obj, zhKey, enKey) {
+    if (!obj) return '';
+    if (settingsLocale() === 'en') return obj[enKey] || obj[zhKey] || '';
+    return obj[zhKey] || obj[enKey] || '';
+}
+
+function settingsApiMessage(data, fallbackKey) {
+    const m = data && data.message;
+    const map = {
+        '已保存到 config.ini，请重启服务后全配置生效': 'settings.savedRestart',
+        '缺少 updates 对象': 'settings.missingUpdates',
+        '提交的配置项无效': 'settings.invalidUpdates',
+        'config.ini 不存在或为空': 'settings.emptyIni',
+        '没有可保存的配置项': 'settings.noSaveItems',
+    };
+    if (m && map[m]) return t(map[m]);
+    if (m) return m;
+    return t(fallbackKey);
+}
+
 function renderSettingsMeta(meta) {
     const el = document.getElementById('settingsMeta');
-    if (!el || !meta) return;
+    if (!el) return;
+    if (!meta) {
+        el.textContent = '';
+        return;
+    }
     const parts = [
-        '路径: ' + (meta.path || ''),
-        meta.mtime ? ('最后修改: ' + meta.mtime) : '',
-        meta.priority || '',
+        t('settings.metaPath') + ': ' + (meta.path || ''),
+        meta.mtime ? (t('settings.metaMtime') + ': ' + meta.mtime) : '',
+        localeText(meta, 'priority', 'priority_en') || t('settings.metaPriority'),
     ];
     if (meta.env_config_override) {
-        parts.push('环境变量 VISIONAI_CONFIG=' + meta.env_config_override);
+        parts.push(t('settings.metaEnv') + '=' + meta.env_config_override);
     }
     el.textContent = parts.filter(Boolean).join(' · ');
 }
@@ -51,11 +84,12 @@ function renderConfigFieldInput(field) {
     const val = field.value == null ? '' : String(field.value);
     const type = field.type || 'text';
     if (field.readonly || !field.editable) {
-        return '<div class="config-field-readonly">' + escapeHtml(val) + '</div>';
+        const shown = localeText(field, 'value', 'value_en') || val;
+        return '<div class="config-field-readonly">' + escapeHtml(shown) + '</div>';
     }
     if (type === 'bool') {
         const checked = ['true', '1', 'yes', 'on'].includes(val.toLowerCase());
-        return '<label><input type="checkbox" class="cfg-input" data-cfg-key="' + escapeHtml(key) + '" ' + (checked ? 'checked' : '') + '> 启用</label>';
+        return '<label><input type="checkbox" class="cfg-input" data-cfg-key="' + escapeHtml(key) + '" ' + (checked ? 'checked' : '') + '> ' + escapeHtml(t('settings.enable')) + '</label>';
     }
     if (type === 'timezone' || key === 'timezone') {
         const opts = TIMEZONE_OPTIONS.slice();
@@ -77,7 +111,7 @@ function renderConfigUnits(units) {
     const wrap = document.getElementById('configUnitsWrap');
     if (!wrap) return;
     if (!units || !units.length) {
-        wrap.textContent = '无配置项';
+        wrap.textContent = t('settings.empty');
         return;
     }
     wrap.innerHTML = units.map(function (unit) {
@@ -90,24 +124,27 @@ function renderConfigUnits(units) {
         const fieldsHtml = editableFields.map(function (field) {
             let badge = '';
             if (field.commented_only) {
-                badge = '<span class="config-field-badge">ini 中已注释</span>';
+                badge = '<span class="config-field-badge">' + escapeHtml(t('settings.commentedOnly')) + '</span>';
             }
-            const commentHtml = field.comment
-                ? '<div class="config-field-comment">' + escapeHtml(field.comment) + '</div>'
+            const comment = localeText(field, 'comment', 'comment_en');
+            const commentHtml = comment
+                ? '<div class="config-field-comment">' + escapeHtml(comment) + '</div>'
                 : '';
+            const label = localeText(field, 'label', 'label_en') || field.key;
             return (
                 '<div class="config-field-row">' +
-                '<div class="config-field-label">' + escapeHtml(field.label || field.key) + badge + '</div>' +
+                '<div class="config-field-label">' + escapeHtml(label) + badge + '</div>' +
                 '<div class="config-field-body">' + commentHtml + renderConfigFieldInput(field) + '</div>' +
                 '</div>'
             );
         }).join('');
-        const desc = unit.description
-            ? '<p class="config-unit-desc">' + escapeHtml(unit.description) + '</p>'
+        const desc = localeText(unit, 'description', 'description_en');
+        const descHtml = desc
+            ? '<p class="config-unit-desc">' + escapeHtml(desc) + '</p>'
             : '';
         return (
             '<section class="config-unit-card" data-unit-id="' + escapeHtml(unit.id || '') + '">' +
-            '<h3>' + escapeHtml(unit.title || '') + '</h3>' + desc + fieldsHtml +
+            '<h3>' + escapeHtml(localeText(unit, 'title', 'title_en')) + '</h3>' + descHtml + fieldsHtml +
             '</section>'
         );
     }).filter(Boolean).join('');
@@ -116,6 +153,29 @@ function renderConfigUnits(units) {
         el.addEventListener('input', function () { settingsFormDirty = true; });
     });
     settingsFormDirty = false;
+}
+
+function applyCollectedUpdates(updates) {
+    if (!updates) return;
+    document.querySelectorAll('.cfg-input').forEach(function (el) {
+        const key = el.getAttribute('data-cfg-key');
+        if (!key || !Object.prototype.hasOwnProperty.call(updates, key)) return;
+        if (el.type === 'checkbox') {
+            el.checked = updates[key] === 'true';
+        } else {
+            el.value = updates[key];
+        }
+    });
+}
+
+function rerenderSystemSettingsKeepValues() {
+    if (!lastSettingsUnits) return;
+    const updates = collectConfigUpdates();
+    const dirty = settingsFormDirty;
+    renderSettingsMeta(lastSettingsMeta);
+    renderConfigUnits(lastSettingsUnits);
+    applyCollectedUpdates(updates);
+    settingsFormDirty = dirty;
 }
 
 function collectConfigUpdates() {
@@ -133,7 +193,7 @@ function collectConfigUpdates() {
 }
 
 async function reloadSystemSettings() {
-    if (settingsFormDirty && !confirm('有未保存的修改，重新加载将丢弃，是否继续？')) {
+    if (settingsFormDirty && !confirm(t('settings.dirtyReload'))) {
         return;
     }
     await loadSystemSettings();
@@ -141,26 +201,28 @@ async function reloadSystemSettings() {
 
 async function loadSystemSettings() {
     const wrap = document.getElementById('configUnitsWrap');
-    if (wrap) wrap.textContent = '加载中…';
+    if (wrap) wrap.textContent = t('settings.loading');
     try {
         const res = await fetch('/api/system/config');
         const data = await res.json();
         if (!data.success) {
-            showMessage(data.message || '加载配置失败', 'error');
-            if (wrap) wrap.textContent = '加载失败';
+            showMessage(settingsApiMessage(data, 'settings.loadCfgFail'), 'error');
+            if (wrap) wrap.textContent = t('settings.loadFail');
             return;
         }
-        renderSettingsMeta(data.meta);
-        renderConfigUnits(data.units || []);
+        lastSettingsMeta = data.meta || null;
+        lastSettingsUnits = data.units || [];
+        renderSettingsMeta(lastSettingsMeta);
+        renderConfigUnits(lastSettingsUnits);
     } catch (err) {
-        showMessage('加载配置失败: ' + err, 'error');
-        if (wrap) wrap.textContent = '加载失败';
+        showMessage(t('settings.loadCfgFail') + ': ' + err, 'error');
+        if (wrap) wrap.textContent = t('settings.loadFail');
     }
 }
 
 async function saveSystemConfig() {
     if (settingsFormDirty === false) {
-        showMessage('没有修改需要保存', 'success');
+        showMessage(t('settings.noChanges'), 'success');
         return;
     }
     const btn = document.getElementById('saveConfigIniBtn');
@@ -174,34 +236,34 @@ async function saveSystemConfig() {
         });
         const data = await res.json();
         if (!data.success) {
-            showMessage(data.message || '保存失败', 'error');
+            showMessage(settingsApiMessage(data, 'settings.saveFail'), 'error');
             return;
         }
         settingsFormDirty = false;
-        showMessage(data.message || '保存成功', 'success');
+        showMessage(settingsApiMessage(data, 'settings.savedRestart'), 'success');
         await loadSystemSettings();
     } catch (err) {
-        showMessage('保存失败: ' + err, 'error');
+        showMessage(t('settings.saveFail') + ': ' + err, 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
 }
 
 async function restartJXVisionAIService() {
-    if (!confirm('确定重启 JXVisionAI 服务？重启期间检测与页面会短暂中断。')) {
+    if (!confirm(t('settings.restartConfirm'))) {
         return;
     }
     try {
         const res = await fetch('/api/restart', { method: 'POST' });
         const data = await res.json();
         if (data.success) {
-            showMessage('服务正在重启，约 10～20 秒后请刷新页面', 'success');
+            showMessage(t('settings.restarting'), 'success');
             setTimeout(function () { window.location.reload(); }, 12000);
         } else {
-            showMessage(data.message || '重启失败', 'error');
+            showMessage(settingsApiMessage(data, 'settings.restartFail'), 'error');
         }
     } catch (err) {
-        showMessage('重启请求失败: ' + err, 'error');
+        showMessage(t('settings.restartReqFail') + ': ' + err, 'error');
     }
 }
 

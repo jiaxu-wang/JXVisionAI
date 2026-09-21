@@ -23,16 +23,16 @@ function accessPlayButtonsHtml(sid, stream) {
     const zs = zlmPlayInfoForStream(sid);
     const playHls = zs && zs.play && zs.play.hls ? zs.play.hls : '';
     const copyBtn = playHls
-        ? `<button type="button" class="btn-preview btn-copy-zlm" data-url="${escapeHtml(playHls)}" style="padding:8px 12px;">复制 HLS</button>`
+        ? `<button type="button" class="btn-preview btn-copy-zlm" data-url="${escapeHtml(playHls)}" style="padding:8px 12px;">${t('access.copyHls')}</button>`
         : '';
-    const online = stream && stream.status === '在线';
+    const online = stream && streamIsOnline(stream.status);
     let prev;
     if (!sid) {
-        prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="请先保存该连接">预览</button>`;
+        prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="${escapeHtml(t('access.saveFirstPreview'))}">${t('common.preview')}</button>`;
     } else if (!online) {
-        prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="设备离线，无法预览">预览</button>`;
+        prev = `<button type="button" class="btn-preview" disabled style="padding:8px 12px;" title="${escapeHtml(t('access.offlineNoPreview'))}">${t('common.preview')}</button>`;
     } else {
-        prev = `<button type="button" class="btn-preview" data-access-preview style="padding:8px 12px;">预览</button>`;
+        prev = `<button type="button" class="btn-preview" data-access-preview style="padding:8px 12px;">${t('common.preview')}</button>`;
     }
     return copyBtn + prev;
 }
@@ -41,10 +41,10 @@ function accessAnalyzeHtml(stream) {
     const sid = stream && stream.id;
     if (!sid) return '';
     if (isAnalysisJoined(stream)) {
-        return '<span class="status status-online">已接入分析</span>' +
-            '<button type="button" class="btn-filter-apply" data-goto-policy style="padding:8px 12px;">检测配置</button>';
+        return '<span class="status status-online">' + t('access.joinedAnalyze') + '</span>' +
+            '<button type="button" class="btn-filter-apply" data-goto-policy style="padding:8px 12px;">' + t('access.gotoPolicy') + '</button>';
     }
-    return '<button type="button" class="btn-save" data-join-analyze style="padding:8px 12px;">接入AI分析</button>';
+    return '<button type="button" class="btn-save" data-join-analyze style="padding:8px 12px;">' + t('access.joinAnalyze') + '</button>';
 }
 
 function bindAccessAnalyzeButtons(root, stream) {
@@ -52,7 +52,7 @@ function bindAccessAnalyzeButtons(root, stream) {
     if (!sid || !root) return;
     root.querySelector('[data-join-analyze]')?.addEventListener('click', async function () {
         const r = await apiPatchStream(sid, { analyze: true });
-        showMessage(r.success ? '已接入分析，请勾选检测类型并保存' : (r.message || '失败'), r.success ? 'success' : 'error');
+        showMessage(r.success ? t('access.joinOk') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
         if (r.success) gotoPolicyForStream(sid);
     });
     root.querySelector('[data-goto-policy]')?.addEventListener('click', function () {
@@ -75,9 +75,9 @@ function bindAccessPlayButtons(root, stream) {
             const u = this.getAttribute('data-url') || '';
             try {
                 await navigator.clipboard.writeText(u);
-                showMessage('已复制 HLS 地址', 'success');
+                showMessage(t('access.copiedHls'), 'success');
             } catch (e) {
-                prompt('复制 HLS 地址', u);
+                prompt(t('access.copyHls'), u);
             }
         });
     }
@@ -92,14 +92,14 @@ async function loadDirectStreams() {
         container.innerHTML = '';
         const direct = streams.filter(s => DIRECT_METHODS[normalizeAccessMethodClient(s)]);
         if (!direct.length) {
-            container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">暂无 RTSP 直连流，可点击下方添加。</p>';
+            container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">' + t('access.emptyDirect') + '</p>';
         }
         direct.forEach((stream) => {
             addDirectStreamItem(stream);
         });
         schedulePreviewNavRefresh();
     } catch (error) {
-        showMessage('加载 RTSP 直连流失败', 'error');
+        showMessage(t('access.loadDirectFail'), 'error');
     }
 }
 
@@ -112,14 +112,14 @@ async function loadOnvifStreams() {
         container.innerHTML = '';
         const list = streams.filter(s => normalizeAccessMethodClient(s) === 'onvif');
         if (!list.length) {
-            container.innerHTML = '<p style="color:#6c757d;padding:8px 0;">暂无 ONVIF 接入流。请使用上方「ONVIF 发现 / 手动探测」。</p>';
+            container.innerHTML = '<p style="color:#6c757d;padding:8px 0;">' + t('access.emptyOnvif') + '</p>';
             schedulePreviewNavRefresh();
             return;
         }
         list.forEach((stream) => addOnvifManageItem(container, stream));
         schedulePreviewNavRefresh();
     } catch (error) {
-        showMessage('加载 ONVIF 流失败', 'error');
+        showMessage(t('access.loadOnvifFail'), 'error');
     }
 }
 
@@ -140,13 +140,13 @@ async function loadPolicyStreams() {
         container.innerHTML = '';
         const joined = streams.filter(isAnalysisJoined);
         if (!joined.length) {
-            container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">请先在「设备接入」中将设备接入平台。RTSP/ONVIF 点「接入AI分析」；国标打开「通道」后按通道点「接入分析」。</p>';
+            container.innerHTML = '<p style="color:#6c757d;padding:12px 0;">' + t('policy.empty') + '</p>';
             return;
         }
         joined.forEach((stream) => addPolicyStreamItem(stream));
         await refreshSmtpHintForStreamForm();
     } catch (error) {
-        showMessage('加载检测配置失败', 'error');
+        showMessage(t('access.loadPolicyFail'), 'error');
     }
 }
 
@@ -161,8 +161,8 @@ async function refreshSmtpHintForStreamForm() {
         const cfg = await r.json();
         const ready = cfg.smtp && cfg.smtp.ready;
         const text = ready
-            ? '全局 SMTP 已就绪：告警将按上方向外发（频率与截图间隔 save_interval 一致）。'
-            : '提示：请先在服务器配置 SMTP（smtp_alert_enabled、smtp_host、smtp_from 等，见 config.example.ini），否则仅填写邮箱不会发信。';
+            ? t('access.smtpReady')
+            : t('access.smtpHint');
         document.querySelectorAll('.stream-smtp-hint').forEach(el => {
             el.style.display = 'block';
             el.textContent = text;
@@ -194,7 +194,7 @@ function addOnvifManageItem(container, stream) {
     streamItem.className = 'stream-item';
     const sid = stream.id || '';
     if (sid) streamItem.dataset.id = sid;
-    const statusClass = stream.status === '在线' ? 'status-online' : 'status-offline';
+    const statusClass = streamIsOnline(stream.status) ? 'status-online' : 'status-offline';
     const ov = stream.onvif || {};
     const metaBits = [
         ov.manufacturer, ov.model, ov.host ? (ov.host + ':' + (ov.port || 80)) : '',
@@ -203,15 +203,15 @@ function addOnvifManageItem(container, stream) {
     streamItem._talk_supported = !!stream.talk_supported;
     streamItem.innerHTML = `
         <div class="stream-inputs">
-            <input type="text" class="stream-name" value="${String(stream.name || '').replace(/"/g, '&quot;')}" placeholder="流名称" style="min-width:140px;">
+            <input type="text" class="stream-name" value="${String(stream.name || '').replace(/"/g, '&quot;')}" placeholder="${t('access.streamName')}" style="min-width:140px;">
             <span class="access-badge">ONVIF</span>
-            <span class="status ${statusClass}">${escapeHtml(stream.status || '未知')}</span>
+            <span class="status ${statusClass}">${escapeHtml(formatStreamStatus(stream.status || '未知'))}</span>
             ${accessPlayButtonsHtml(sid, stream)}
-            <button type="button" class="btn-save" data-save-name style="padding:8px 12px;">保存名称</button>
-            <button type="button" class="btn-filter-apply" data-refresh-rtsp style="padding:8px 12px;" title="需重新输入设备密码">刷新 RTSP</button>
-            ${sid ? `<button type="button" class="btn-talk stream-talk-btn" style="padding:8px 12px;">${stream.talk_supported ? '对讲' : '探测对讲'}</button>` : ''}
+            <button type="button" class="btn-save" data-save-name style="padding:8px 12px;">${t('access.saveName')}</button>
+            <button type="button" class="btn-filter-apply" data-refresh-rtsp style="padding:8px 12px;" title="${escapeHtml(t('access.refreshRtspTitle'))}">${t('access.refreshRtsp')}</button>
+            ${sid ? `<button type="button" class="btn-talk stream-talk-btn" style="padding:8px 12px;">${stream.talk_supported ? t('access.talk') : t('access.probeTalk')}</button>` : ''}
             ${accessAnalyzeHtml(stream)}
-            <button type="button" class="btn-delete" data-del-stream style="padding:8px 12px;">删除</button>
+            <button type="button" class="btn-delete" data-del-stream style="padding:8px 12px;">${t('common.delete')}</button>
         </div>
         <p style="color:#6c757d;font-size:13px;word-break:break-all;margin:0 0 6px 0;">${escapeHtml(stream.url || '')}</p>
         ${metaBits ? `<p style="color:#94a3b8;font-size:12px;margin:0;">${escapeHtml(metaBits)}</p>` : ''}
@@ -223,15 +223,15 @@ function addOnvifManageItem(container, stream) {
         const name = streamItem.querySelector('.stream-name')?.value.trim();
         if (!name || !sid) return;
         const r = await apiPatchStream(sid, { name });
-        showMessage(r.success ? '名称已保存' : (r.message || '失败'), r.success ? 'success' : 'error');
+        showMessage(r.success ? t('access.nameSaved') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
         if (r.success) await loadOnvifStreams();
     });
     streamItem.querySelector('[data-refresh-rtsp]')?.addEventListener('click', async function () {
         if (!sid) return;
-        const username = prompt('ONVIF 用户名', 'admin') || '';
-        const password = prompt('ONVIF 密码（仅用于本次刷新，不会落库）', '') || '';
+        const username = prompt(t('access.onvifUser'), 'admin') || '';
+        const password = prompt(t('access.onvifPassOnce'), '') || '';
         if (!password) {
-            showMessage('已取消刷新', 'error');
+            showMessage(t('access.refreshCancel'), 'error');
             return;
         }
         try {
@@ -246,19 +246,19 @@ function addOnvifManageItem(container, stream) {
                 })
             });
             const data = await res.json();
-            showMessage(data.success ? 'RTSP 已刷新' : (data.message || '失败'), data.success ? 'success' : 'error');
+            showMessage(data.success ? t('access.rtspRefreshed') : (data.message || t('common.fail')), data.success ? 'success' : 'error');
             if (data.success) await loadOnvifStreams();
         } catch (e) {
-            showMessage('刷新失败: ' + e, 'error');
+            showMessage(t('access.refreshFail', { err: e }), 'error');
         }
     });
     streamItem.querySelector('.stream-talk-btn')?.addEventListener('click', function () {
         openTalkModal(sid, stream.name || sid, !!stream.talk_supported);
     });
     streamItem.querySelector('[data-del-stream]')?.addEventListener('click', async function () {
-        if (!sid || !confirm('确定删除该 ONVIF 流？')) return;
+        if (!sid || !confirm(t('access.deleteConfirmOnvif'))) return;
         const r = await apiDeleteStream(sid);
-        showMessage(r.success ? '已删除' : (r.message || '失败'), r.success ? 'success' : 'error');
+        showMessage(r.success ? t('access.deleted') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
         if (r.success) await loadOnvifStreams();
     });
 }
@@ -279,7 +279,7 @@ function addDirectStreamItem(stream) {
     const url = (stream && stream.url) || '';
     const status = (stream && stream.status) || '未知';
     const id = (stream && stream.id) || null;
-    const statusClass = status === '在线' ? 'status-online' : 'status-offline';
+    const statusClass = streamIsOnline(status) ? 'status-online' : 'status-offline';
     const method = stream ? normalizeAccessMethodClient(stream) : 'rtsp_url';
     streamItem.dataset.accessMethod = DIRECT_METHODS[method] ? method : 'rtsp_url';
     streamItem._onvif = null;
@@ -304,13 +304,13 @@ function addDirectStreamItem(stream) {
     if (id) streamItem.dataset.id = id;
     streamItem.innerHTML = `
         <div class="stream-inputs">
-            <input type="text" placeholder="流名称" value="${String(name).replace(/"/g, '&quot;')}" class="stream-name">
+            <input type="text" placeholder="${t('access.streamName')}" value="${String(name).replace(/"/g, '&quot;')}" class="stream-name">
             <input type="text" placeholder="rtsp:// 或 rtsps://" value="${String(url).replace(/"/g, '&quot;')}" class="stream-url">
             <span class="access-badge">RTSP</span>
-            <span class="status ${statusClass}">${escapeHtml(status)}</span>
+            <span class="status ${statusClass}">${escapeHtml(formatStreamStatus(status))}</span>
             ${accessPlayButtonsHtml(id, stream)}
             ${accessAnalyzeHtml(stream)}
-            <button type="button" class="btn-delete" data-del-direct style="padding:8px 12px;">删除</button>
+            <button type="button" class="btn-delete" data-del-direct style="padding:8px 12px;">${t('common.delete')}</button>
         </div>
     `;
     container.appendChild(streamItem);
@@ -318,9 +318,9 @@ function addDirectStreamItem(stream) {
     bindAccessAnalyzeButtons(streamItem, stream || {});
     streamItem.querySelector('[data-del-direct]')?.addEventListener('click', async function () {
         if (id) {
-            if (!confirm('确定删除该 RTSP 直连流？')) return;
+            if (!confirm(t('access.deleteConfirmRtsp'))) return;
             const r = await apiDeleteStream(id);
-            showMessage(r.success ? '已删除' : (r.message || '失败'), r.success ? 'success' : 'error');
+            showMessage(r.success ? t('access.deleted') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
             if (r.success) await loadDirectStreams();
         } else {
             streamItem.remove();
@@ -341,7 +341,7 @@ function addPolicyStreamItem(stream) {
     const id = stream.id || '';
     const enabled = stream.enabled !== false;
     const enabledClass = enabled ? 'btn-save' : 'btn-restart';
-    const enabledText = enabled ? '暂停检测' : '启用检测';
+    const enabledText = enabled ? t('policy.pauseDetect') : t('policy.enableDetect');
     streamItem._detections = normalizeDetectionsClient(stream.detections);
     streamItem._face_recognition_config = normalizeFaceRecogConfigClient(stream.face_recognition_config);
     streamItem._plate_recognition_config = normalizePlateRecogConfigClient(stream.plate_recognition_config);
@@ -364,35 +364,35 @@ function addPolicyStreamItem(stream) {
         <div class="stream-inputs">
             <strong style="min-width:120px;">${escapeHtml(stream.name || '')}</strong>
             <span class="access-badge">${escapeHtml(accessLabelForStream(stream))}</span>
-            <button type="button" class="btn-save stream-detection-config-btn" onclick="openDetectionConfig(this)" style="padding: 8px 14px;">算法配置</button>
+            <button type="button" class="btn-save stream-detection-config-btn" onclick="openDetectionConfig(this)" style="padding: 8px 14px;">${t('policy.algo')}</button>
             <button type="button" class="${enabledClass}" onclick="toggleStreamEnabled(this)" style="padding: 8px 12px;">${enabledText}</button>
-            <button type="button" class="btn-filter-apply" style="padding:8px 12px;" data-goto-access="${escapeHtml(id)}">接入配置</button>
-            ${id ? '<button type="button" class="btn-delete" data-del-policy style="padding:8px 12px;">删除</button>' : ''}
+            <button type="button" class="btn-filter-apply" style="padding:8px 12px;" data-goto-access="${escapeHtml(id)}">${t('policy.gotoAccess')}</button>
+            ${id ? '<button type="button" class="btn-delete" data-del-policy style="padding:8px 12px;">' + t('common.delete') + '</button>' : ''}
         </div>
         <p style="color:#6c757d;font-size:12px;word-break:break-all;margin:0 0 8px 0;">${escapeHtml(stream.url || '')}</p>
         <div class="stream-detection-row">
             <div style="flex:1;min-width:220px;">
-                <span class="badge-supported">系统支持 · COCO 80类 + 内置扩展 + 专模（自训/导入） + 人脸/车牌识别</span>
+                <span class="badge-supported">${t('policy.badge')}</span>
                 <div class="stream-detection-summary"></div>
             </div>
         </div>
         <div class="stream-alert-emails-row" style="margin-top: 12px;">
             <label class="stream-alert-email-enable-row">
                 <input type="checkbox" class="stream-alert-email-enabled" ${alertEmailEnabled ? 'checked' : ''}>
-                <span>启用邮件告警</span>
+                <span>${t('policy.mailEnable')}</span>
             </label>
-            <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">告警外发邮箱（多个用逗号、分号或换行）</label>
+            <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">${t('policy.mailLabel')}</label>
             <textarea class="stream-alert-emails" rows="2" placeholder="例：ops@example.com&#10;duty@example.com" style="width: 100%; max-width: 720px; padding: 8px; border-radius: 6px; border: 1px solid #ced4da; font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
             <p class="stream-smtp-hint" style="font-size: 12px; margin: 6px 0 0 0; display: none;"></p>
         </div>
         <div class="stream-alert-webhooks-row" style="margin-top: 12px;">
             <label class="stream-alert-email-enable-row">
                 <input type="checkbox" class="stream-alert-webhook-enabled" ${alertWebhookEnabled ? 'checked' : ''}>
-                <span>启用告警 Webhook</span>
+                <span>${t('policy.webhookEnable')}</span>
             </label>
-            <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">回调 URL（多个用逗号、分号或换行；仅 http/https）</label>
+            <label style="display: block; font-size: 13px; color: #495057; margin-bottom: 4px;">${t('policy.webhookLabel')}</label>
             <textarea class="stream-alert-webhooks" rows="2" placeholder="例：https://api.example.com/hooks/visionai&#10;https://backup.example.com/alert" style="width: 100%; max-width: 720px; padding: 8px; border-radius: 6px; border: 1px solid #ced4da; font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
-            <p style="font-size: 12px; margin: 6px 0 0 0; color: #6c757d;">告警写入 Redis 后向每个 URL 依次 POST JSON（频率与截图间隔 save_interval 一致）。</p>
+            <p style="font-size: 12px; margin: 6px 0 0 0; color: #6c757d;">${t('policy.webhookHint')}</p>
         </div>
     `;
     container.appendChild(streamItem);
@@ -426,12 +426,12 @@ function addPolicyStreamItem(stream) {
 }
 
 function policyDeleteConfirmMessage(stream) {
-    const name = (stream && stream.name) ? String(stream.name) : '该路视频';
+    const name = (stream && stream.name) ? String(stream.name) : t('policy.thatStream');
     const method = normalizeAccessMethodClient(stream || {});
     if (method === 'gb28181') {
-        return '确定从检测列表删除「' + name + '」？删除后将停止分析。国标 SIP 账号仍保留，可再次「接入分析」。';
+        return t('policy.delGb', { name: name });
     }
-    return '确定退出「' + name + '」的 AI 分析？设备仍保留在接入列表，可再次「接入AI分析」。';
+    return t('policy.delAnalyze', { name: name });
 }
 
 async function deletePolicyStream(streamItem, stream) {
@@ -448,14 +448,14 @@ async function deletePolicyStream(streamItem, stream) {
         }
         if (r.success) {
             showMessage(method === 'gb28181'
-                ? '已从检测列表删除，该路视频不再分析'
-                : '已退出分析，设备仍在接入列表', 'success');
+                ? t('access.delFromPolicyOk')
+                : t('access.exitAnalyzeOk'), 'success');
             await loadPolicyStreams();
         } else {
-            showMessage(r.message || '操作失败', 'error');
+            showMessage(r.message || t('access.opFail', { err: '' }), 'error');
         }
     } catch (error) {
-        showMessage('操作失败: ' + error.message, 'error');
+        showMessage(t('access.opFail', { err: error.message }), 'error');
     }
 }
 
@@ -470,7 +470,7 @@ function toggleStreamEnabled(button) {
     
     // 更新按钮样式
     button.className = newEnabled ? 'btn-save' : 'btn-restart';
-    button.textContent = newEnabled ? '暂停' : '启用';
+    button.textContent = newEnabled ? t('access.pause') : t('access.enable');
 }
 
 async function postStreamsMerged(streams) {
@@ -498,7 +498,7 @@ async function saveStreams() {
         if (!name || !url) return;
         const low = url.toLowerCase();
         if (!low.startsWith('rtsp://') && !low.startsWith('rtsps://')) {
-            schemeError = '地址必须以 rtsp:// 或 rtsps:// 开头：' + name;
+            schemeError = t('access.rtspScheme', { name: name });
             return;
         }
         const accessMethod = 'rtsp_url';
@@ -551,18 +551,18 @@ async function saveStreams() {
         });
         const streams = [...keep, ...mergedDirect];
         if (streams.length === 0) {
-            showMessage('请至少保留一路视频流（RTSP 直连或其它接入）', 'error');
+            showMessage(t('access.needOneStream'), 'error');
             return;
         }
         const result = await postStreamsMerged(streams);
         if (result.success) {
-            showMessage('RTSP 直连已保存；修改地址后需重启服务生效', 'success');
+            showMessage(t('access.rtspSaved'), 'success');
             await loadDirectStreams();
         } else {
-            showMessage('保存失败: ' + result.message, 'error');
+            showMessage(t('access.saveFail', { err: result.message }), 'error');
         }
     } catch (error) {
-        showMessage('保存失败: ' + error.message, 'error');
+        showMessage(t('access.saveFail', { err: error.message }), 'error');
     }
 }
 
@@ -608,7 +608,7 @@ async function savePolicyStreams() {
     try {
         const all = await fetchAllStreams();
         if (!all.length) {
-            showMessage('暂无视频流', 'error');
+            showMessage(t('access.noStreams'), 'error');
             return;
         }
         const streams = all.map(s => {
@@ -629,13 +629,13 @@ async function savePolicyStreams() {
         });
         const result = await postStreamsMerged(streams);
         if (result.success) {
-            showMessage('检测配置已保存（热更新，无需重启）', 'success');
+            showMessage(t('policy.saved'), 'success');
             await loadPolicyStreams();
         } else {
-            showMessage('保存失败: ' + result.message, 'error');
+            showMessage(t('access.saveFail', { err: result.message }), 'error');
         }
     } catch (error) {
-        showMessage('保存失败: ' + error.message, 'error');
+        showMessage(t('access.saveFail', { err: error.message }), 'error');
     }
 }
 
@@ -649,14 +649,14 @@ async function restartService() {
         const result = await response.json();
         
         if (result.success) {
-            showMessage('服务重启中...请稍候', 'success');
+            showMessage(t('access.restarting'), 'success');
             setTimeout(() => {
                 window.location.reload();
             }, 3000);
         } else {
-            showMessage('重启服务失败: ' + result.message, 'error');
+            showMessage(t('access.restartFailDetail', { err: result.message }), 'error');
         }
     } catch (error) {
-        showMessage('重启服务失败', 'error');
+        showMessage(t('access.restartFail'), 'error');
     }
 }

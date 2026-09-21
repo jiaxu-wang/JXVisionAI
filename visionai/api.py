@@ -8,7 +8,16 @@ from __future__ import annotations
 import logging
 import os
 
-from visionai.config.settings import SAVE_DIR, SECRET
+from visionai.config.settings import (
+    REDIS_PASSWORD,
+    S3_ACCESS_KEY_ID,
+    S3_SECRET_ACCESS_KEY,
+    SAVE_DIR,
+    SECRET,
+    SESSION_SECRET,
+    ZLM_SECRET,
+)
+from visionai.utils.insecure_defaults import require_login_secret, warn_insecure_secrets
 from visionai.utils.logger import setup_logger
 from visionai.web.app import app
 
@@ -16,10 +25,20 @@ from visionai.web.app import app
 def main() -> None:
     logger = setup_logger()
     logger.info("JXVisionAI API 启动 (port 5000)")
-    if SECRET == "123456-bb6b-4889-a715-d9eb2d1925cc":
-        logger.warning(
-            "安全警告: 正在使用默认 visionai_secret，生产环境请立即修改！"
-        )
+    if not SECRET:
+        logger.error("未设置 VISIONAI_SECRET / [basic] visionai_secret，拒绝以空口令对外服务")
+        require_login_secret(SECRET)
+    warn_insecure_secrets(
+        [
+            ("VISIONAI_SECRET", SECRET),
+            ("VISIONAI_SESSION_SECRET", SESSION_SECRET),
+            ("REDIS_PASSWORD", REDIS_PASSWORD),
+            ("ZLM_SECRET", ZLM_SECRET),
+            ("S3_ACCESS_KEY_ID", S3_ACCESS_KEY_ID),
+            ("S3_SECRET_ACCESS_KEY", S3_SECRET_ACCESS_KEY),
+        ],
+        logger,
+    )
     os.makedirs(SAVE_DIR, exist_ok=True)
     # 可选 waitress
     try:

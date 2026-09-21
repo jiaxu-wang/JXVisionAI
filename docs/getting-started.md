@@ -15,6 +15,7 @@
 git clone https://github.com/jiaxu-wang/JXVisionAI.git
 cd JXVisionAI
 cp config/config.example.ini config/config.ini   # 若尚无 config.ini
+cp .env.example .env                             # 填写 VISIONAI_SECRET / REDIS_PASSWORD / MinIO / ZLM_SECRET
 # 下载 YOLO26 权重到 models/（见 §4）
 ./scripts/download_yolo26.sh
 docker compose up -d --build
@@ -30,7 +31,7 @@ bash scripts/compose_up.sh
 |----|-------------|
 | 管理端 | <http://服务器IP:15000> |
 | 健康检查 | `curl -s http://127.0.0.1:15000/healthz` · `curl -s http://127.0.0.1:15000/readyz` |
-| Redis（宿主机） | `127.0.0.1:16379`，密码见 compose（默认 `VisionAI@2026`） |
+| Redis（宿主机） | `127.0.0.1:16379`，密码见 `.env` 的 `REDIS_PASSWORD`（须自行设置） |
 | MinIO 控制台 | <http://127.0.0.1:19001> |
 | ZLM HTTP | `http://127.0.0.1:18080` |
 
@@ -82,7 +83,7 @@ cp config/config.example.ini config/config.ini
 docker compose up -d redis minio zlmediakit
 ```
 
-默认 Redis：`127.0.0.1:16379`，密码 `VisionAI@2026`。
+Redis：`127.0.0.1:16379`，密码与 `.env` 的 `REDIS_PASSWORD` 以及 `config.ini` `[redis] password` 一致。历史文档里的示例口令视为已公开，必须改掉。
 
 启用 ZLM 时：
 

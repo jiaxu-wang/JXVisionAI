@@ -30,9 +30,17 @@ function accessPageForStream(stream) {
     return accessTabForStream(stream);
 }
 
+function accessTabLabel(tab) {
+    return t('access.tab.' + tab);
+}
+
+function accessMethodLabel(method) {
+    return t('access.method.' + method);
+}
+
 function accessLabelForStream(stream) {
     const m = normalizeAccessMethodClient(stream);
-    return stream.access_label || ACCESS_LABEL[m] || m;
+    return accessMethodLabel(m) || ACCESS_LABEL[m] || m;
 }
 
 const PREVIEW_WALL_MAX = 25;
@@ -100,7 +108,8 @@ function ensurePreviewEmptyHint() {
         if (!empty) {
             empty = document.createElement('div');
             empty.className = 'preview-wall-empty';
-            empty.textContent = '双击左侧通道开始预览';
+            empty.setAttribute('data-i18n', 'preview.empty');
+            empty.textContent = t('preview.empty');
             grid.appendChild(empty);
         }
     } else if (empty) {
@@ -149,7 +158,7 @@ function addPreviewWallTile(spec) {
         return;
     }
     if (previewWallSlots.length >= PREVIEW_WALL_MAX) {
-        showMessage('最多同时预览 25 路，请先关闭一路', 'error');
+        showMessage(t('preview.maxSlots'), 'error');
         return;
     }
     ensurePreviewPage();
@@ -165,10 +174,10 @@ function addPreviewWallTile(spec) {
     tile.innerHTML =
         '<div class="preview-wall-head">' +
             '<span class="preview-wall-title" title="' + escapeHtml(title) + '">' + escapeHtml(title) + '</span>' +
-            '<button type="button" class="preview-wall-close" title="关闭" aria-label="关闭">×</button>' +
+            '<button type="button" class="preview-wall-close" title="' + escapeHtml(t('common.close')) + '" aria-label="' + escapeHtml(t('common.close')) + '">×</button>' +
         '</div>' +
         '<video playsinline muted></video>' +
-        '<div class="preview-wall-status">连接中…</div>';
+        '<div class="preview-wall-status">' + escapeHtml(t('preview.connecting')) + '</div>';
     const video = tile.querySelector('video');
     const statusEl = tile.querySelector('.preview-wall-status');
     const slot = {
@@ -197,7 +206,7 @@ function addPreviewWallTile(spec) {
         onError: function (msg) {
             if (statusEl) {
                 statusEl.style.display = '';
-                statusEl.textContent = msg || '播放失败';
+                statusEl.textContent = msg || t('preview.playFailed');
             }
         }
     });
@@ -206,7 +215,7 @@ function addPreviewWallTile(spec) {
 function startPreviewWallStream(streamId, name) {
     streamId = String(streamId || '').trim();
     if (!streamId) {
-        showMessage('该流缺少 ID，请保存配置后重试', 'error');
+        showMessage(t('preview.needId'), 'error');
         return;
     }
     addPreviewWallTile({
@@ -222,7 +231,7 @@ async function startPreviewWallGb(deviceId, channelId, name) {
     deviceId = String(deviceId || '').trim();
     channelId = String(channelId || '').trim();
     if (!deviceId || !channelId) {
-        showMessage('缺少设备或通道', 'error');
+        showMessage(t('preview.needDevCh'), 'error');
         return;
     }
     const key = previewWallKeyGb(deviceId, channelId);
@@ -234,17 +243,17 @@ async function startPreviewWallGb(deviceId, channelId, name) {
     }
     if (previewWallPending[key]) return;
     if (previewWallSlots.length >= PREVIEW_WALL_MAX) {
-        showMessage('最多同时预览 25 路，请先关闭一路', 'error');
+        showMessage(t('preview.maxSlots'), 'error');
         return;
     }
     previewWallPending[key] = true;
-    showMessage('正在点播…', 'success');
+    showMessage(t('preview.inviting'), 'success');
     try {
         const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(deviceId) +
             '/channels/' + encodeURIComponent(channelId) + '/preview', { method: 'POST' });
         const j = await fetchJsonOrThrow(r);
         if (!j.success) {
-            showMessage(j.message || '点播失败', 'error');
+            showMessage(j.message || t('preview.playFail'), 'error');
             return;
         }
         const zlmStream = j.zlm_stream || '';
@@ -274,9 +283,9 @@ async function startPreviewWallGb(deviceId, channelId, name) {
             });
             return;
         }
-        showMessage('未返回媒体流', 'error');
+        showMessage(t('preview.noMedia'), 'error');
     } catch (e) {
-        showMessage('点播失败: ' + (e.message || e), 'error');
+        showMessage(t('preview.playFail') + ': ' + (e.message || e), 'error');
     } finally {
         delete previewWallPending[key];
     }
@@ -297,7 +306,7 @@ function previewNavTypeGroupHtml(kind, title, innerHtml, count) {
 function previewNavLeafHtml(key, label, offline) {
     return '<button type="button" class="preview-nav-leaf' + (offline ? ' offline' : '') +
         '" data-preview-key="' + escapeHtml(key) + '"' +
-        (offline ? ' data-offline="1" title="离线，无法预览"' : ' title="双击预览"') + '>' +
+        (offline ? ' data-offline="1" title="' + escapeHtml(t('preview.offlineTitle')) + '"' : ' title="' + escapeHtml(t('preview.dblclick')) + '"') + '>' +
         '<span class="preview-nav-dot" aria-hidden="true"></span>' +
         '<span class="preview-nav-name">' + escapeHtml(label) + '</span>' +
         '</button>';
@@ -317,7 +326,7 @@ function renderPreviewNavTree(data) {
         const id = String(stream.id || '').trim();
         if (!id) return '';
         const key = previewWallKeyStream(id);
-        const offline = stream.status !== '在线';
+        const offline = !streamIsOnline(stream.status);
         previewNavLeafIndex[key] = {
             kind: 'stream',
             streamId: id,
@@ -328,9 +337,9 @@ function renderPreviewNavTree(data) {
     }
 
     const rtspInner = rtsp.map(registerStreamLeaf).filter(Boolean).join('')
-        || '<div class="preview-nav-empty">暂无</div>';
+        || '<div class="preview-nav-empty">' + t('common.none') + '</div>';
     const onvifInner = onvif.map(registerStreamLeaf).filter(Boolean).join('')
-        || '<div class="preview-nav-empty">暂无</div>';
+        || '<div class="preview-nav-empty">' + t('common.none') + '</div>';
 
     const gbInner = devices.map(function (d) {
         const did = String(d.sip_user || d.device_id || '').trim();
@@ -363,7 +372,7 @@ function renderPreviewNavTree(data) {
                 offline: offline
             };
             return previewNavLeafHtml(key, label, offline);
-        }).filter(Boolean).join('') || '<div class="preview-nav-empty">无通道</div>';
+        }).filter(Boolean).join('') || '<div class="preview-nav-empty">' + t('preview.noChannels') + '</div>';
         return '<div class="preview-nav-group' + (dOpen ? ' open' : '') + '" data-device="' + escapeHtml(did) + '">' +
             '<button type="button" class="preview-nav-device' + (dOffline ? ' offline' : '') + '">' +
                 '<span class="preview-nav-caret">' + (dOpen ? '▼' : '▶') + '</span>' +
@@ -373,12 +382,12 @@ function renderPreviewNavTree(data) {
             '</button>' +
             '<div class="preview-nav-children">' + chHtml + '</div>' +
         '</div>';
-    }).filter(Boolean).join('') || '<div class="preview-nav-empty">暂无设备</div>';
+    }).filter(Boolean).join('') || '<div class="preview-nav-empty">' + t('preview.noDevices') + '</div>';
 
     root.innerHTML =
-        previewNavTypeGroupHtml('rtsp_url', 'RTSP直连', rtspInner, rtsp.length) +
-        previewNavTypeGroupHtml('onvif', 'ONVIF', onvifInner, onvif.length) +
-        previewNavTypeGroupHtml('gb28181', '国标 28181', gbInner, devices.length);
+        previewNavTypeGroupHtml('rtsp_url', t('access.method.rtsp_url'), rtspInner, rtsp.length) +
+        previewNavTypeGroupHtml('onvif', t('access.method.onvif'), onvifInner, onvif.length) +
+        previewNavTypeGroupHtml('gb28181', t('access.method.gb28181'), gbInner, devices.length);
 
     root.querySelectorAll('.preview-nav-type, .preview-nav-device').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
@@ -406,7 +415,7 @@ function renderPreviewNavTree(data) {
             const spec = previewNavLeafIndex[key];
             if (!spec) return;
             if (spec.offline || this.classList.contains('offline')) {
-                showMessage((spec.name || '该通道') + ' 离线，无法预览', 'error');
+                showMessage(t('preview.offlineNoPreview', { name: spec.name || t('preview.thisChannel') }), 'error');
                 return;
             }
             if (spec.kind === 'gb') startPreviewWallGb(spec.deviceId, spec.channelId, spec.name);
@@ -437,7 +446,7 @@ async function refreshPreviewNavTree() {
             devices: devices
         });
     } catch (e) {
-        root.innerHTML = '<div class="preview-nav-empty">设备列表加载失败</div>';
+        root.innerHTML = '<div class="preview-nav-empty">' + t('preview.loadFail') + '</div>';
     }
 }
 

@@ -18,7 +18,7 @@ JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 *
 | 疲劳驾驶 | 准入闸 + 常连/突发密检窗 + SCRFD/眼区 PERCLOS、哈欠、低头；不合格机位拒绝 |
 | 人员聚集 | 单帧人数 ≥ 阈值，可选持续时长防抖 |
 | 告警 | Redis 记录 + 可选 SMTP / Webhook；截图本地或 MinIO/S3 |
-| Web | 管理端为 Flask + 原生 JS。主界面 `templates/admin.html` 壳 + `templates/admin/_*.html` 分片，样式/脚本在 `static/admin/` 按页拆分。状态概览、设备接入、视频预览、检测配置、历史、设置；人脸库/车牌库/训练实验室为独立页。 |
+| Web | 管理端为 Flask + 原生 JS。主界面 `templates/admin.html` 壳 + `templates/admin/_*.html` 分片，样式/脚本在 `static/admin/` 按页拆分。状态概览、设备接入、视频预览、检测配置、历史、设置、平台接入；人脸库/车牌库/训练实验室为独立页。 |
 | 语音对讲 | ONVIF RTSP Audio Backchannel（探测 + 浏览器采麦 G.711 回传）；GB28181 对讲未实现 |
 | 可选 C++ 主检 | `visionai-inferd`（ORT），`[infer] backend=cpp` 时由宿主机 `start.sh` 或自定义编排拉起 |
 
@@ -37,7 +37,7 @@ JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 *
 
 当前仓库 `docker-compose.yaml` 已包含应用服务（同镜像 `visionai:latest`，`command` 分别为 `api` / `worker` / `alert` / `sip`），挂载 `./config`、`./models`、`./visionai`、`./snapshots`、`./logs`。
 
-宿主机端口（避开 EasyAIoT）：
+宿主机端口（避开常见本机占用）：
 
 | 用途 | 宿主机端口 |
 |------|------------|

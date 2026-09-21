@@ -93,6 +93,7 @@ class RedisManager:
         object_key=None,
         storage_kind=None,
         extra=None,
+        record_id=None,
     ):
         """
         保存检测结果到Redis（使用Hash结构）
@@ -124,8 +125,16 @@ class RedisManager:
                 logger.warning(f"未找到流 {stream_name} 对应的ID，使用默认ID")
                 stream_id = f"unknown_{stream_name}"
             
-            # 时间戳作为Hash的field
-            timestamp_str = str(int(timestamp.timestamp()))
+            # Hash field：显式 record_id（同秒多类型）或 unix 秒；已存在则加后缀避免覆盖
+            hash_key = self._get_stream_hash_key(stream_id)
+            timestamp_str = str(record_id).strip() if record_id else str(int(timestamp.timestamp()))
+            if not timestamp_str:
+                timestamp_str = str(int(timestamp.timestamp()))
+            base_id = timestamp_str
+            n = 0
+            while self._redis_client.hexists(hash_key, timestamp_str):
+                n += 1
+                timestamp_str = f"{base_id}_{n}"
             
             # 构建检测数据
             detection_data = {
@@ -142,9 +151,6 @@ class RedisManager:
                 detection_data["storage_kind"] = storage_kind
             if extra:
                 detection_data["extra"] = extra
-            
-            # 使用Hash结构存储
-            hash_key = self._get_stream_hash_key(stream_id)
             
             # 保存到Hash
             self._redis_client.hset(

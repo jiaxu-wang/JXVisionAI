@@ -7,12 +7,13 @@
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     {# 按功能页拆分的静态资源；改 CSS/JS 后递增 v= 以防缓存 #}
-    {% set admin_asset_v = 1 %}
+    {% set admin_asset_v = 10 %}
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/common.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/overview.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/access.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/alerts.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/preview.css') }}?v={{ admin_asset_v }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/platform.css') }}?v={{ admin_asset_v }}">
     <script>
         (function () {
             // 捕获阶段处理侧栏导航，减少扩展脚本 stopPropagation 导致菜单无响应的情况。
@@ -52,70 +53,77 @@
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn active" data-page="overview" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">📊</span>
-                        状态概览
+                        <span data-i18n="nav.overview">状态概览</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="access" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">📥</span>
-                        设备接入
+                        <span data-i18n="nav.access">设备接入</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="preview" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">📺</span>
-                        视频预览
+                        <span data-i18n="nav.preview">视频预览</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="policy" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">🎯</span>
-                        检测配置
+                        <span data-i18n="nav.policy">检测配置</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="alerts" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">🚨</span>
-                        历史告警
+                        <span data-i18n="nav.alerts">历史告警</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <button type="button" class="menu-nav-btn" data-page="settings" onclick="return visionaiMenuActivate(event, this);">
                         <span class="menu-icon">⚙️</span>
-                        系统设置
+                        <span data-i18n="nav.settings">系统设置</span>
+                    </button>
+                </li>
+                <li class="menu-item">
+                    <button type="button" class="menu-nav-btn" data-page="platform" onclick="return visionaiMenuActivate(event, this);">
+                        <span class="menu-icon">🛰️</span>
+                        <span data-i18n="nav.platform">平台接入</span>
                     </button>
                 </li>
                 <li class="menu-item">
                     <a href="/face-library" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
                         <span class="menu-icon">👤</span>
-                        人脸库管理
+                        <span data-i18n="nav.faceLibrary">人脸库管理</span>
                     </a>
                 </li>
                 <li class="menu-item">
                     <a href="/plate-library" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
                         <span class="menu-icon">🚗</span>
-                        车牌库管理
+                        <span data-i18n="nav.plateLibrary">车牌库管理</span>
                     </a>
                 </li>
                 <li class="menu-item">
                     <a href="/training" style="display:block;padding:12px 20px;color:#495057;text-decoration:none;border-radius:8px;">
                         <span class="menu-icon">🧪</span>
-                        训练实验室
+                        <span data-i18n="nav.training">训练实验室</span>
                     </a>
                 </li>
                 <li class="menu-item" style="margin-top: 40px; border-top: 1px solid #e9ecef; padding-top: 20px;">
                     <a href="javascript:void(0)" onclick="logout(); return false;">
                         <span class="menu-icon">🚪</span>
-                        退出登录
+                        <span data-i18n="nav.logout">退出登录</span>
                     </a>
                 </li>
             </ul>
         </div>
-
+        
         <!-- 主内容区 -->
         <div class="main-content">
             <div class="top-bar">
                 <h2 class="page-title" id="pageTitle">状态概览</h2>
+                <div id="langSwitch" class="lang-switch" aria-label="Language"></div>
             </div>
             <div class="content">
                 {% include 'admin/_overview.html' %}
@@ -124,14 +132,20 @@
                 {% include 'admin/_policy.html' %}
                 {% include 'admin/_alerts.html' %}
                 {% include 'admin/_settings.html' %}
+                {% include 'admin/_platform.html' %}
                 <div id="message" class="message"></div>
             </div>
         </div>
     </div>
-
+    
     {% include 'admin/_modals.html' %}
-
+    
+    <script>
+        window.__PLATFORM_EMBED_URL__ = {{ (platform_embed_url or '')|tojson }};
+        window.__VISIONAI_DEFAULT_LOCALE__ = {{ (ui_language or 'zh')|tojson }};
+    </script>
     {# 经典脚本（非 module），共享全局函数；顺序不可随意调换 #}
+    <script src="{{ url_for('static', filename='i18n/i18n.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/common.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/preview.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/nav.js') }}?v={{ admin_asset_v }}"></script>
@@ -140,6 +154,7 @@
     <script src="{{ url_for('static', filename='admin/js/alerts.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/access.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/settings.js') }}?v={{ admin_asset_v }}"></script>
+    <script src="{{ url_for('static', filename='admin/js/platform.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/devices.js') }}?v={{ admin_asset_v }}"></script>
     <script src="{{ url_for('static', filename='admin/js/boot.js') }}?v={{ admin_asset_v }}"></script>
 </body>

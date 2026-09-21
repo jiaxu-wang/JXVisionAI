@@ -426,8 +426,9 @@ body {
     padding: 20px 30px;
     border-bottom: 1px solid #e9ecef;
     display: flex;
-    justify-content: flex-start;
+    justify-content: space-between;
     align-items: center;
+    gap: 16px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
@@ -435,6 +436,33 @@ body {
     font-size: 24px;
     font-weight: 600;
     color: #333;
+}
+
+.lang-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.lang-switch button {
+    border: none;
+    background: transparent;
+    color: #6c757d;
+    cursor: pointer;
+    padding: 4px 2px;
+    font-size: 13px;
+}
+
+.lang-switch button.active {
+    color: #1976D2;
+    font-weight: 600;
+}
+
+.lang-switch-sep {
+    color: #ced4da;
 }
 
 /* 内容区域 */
@@ -777,6 +805,14 @@ input:checked + .slider:before {
     border-color: #2196F3;
     color: #1565c0;
     font-weight: 600;
+}
+
+.settings-meta {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #6c757d;
+    line-height: 1.5;
+    word-break: break-all;
 }
 
 .config-units-wrap {

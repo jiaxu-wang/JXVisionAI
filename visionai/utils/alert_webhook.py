@@ -121,6 +121,26 @@ def _send_webhooks_sync(
             )
 
 
+def resolved_alert_webhook_urls(
+    stream_urls: Optional[Sequence[str]] = None,
+    *,
+    stream_enabled: bool = False,
+) -> List[str]:
+    """每路 URL（仅当该路开启）与全局 outbound_webhook_url 合并去重。"""
+    combined: List[str] = []
+    if stream_enabled:
+        combined.extend(list(stream_urls or []))
+    try:
+        from visionai.config.settings import OUTBOUND_WEBHOOK_URL
+
+        global_url = (OUTBOUND_WEBHOOK_URL or "").strip()
+        if global_url:
+            combined.append(global_url)
+    except Exception:  # noqa: BLE001
+        pass
+    return normalize_stream_webhook_urls(combined)
+
+
 def notify_alert_by_webhooks(
     stream_name: str,
     stream_id: Optional[str],
@@ -131,22 +151,43 @@ def notify_alert_by_webhooks(
     storage_kind: Optional[str],
     detection_id: str,
     timestamp: datetime,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """后台线程对每个 URL POST 一次 JSON。"""
     urls = list(webhook_urls)
     if not urls:
         return
+    image_url = ""
+    try:
+        from visionai.utils.open_api_auth import build_alert_image_url
+
+        image_url = build_alert_image_url(detection_id)
+    except Exception:  # noqa: BLE001
+        image_url = ""
+    locale = "zh"
+    try:
+        from visionai.utils.type_display import alert_ui_locale, display_detection_types
+
+        locale = alert_ui_locale()
+        labels = display_detection_types(detection_types, locale)
+    except Exception:  # noqa: BLE001
+        labels = list(detection_types)
     payload = {
         "event": "visionai.alert",
         "stream_name": stream_name,
         "stream_id": stream_id or "",
         "detection_id": detection_id,
         "detection_types": list(detection_types),
+        "detection_type_labels": labels,
+        "locale": locale,
         "timestamp": timestamp.isoformat(timespec="seconds"),
         "image_path": image_path or "",
         "object_key": object_key or "",
         "storage_kind": storage_kind or "",
+        "image_url": image_url,
     }
+    if extra:
+        payload["extra"] = extra
     thread = threading.Thread(
         target=_send_webhooks_sync,
         args=(urls, payload, stream_name, _DEFAULT_TIMEOUT_SEC),

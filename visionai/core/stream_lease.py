@@ -34,7 +34,12 @@ def try_acquire_lease(stream_id: str, worker_id: str) -> bool:
     if not STREAM_LEASE_ENABLED:
         return True
     if not stream_id or not redis_manager or not redis_manager._redis_client:
-        return True
+        logger.error(
+            "stream lease enabled but Redis is unavailable; refusing to process %s "
+            "(avoids duplicate detection across workers)",
+            stream_id,
+        )
+        return False
     client = redis_manager._redis_client
     key = _lease_key(stream_id)
     ttl = int(STREAM_LEASE_TTL_SEC)
@@ -48,8 +53,12 @@ def try_acquire_lease(stream_id: str, worker_id: str) -> bool:
             return True
         return False
     except Exception as e:  # noqa: BLE001
-        logger.warning("lease acquire failed: %s", e)
-        return True  # Redis 故障时降级为全量处理
+        logger.error(
+            "lease acquire failed for %s: %s; refusing to process while HA lease is on",
+            stream_id,
+            e,
+        )
+        return False
 
 
 def renew_lease(stream_id: str, worker_id: str) -> bool:

@@ -4,7 +4,8 @@
 优先级：环境变量 > ``config/config.ini``（多分节，映射为规范键）> 本文件内置默认。
 修改 ini 或环境变量后需重启进程。可用 ``VISIONAI_CONFIG`` 指定其它 ini 路径。
 
-分节示例：``[basic]`` ``[redis]`` ``[minio]`` ``[email]`` ``[models]`` ``[preview]``。
+分节示例：``[basic]`` ``[redis]`` ``[minio]`` ``[email]`` ``[models]`` ``[preview]`` ``[integration]``。
+``[ui] language`` 同时作为管理端首次访问默认语言，以及告警推送（webhook / 邮件）类型展示名的语言；检测协议值与 Redis 仍用中文。
 仍兼容旧版单节 ``[visionai]``。Redis/对象存储等键前缀沿用历史标识 ``visionai``。
 """
 
@@ -14,8 +15,6 @@ import warnings
 from typing import Dict, List, Optional, Union
 
 from visionai.config.ini_sections import flatten_configparser, has_valid_sections
-
-_DEFAULT_SECRET = "123456-bb6b-4889-a715-d9eb2d1925cc"
 
 # .../visionai/config/settings.py → 项目根
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
@@ -132,11 +131,27 @@ def _secret() -> str:
         return _INI["visionai_secret"]
     if "secret" in _INI and _INI["secret"]:
         return _INI["secret"]
-    return _DEFAULT_SECRET
+    return ""
 
 
-# Flask 会话密钥
+# Flask 登录口令（VISIONAI_SECRET / [basic] visionai_secret）
 SECRET = _secret()
+
+
+def _session_secret() -> str:
+    v = (os.environ.get("VISIONAI_SESSION_SECRET") or "").strip()
+    if v:
+        return v
+    ini_v = (_INI.get("session_secret") or "").strip()
+    if ini_v:
+        return ini_v
+    if SECRET:
+        return SECRET
+    return "visionai-dev-only-set-VISIONAI_SESSION_SECRET"
+
+
+SESSION_SECRET = _session_secret()
+ALLOW_PROCESS_RESTART = _cfg_bool("VISIONAI_ALLOW_PROCESS_RESTART", False)
 
 # 检测
 DETECTION_INTERVAL = _cfg_int("DETECTION_INTERVAL", 15)
@@ -248,9 +263,9 @@ INFER_DEVICE = _cfg_str("INFER_DEVICE", "")  # 空则继承 [basic] inference_de
 # ---------- ZLMediaKit 媒体面 [zlm] ----------
 ZLM_ENABLED = _cfg_bool("ZLM_ENABLED", False)
 ZLM_API_BASE = _cfg_str("ZLM_API_BASE", "http://127.0.0.1:8080").strip()
-ZLM_SECRET = _cfg_str("ZLM_SECRET", "jxvisionai-zlm-a7f3c91e4b2d6e80").strip()
+ZLM_SECRET = _cfg_str("ZLM_SECRET", "").strip()
 ZLM_VHOST = _cfg_str("ZLM_VHOST", "__defaultVhost__").strip() or "__defaultVhost__"
-ZLM_APP = _cfg_str("ZLM_APP", "live").strip() or "live"
+ZLM_APP = _cfg_str("ZLM_APP", "jvai").strip() or "jvai"
 ZLM_RTSP_PORT = max(1, min(65535, _cfg_int("ZLM_RTSP_PORT", 8554)))
 ZLM_HTTP_PORT = max(1, min(65535, _cfg_int("ZLM_HTTP_PORT", 8080)))
 ZLM_PREFER_LOCAL_PULL = _cfg_bool("ZLM_PREFER_LOCAL_PULL", True)
@@ -271,11 +286,25 @@ ALERT_QUEUE_ENABLED = _cfg_bool("ALERT_QUEUE_ENABLED", True)
 ALERT_QUEUE_MAX_LEN = max(100, _cfg_int("ALERT_QUEUE_MAX_LEN", 2000))
 ALERT_QUEUE_BLOCK_SEC = max(1, _cfg_int("ALERT_QUEUE_BLOCK_SEC", 5))
 
+# ---------- 第三方开放集成 [integration] ----------
+# 机对机 API 密钥（请求头 X-Api-Key）；空则开放 API 一律 401
+OPEN_API_KEY = _cfg_str("OPEN_API_KEY", "").strip()
+# 告警 image_url 的对外根（无尾斜杠），如 http://JX_HOST:15000
+PUBLIC_BASE_URL = _cfg_str("PUBLIC_BASE_URL", "").strip().rstrip("/")
+# 全局告警 Webhook；与每路 URL 合并去重
+OUTBOUND_WEBHOOK_URL = _cfg_str("OUTBOUND_WEBHOOK_URL", "").strip()
+# 允许 iframe 本管理页的父源（空格/逗号分隔）；空则不写 CSP
+EMBED_FRAME_ANCESTORS = _cfg_str("EMBED_FRAME_ANCESTORS", "").strip()
+# 侧栏「平台接入」嵌入页 URL；空则显示未接入
+PLATFORM_EMBED_URL = _cfg_str("PLATFORM_EMBED_URL", "").strip()
+
 # 多 worker 流租约（P3 HA）
 STREAM_LEASE_ENABLED = _cfg_bool("STREAM_LEASE_ENABLED", False)
 STREAM_LEASE_TTL_SEC = max(5, _cfg_int("STREAM_LEASE_TTL_SEC", 30))
 STREAM_LEASE_RENEW_SEC = max(2, min(STREAM_LEASE_TTL_SEC - 1, _cfg_int("STREAM_LEASE_RENEW_SEC", 10)))
 WORKER_ID = _cfg_str("WORKER_ID", "").strip()
+# 单路解码/推理无进展超过该秒数则标离线并释放线程槽，避免拖死整个 worker
+STREAM_WATCHDOG_SEC = max(15, _cfg_int("STREAM_WATCHDOG_SEC", 120))
 
 # 打电话 / 玩手机：YOLO+COCO overlap 后用人体姿态（YOLO26-pose）把手机中心与耳根/口鼻/手腕比距分类
 POSE_MODEL = _cfg_path("POSE_MODEL", _models_default("yolo26s-pose.pt"))
@@ -322,9 +351,9 @@ except Exception:  # noqa: BLE001
     APP_TIMEZONE = "UTC"
 
 # Redis
-REDIS_HOST = _cfg_str("REDIS_HOST", "192.168.2.159")
+REDIS_HOST = _cfg_str("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = _cfg_int("REDIS_PORT", 16379)
-REDIS_PASSWORD = _cfg_str("REDIS_PASSWORD", "VisionAI@2026")
+REDIS_PASSWORD = _cfg_str("REDIS_PASSWORD", "")
 REDIS_DB = _cfg_int("REDIS_DB", 0)
 REDIS_KEY_PREFIX = _cfg_str("REDIS_KEY_PREFIX", "visionai/")
 

@@ -1,38 +1,38 @@
                 <!-- 历史告警页面 -->
                 <div id="alertsPage" class="page-content" style="display: none;">
                     <div class="card">
-                        <h2>历史检测记录</h2>
+                        <h2 data-i18n="alerts.records">历史检测记录</h2>
                         <div class="alerts-filters">
-                            <label>开始时间
-                                <input type="datetime-local" id="alertFilterStart" title="留空表示不限制">
+                            <label><span data-i18n="alerts.start">开始时间</span>
+                                <input type="datetime-local" id="alertFilterStart" data-i18n-title="alerts.noLimit" title="留空表示不限制">
                             </label>
-                            <label>结束时间
-                                <input type="datetime-local" id="alertFilterEnd" title="留空表示不限制">
+                            <label><span data-i18n="alerts.end">结束时间</span>
+                                <input type="datetime-local" id="alertFilterEnd" data-i18n-title="alerts.noLimit" title="留空表示不限制">
                             </label>
-                            <label>视频
-                                <select id="alertFilterStream" title="按视频筛选">
-                                    <option value="">全部视频</option>
+                            <label><span data-i18n="alerts.video">视频</span>
+                                <select id="alertFilterStream" data-i18n-title="alerts.filterVideo" title="按视频筛选">
+                                    <option value="" data-i18n="alerts.allVideos">全部视频</option>
                                 </select>
                             </label>
-                            <label>检测类型
-                                <select id="alertFilterType" title="按检测类型筛选">
-                                    <option value="">全部类型</option>
+                            <label><span data-i18n="alerts.type">检测类型</span>
+                                <select id="alertFilterType" data-i18n-title="alerts.filterType" title="按检测类型筛选">
+                                    <option value="" data-i18n="alerts.allTypes">全部类型</option>
                                 </select>
                             </label>
                             <div class="filter-actions">
-                                <button type="button" class="btn-filter-apply" id="alertFilterApply">查询</button>
-                                <button type="button" class="btn-filter-reset" id="alertFilterReset">重置</button>
+                                <button type="button" class="btn-filter-apply" id="alertFilterApply" data-i18n="alerts.query">查询</button>
+                                <button type="button" class="btn-filter-reset" id="alertFilterReset" data-i18n="alerts.reset">重置</button>
                             </div>
                         </div>
                         <table class="alerts-table">
                             <thead>
                                 <tr>
                                     <th><input type="checkbox" id="selectAll"></th>
-                                    <th>时间</th>
-                                    <th>视频</th>
-                                    <th>检测类型</th>
-                                    <th>截图</th>
-                                    <th>操作</th>
+                                    <th data-i18n="alerts.time">时间</th>
+                                    <th data-i18n="alerts.video">视频</th>
+                                    <th data-i18n="alerts.type">检测类型</th>
+                                    <th data-i18n="alerts.snapshot">截图</th>
+                                    <th data-i18n="alerts.action">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="alertsTableBody">
@@ -41,8 +41,8 @@
                         </table>
                         <div class="alerts-pagination-wrap">
                             <div class="alerts-page-size">
-                                <label for="alertsPageSizeSelect">每页显示</label>
-                                <select id="alertsPageSizeSelect" class="page-size-select" title="选择每页记录条数">
+                                <label for="alertsPageSizeSelect" data-i18n="alerts.pageSize">每页显示</label>
+                                <select id="alertsPageSizeSelect" class="page-size-select" data-i18n-title="alerts.pageSizeTitle" title="选择每页记录条数">
                                     <option value="5" selected>5</option>
                                     <option value="10">10</option>
                                     <option value="15">15</option>
@@ -50,14 +50,14 @@
                                     <option value="30">30</option>
                                     <option value="50">50</option>
                                 </select>
-                                <span style="color:#6c757d;font-size:13px;">条</span>
+                                <span style="color:#6c757d;font-size:13px;" data-i18n="alerts.rows">条</span>
                             </div>
                             <div class="pagination" id="pagination">
                                 <!-- 分页控件将通过JavaScript动态生成 -->
                             </div>
                         </div>
                         <div class="button-group" style="margin-top: 10px;">
-                            <button type="button" class="btn-delete" id="deleteSelectedBtn">🗑️ 删除选中</button>
+                            <button type="button" class="btn-delete" id="deleteSelectedBtn">🗑️ <span data-i18n="alerts.deleteSelected">删除选中</span></button>
                         </div>
                     </div>
                 </div>

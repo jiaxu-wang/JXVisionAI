@@ -1,7 +1,8 @@
-# ---------- 本地配置与密钥（入库仅 config.example.ini）----------
+# ---------- 本地配置与密钥（入库仅 config.example.ini / .env.example）----------
 config/config.ini
 config/*.bak
 config/config.ini.bak
+.env
 
 # ---------- Python ----------
 __pycache__/
@@ -43,6 +44,7 @@ native/inferd/testdata/*.meta
 *.npy
 models/hf_smoking/
 models/buffalo_l*
+models/specialists/_weapon_cache/
 
 # 误下到仓库根目录的 HF 配置副本
 /config.json
@@ -59,3 +61,8 @@ training_lab_data/
 
 # ---------- 人脸识别旧版本地库（已迁 Redis+MinIO；若本地重建仍忽略）----------
 face_library/
+
+# ---------- 文档 ----------
+docs/*.architecture.html
+docs/*.visual-check.json
+docs/*.architecture.json
