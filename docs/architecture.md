@@ -37,19 +37,19 @@ JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 *
 
 当前仓库 `docker-compose.yaml` 已包含应用服务（同镜像 `visionai:latest`，`command` 分别为 `api` / `worker` / `alert` / `sip`），挂载 `./config`、`./models`、`./visionai`、`./snapshots`、`./logs`。
 
-宿主机端口（避开常见本机占用）：
+Compose 全服务 **host 网络**（ONVIF WS-Discovery 组播、国标 RTP 收流需要宿主机网络），端口直接绑宿主机（避开常见本机占用）：
 
 | 用途 | 宿主机端口 |
 |------|------------|
-| Web / API | **15000** → 容器 5000 |
-| Redis | **16379** → 6379 |
+| Web / API | **15000**（容器 `PORT=15000`） |
+| Redis | **16379** |
 | MinIO API / 控制台 | **19000** / **19001** |
-| ZLM HTTP | **18080** → 80 |
-| ZLM RTSP | **18554** → 554 |
-| ZLM RTMP | **11935** → 1935 |
-| ZLM WebRTC | **18000** → 8000（tcp/udp） |
-| 国标 SIP | **15060** → 15060（tcp/udp；平台默认监听 15060） |
-| 国标 PS/RTP | **10000–10200** → 10000–10200（tcp+udp；Invite 占用独立口，跳过 10000） |
+| ZLM HTTP | **18080** |
+| ZLM RTSP | **18554** |
+| ZLM RTMP | **11935** |
+| ZLM WebRTC | **18000**（tcp/udp） |
+| 国标 SIP | **15060**（tcp/udp；平台默认监听 15060） |
+| 国标 PS/RTP | **10000–10200**（tcp+udp；Invite 占用独立口，跳过 10000） |
 
 ---
 
@@ -63,10 +63,10 @@ flowchart LR
   end
 
   subgraph compose [docker compose]
-    API["visionai-api<br/>:15000→5000"]
+    API["visionai-api<br/>:15000"]
     Worker["visionai-worker<br/>拉流 + 检测"]
     AlertW["visionai-alert<br/>邮件 / Webhook"]
-    Sip["visionai-sip<br/>:15060→5060"]
+    Sip["visionai-sip<br/>:15060"]
     Redis[(Redis<br/>:16379)]
     MinIO[(MinIO<br/>:19000)]
     ZLM[ZLMediaKit<br/>:18080 / :18554]

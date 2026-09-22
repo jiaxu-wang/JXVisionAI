@@ -72,7 +72,7 @@ docker compose restart visionai-api visionai-worker visionai-alert
 ```
 
 容器内访问摄像机 RTSP **勿用** `127.0.0.1`，应使用摄像头局域网 IP。  
-**ONVIF 扫描**：桥接网络下组播常失败，请用管理端 **手动 IP**。
+Compose 全服务 **host 网络**：**ONVIF 扫描**（WS-Discovery 组播）与国标 RTP 收流可直接使用。
 
 登录密钥：`VISIONAI_SECRET`（compose 环境变量）或 `config.ini` → `visionai_secret`（生产务必修改）。
 

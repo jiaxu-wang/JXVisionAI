@@ -24,7 +24,9 @@ from visionai.web.app import app
 
 def main() -> None:
     logger = setup_logger()
-    logger.info("JXVisionAI API 启动 (port 5000)")
+    # 端口：环境变量 PORT / VISIONAI_PORT 优先，默认 5000（compose host 网络下注入 15000）
+    port = int(os.environ.get("PORT") or os.environ.get("VISIONAI_PORT") or "5000")
+    logger.info("JXVisionAI API 启动 (port %s)", port)
     if not SECRET:
         logger.error("未设置 VISIONAI_SECRET / [basic] visionai_secret，拒绝以空口令对外服务")
         require_login_secret(SECRET)
@@ -44,9 +46,9 @@ def main() -> None:
     try:
         from waitress import serve
 
-        serve(app, host="0.0.0.0", port=5000, threads=8)
+        serve(app, host="0.0.0.0", port=port, threads=8)
     except ImportError:
-        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=True)
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
 
 if __name__ == "__main__":

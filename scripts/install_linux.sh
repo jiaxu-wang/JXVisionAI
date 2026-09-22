@@ -409,6 +409,17 @@ fi
 info "构建并启动服务（首次构建较慢）: ${UP_SERVICES[*]}"
 "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --build "${UP_SERVICES[@]}"
 
+# ZLM secret 一致性：容器是长驻的，配置变了 compose 不会自动重启。
+# 比较容器内实际加载的 secret 与本次期望值，不一致则强制重建。
+if [ "$DEPLOY_ZLM" = "1" ]; then
+    RUNNING_ZLM_SECRET="$(docker exec visionai-zlm sh -c 'grep -E "^secret" /opt/media/conf/config.ini 2>/dev/null | head -n1 | cut -d= -f2' 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -n "$RUNNING_ZLM_SECRET" ] && [ "$RUNNING_ZLM_SECRET" != "$ZLM_SECRET" ]; then
+        warn "ZLM 容器 secret 与本次配置不一致，强制重建 zlmediakit"
+        "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate zlmediakit
+        sleep 2
+    fi
+fi
+
 # ---------- 7. 等待就绪 ----------
 info "等待 API 就绪"
 ready=0

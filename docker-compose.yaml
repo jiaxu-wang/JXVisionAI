@@ -1,11 +1,10 @@
-# JXVisionAI + Redis + MinIO + ZLMediaKit
-# 使用：cp .env.example .env 并填写密钥，然后 docker compose up -d --build
-# 管理界面：http://localhost:15000
-# MinIO 控制台：http://localhost:19001
-# Redis 对外：16379
+# JXVisionAI + Redis + MinIO + ZLMediaKit（host 网络）
+# 使用：./scripts/install_linux.sh（推荐）或 cp .env.example .env 填密钥后 docker compose up -d --build
 #
-# 宿主机端口（避开常见本机占用）：
-#   Web 15000 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935 | WebRTC 18000
+# 全部服务 network_mode: host —— ONVIF WS-Discovery 组播、国标 RTP 收流都要求宿主机网络。
+# 端口直接绑宿主机（与旧桥接映射保持一致，无 ports 映射）：
+#   Web 15000 | Redis 16379 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935
+#   WebRTC 18000 | 国标 SIP 15060 | PS/RTP 10000-10200
 #
 # 应用拆为四服务（同镜像）：visionai-api / visionai-worker / visionai-alert / visionai-sip
 # 模型与配置通过 volume 挂载，改 config.ini / 换权重后重启对应容器即可。
@@ -16,13 +15,14 @@ x-visionai-common: &visionai-common
     context: .
     dockerfile: Dockerfile
     args:
-      ORT_PKG: onnxruntime
+      ORT_PKG: ${ORT_PKG:-onnxruntime}
+  network_mode: host
   environment: &visionai-env
     # 应用时区（IANA）。优先环境变量 VISIONAI_TIMEZONE；未设则读 config.ini [basic] timezone
     VISIONAI_TIMEZONE: ${VISIONAI_TIMEZONE:-}
     TZ: ${VISIONAI_TIMEZONE:-Asia/Shanghai}
-    REDIS_HOST: redis
-    REDIS_PORT: "6379"
+    REDIS_HOST: 127.0.0.1
+    REDIS_PORT: "16379"
     REDIS_PASSWORD: ${REDIS_PASSWORD}
     REDIS_DB: "0"
     VISIONAI_SECRET: ${VISIONAI_SECRET}
@@ -30,30 +30,30 @@ x-visionai-common: &visionai-common
     VISIONAI_ALLOW_PROCESS_RESTART: ${VISIONAI_ALLOW_PROCESS_RESTART:-0}
     SAVE_DIR: /app/snapshots
     LOG_DIR: /app/logs
-    INFERENCE_DEVICE: cpu
-    ONNX_PROVIDER: cpu
+    INFERENCE_DEVICE: ${INFERENCE_DEVICE:-cpu}
+    ONNX_PROVIDER: ${ONNX_PROVIDER:-cpu}
     OBJECT_STORAGE_ENABLED: "true"
     OBJECT_STORAGE_KEEP_LOCAL: "true"
-    S3_ENDPOINT_URL: http://minio:9000
+    S3_ENDPOINT_URL: http://127.0.0.1:19000
     S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
     S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     S3_BUCKET: visionai
     S3_USE_SSL: "false"
     S3_REGION: us-east-1
     ZLM_ENABLED: "true"
-    ZLM_API_BASE: http://zlmediakit:80
+    ZLM_API_BASE: http://127.0.0.1:18080
     ZLM_SECRET: ${ZLM_SECRET}
     ZLM_HTTP_PORT: "18080"
     ZLM_RTSP_PORT: "18554"
     ZLM_APP: "jvai"
     ZLM_PUBLIC_HOST: "127.0.0.1"
     ZLM_RTC_PORT: "18000"
-    ZLM_PULL_HOST: zlmediakit
-    ZLM_PULL_RTSP_PORT: "554"
+    ZLM_PULL_HOST: 127.0.0.1
+    ZLM_PULL_RTSP_PORT: "18554"
     ZLM_PREFER_LOCAL_PULL: "true"
     ZLM_FALLBACK_DIRECT_RTSP: "true"
-    NO_PROXY: "127.0.0.1,localhost,redis,minio,zlmediakit"
-    no_proxy: "127.0.0.1,localhost,redis,minio,zlmediakit"
+    NO_PROXY: "127.0.0.1,localhost"
+    no_proxy: "127.0.0.1,localhost"
   volumes:
     - ./snapshots:/app/snapshots
     - ./logs:/app/logs
@@ -75,13 +75,12 @@ services:
   minio:
     image: minio/minio:latest
     container_name: visionai-minio
-    command: server /data --console-address ":9001"
+    network_mode: host
+    # host 网络：直接绑宿主机 19000（S3 API）/ 19001（控制台）
+    command: server /data --address ":19000" --console-address ":19001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports:
-      - "19000:9000"
-      - "19001:9001"
     volumes:
       - ./minio-data:/data
     restart: unless-stopped
@@ -89,9 +88,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: visionai-redis
+    network_mode: host
     working_dir: /data
+    # host 网络：绑 16379，避开宿主机可能存在的 6379
     command:
       - redis-server
+      - --port
+      - "16379"
       - --dir
       - /data
       - --appendonly
@@ -102,13 +105,11 @@ services:
       - ${REDIS_PASSWORD}
       - --stop-writes-on-bgsave-error
       - "no"
-    ports:
-      - "16379:6379"
     volumes:
       - ./redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -p 16379 -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -119,16 +120,10 @@ services:
   zlmediakit:
     image: zlmediakit/zlmediakit:master
     container_name: visionai-zlm
-    ports:
-      - "18080:80"
-      - "18554:554"
-      - "11935:1935"
-      - "18000:8000/udp"
-      - "18000:8000/tcp"
-      - "10000-10200:10000-10200/udp"
-      - "10000-10200:10000-10200/tcp"
+    network_mode: host
     volumes:
-      - ./config/zlm/config.ini:/opt/media/conf/config.ini:ro
+      # host 网络专用配置：HTTP 18080 / RTSP 18554 / RTMP 11935 / WebRTC 18000 / RTP 10000-10200
+      - ./config/zlm/config.host.ini:/opt/media/conf/config.ini:ro
       - ./logs/zlm:/opt/media/bin/log
     restart: unless-stopped
 
@@ -136,10 +131,11 @@ services:
     <<: *visionai-common
     container_name: visionai-api
     command: ["api"]
-    ports:
-      - "15000:5000"
+    environment:
+      <<: *visionai-env
+      PORT: "15000"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:15000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -166,8 +162,5 @@ services:
     <<: *visionai-common
     container_name: visionai-sip
     command: ["sip"]
-    ports:
-      - "15060:15060/udp"
-      - "15060:15060/tcp"
     healthcheck:
       disable: true

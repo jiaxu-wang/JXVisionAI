@@ -8,7 +8,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [getting-started.md](getting-started.md) | **整栈 Compose** / 宿主机安装、YOLO26 下载与切换 |
+| [getting-started.md](getting-started.md) | **一键部署脚本** / 整栈 Compose / 宿主机安装、YOLO26 下载与切换 |
 | [architecture.md](architecture.md) | Compose 四服务、流水线、能力一览、Redis / ZLM / 存储 |
 | [configuration.md](configuration.md) | `config.ini` 分节、infer / zlm、环境变量 |
 | [user-guide.md](user-guide.md) | Web 管理端：设备接入 / 检测配置、加人脸 |
