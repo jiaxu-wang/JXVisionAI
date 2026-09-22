@@ -33,6 +33,16 @@ cd JXVisionAI
 DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
 ```
 
+安装后的日常管理（同一脚本）：
+
+```bash
+./scripts/install_linux.sh start      # 启动
+./scripts/install_linux.sh stop       # 停止（容器与数据保留）
+./scripts/install_linux.sh restart    # 重启
+./scripts/install_linux.sh uninstall  # 卸载：删容器，保留代码 / .env / config.ini / models
+# uninstall 可选：--purge-data 连数据目录一起删；--keep-image 保留 visionai:latest 镜像
+```
+
 可选环境变量：`DEPLOY_INFERENCE=gpu`、`DEPLOY_YOLO_SIZE=m`、`DEPLOY_MINIO=0`、`DEPLOY_ZLM=0`、`DEPLOY_SKIP_MODEL_DOWNLOAD=1`。
 
 ---

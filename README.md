@@ -49,6 +49,7 @@ git clone https://github.com/jiaxu-wang/JXVisionAI.git
 cd JXVisionAI
 ./scripts/install_linux.sh          # x86_64；ARM64 用 scripts/install_linux_arm.sh
 # 无人值守全默认：DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
+# 日常管理：./scripts/install_linux.sh start|stop|restart|uninstall（uninstall 不删代码）
 ```
 
 **或手动整栈 Docker**（API + worker + alert + sip + Redis + MinIO + ZLM）：

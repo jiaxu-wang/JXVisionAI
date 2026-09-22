@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# JXVisionAI 一键安装（Docker Compose），适用 x86_64 Linux。
+# JXVisionAI 一键安装/管理（Docker Compose），适用 x86_64 Linux。
 # ARM64 / aarch64 系统请改用 scripts/install_linux_arm.sh。
-# 用法：
-#   ./scripts/install_linux.sh                 # 交互式选择推理设备 / 模型档位 / MinIO / ZLM
-#   DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh   # 全部用默认值，不提问
-#   DEPLOY_INFERENCE=gpu DEPLOY_YOLO_SIZE=m ./scripts/install_linux.sh
 #
-# 环境变量（可选）：
+# 用法：
+#   ./scripts/install_linux.sh              # 安装并启动（交互式选择推理设备 / 模型档位 / MinIO / ZLM）
+#   ./scripts/install_linux.sh start        # 启动（容器不存在则创建）
+#   ./scripts/install_linux.sh stop         # 停止（容器保留，数据不删）
+#   ./scripts/install_linux.sh restart      # 重启
+#   ./scripts/install_linux.sh uninstall    # 卸载服务（删容器；不删仓库代码 / .env / config.ini / models）
+#   ./scripts/install_linux.sh uninstall --purge-data   # 同时删除数据目录（minio-data/redis-data/snapshots/logs）
+#   ./scripts/install_linux.sh uninstall --keep-image   # 保留构建的 visionai:latest 镜像
+#
+# 安装环境变量（可选）：
 #   DEPLOY_INFERENCE   cpu|gpu           默认 cpu
 #   DEPLOY_YOLO_SIZE   n|s|m|l|x         默认 s
 #   DEPLOY_MINIO       1|0               默认 1（启用对象存储）
@@ -14,7 +19,7 @@
 #   DEPLOY_NONINTERACTIVE 1              不提问，全用默认/环境变量
 #   DEPLOY_SKIP_MODEL_DOWNLOAD 1         跳过模型下载（已手动放好权重时）
 #
-# 幂等：重复执行会复用已生成的 .env / config.ini / models，只重启服务。
+# 幂等：重复执行 install 会复用已生成的 .env / config.ini / models，只重启服务。
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -138,8 +143,25 @@ ask_yn() {
     printf -v "$var" '%s' "$ans"
 }
 
-# ---------- 0. 预检 ----------
-info "预检：docker / compose / 网络"
+# ---------- 子命令分发 ----------
+ACTION="install"
+if [ $# -gt 0 ]; then ACTION="$1"; shift; fi
+PURGE_DATA=0
+KEEP_IMAGE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --purge-data) PURGE_DATA=1 ;;
+        --keep-image) KEEP_IMAGE=1 ;;
+        *) die "未知参数: $1（用法见脚本头注释）" ;;
+    esac
+    shift
+done
+case "$ACTION" in
+    install|start|stop|restart|uninstall) ;;
+    *) die "未知命令: $ACTION（可用: install / start / stop / restart / uninstall）" ;;
+esac
+
+# ---------- 预检（所有命令都需要 docker / compose） ----------
 command -v docker >/dev/null 2>&1 || die "未安装 docker。请先安装 Docker 后重试。"
 docker info >/dev/null 2>&1 || die "无法访问 docker daemon（试试 sudo，或把当前用户加入 docker 组）。"
 if docker compose version >/dev/null 2>&1; then
@@ -149,6 +171,145 @@ elif command -v docker-compose >/dev/null 2>&1; then
 else
     die "未找到 docker compose 插件或 docker-compose。"
 fi
+
+# config.ini [minio] enabled（缺文件/未配置视为启用）
+minio_enabled() {
+    [ -f config/config.ini ] || { echo 1; return; }
+    local v
+    v="$(awk -F= '/^\[/{s=$0} s=="[minio]" && $1 ~ /^[[:space:]]*enabled[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2}' config/config.ini | tail -n1)"
+    [ "$v" = "false" ] && echo 0 || echo 1
+}
+
+# 组装 COMPOSE_FILES 与 UP_SERVICES：MinIO 禁用时用 !override 摘掉应用对 minio 的依赖，且不启动 minio
+setup_compose_files() {
+    COMPOSE_FILES=(-f docker-compose.yaml)
+    UP_SERVICES=(minio redis zlmediakit visionai-api visionai-worker visionai-alert visionai-sip)
+    if [ "$(minio_enabled)" != "1" ]; then
+        UP_SERVICES=(redis zlmediakit visionai-api visionai-worker visionai-alert visionai-sip)
+        local ov
+        ov="$(mktemp /tmp/visionai-deploy-override.XXXXXX.yaml)"
+        # compose 对 map 形式 depends_on 是按键合并，必须用 !override 整体替换才能删掉 minio
+        cat > "$ov" <<'YAML'
+services:
+  visionai-api:
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      zlmediakit:
+        condition: service_started
+  visionai-worker:
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      zlmediakit:
+        condition: service_started
+  visionai-alert:
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      zlmediakit:
+        condition: service_started
+  visionai-sip:
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      zlmediakit:
+        condition: service_started
+YAML
+        COMPOSE_FILES+=(-f "$ov")
+    fi
+}
+
+wait_api_ready() {
+    info "等待 API 就绪"
+    local i
+    for i in $(seq 1 120); do
+        if curl -fsS http://127.0.0.1:15000/healthz >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+    warn "API 未在预期时间内就绪，最近日志："
+    "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" logs --tail=120 visionai-api visionai-worker visionai-alert || true
+    die "未就绪。把上面日志发给我排查。"
+}
+
+print_endpoints() {
+    echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):15000"
+    echo "  健康检查:      curl -s http://127.0.0.1:15000/readyz"
+    [ "$(minio_enabled)" = "1" ] && echo "  MinIO 控制台:  http://127.0.0.1:19001"
+    echo "  ZLM HTTP:      http://127.0.0.1:18080"
+}
+
+# ---------- stop ----------
+if [ "$ACTION" = "stop" ]; then
+    info "停止 JXVisionAI 服务（容器与数据保留）"
+    ./stop.sh 2>/dev/null || true
+    "${COMPOSE[@]}" -f docker-compose.yaml stop
+    ok "已停止。重新启动: ./scripts/install_linux.sh start"
+    exit 0
+fi
+
+# ---------- start / restart ----------
+if [ "$ACTION" = "start" ] || [ "$ACTION" = "restart" ]; then
+    [ -f .env ] || die ".env 不存在，请先执行 ./scripts/install_linux.sh 完成安装"
+    command -v curl >/dev/null 2>&1 || die "未安装 curl。"
+    setup_compose_files
+    if [ "$ACTION" = "restart" ]; then
+        info "重启服务: ${UP_SERVICES[*]}"
+        "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" restart "${UP_SERVICES[@]}" 2>/dev/null \
+            || "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d "${UP_SERVICES[@]}"
+    else
+        info "启动服务: ${UP_SERVICES[*]}"
+        "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d "${UP_SERVICES[@]}"
+    fi
+    wait_api_ready
+    "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" ps
+    echo
+    ok "已就绪"
+    print_endpoints
+    echo "  登录密钥见 .env 的 VISIONAI_SECRET"
+    exit 0
+fi
+
+# ---------- uninstall ----------
+if [ "$ACTION" = "uninstall" ]; then
+    info "卸载 JXVisionAI 服务（删除容器；保留仓库代码 / .env / config.ini / models）"
+    ./stop.sh 2>/dev/null || true
+    "${COMPOSE[@]}" -f docker-compose.yaml down --remove-orphans
+    ok "容器已删除"
+
+    if [ "$KEEP_IMAGE" = "1" ]; then
+        ok "保留镜像 visionai:latest（--keep-image）"
+    else
+        RM_IMAGE=""
+        ask_yn RM_IMAGE "删除构建的 visionai:latest 镜像" "y"
+        if [ "$RM_IMAGE" = "y" ]; then
+            docker rmi visionai:latest >/dev/null 2>&1 && ok "已删除 visionai:latest" || warn "visionai:latest 删除失败或不存在"
+        fi
+    fi
+
+    if [ "$PURGE_DATA" = "1" ]; then
+        rm -rf minio-data redis-data snapshots logs
+        ok "已删除数据目录（minio-data / redis-data / snapshots / logs）"
+    else
+        RM_DATA=""
+        ask_yn RM_DATA "同时删除数据目录（minio-data / redis-data / snapshots / logs）" "n"
+        if [ "$RM_DATA" = "y" ]; then
+            rm -rf minio-data redis-data snapshots logs
+            ok "已删除数据目录"
+        else
+            ok "数据目录保留（minio-data / redis-data / snapshots / logs）；如需删除: uninstall --purge-data"
+        fi
+    fi
+
+    echo
+    ok "卸载完成。仓库代码、.env、config/config.ini、models/ 均未动；重新安装: ./scripts/install_linux.sh"
+    exit 0
+fi
+
+# ---------- install：额外预检 ----------
+info "预检：docker / compose / 网络"
 command -v curl >/dev/null 2>&1 || die "未安装 curl。"
 command -v python3 >/dev/null 2>&1 || die "未安装 python3（脚本写 ini 需要）。"
 ok "docker / compose / curl / python3 就绪"
@@ -323,46 +484,11 @@ info "停止可能占用端口的宿主机进程"
 pkill -f '[p]ython3 -m visionai' 2>/dev/null || true
 sleep 1
 
-# 不启用 MinIO 时：override 移除应用对 minio 的依赖，启动时排除 minio 服务。
-# compose 对 map 形式 depends_on 是按键合并，必须用 !override 标签整体替换才能删掉 minio。
-OVERRIDE=""
-UP_SERVICES=(redis zlmediakit visionai-api visionai-worker visionai-alert visionai-sip)
-if [ "$DEPLOY_MINIO" = "1" ]; then
-    UP_SERVICES=(minio redis zlmediakit visionai-api visionai-worker visionai-alert visionai-sip)
-else
-    OVERRIDE="$(mktemp /tmp/visionai-deploy-override.XXXXXX.yaml)"
-    cat > "$OVERRIDE" <<'YAML'
-services:
-  visionai-api:
-    depends_on: !override
-      redis:
-        condition: service_healthy
-      zlmediakit:
-        condition: service_started
-  visionai-worker:
-    depends_on: !override
-      redis:
-        condition: service_healthy
-      zlmediakit:
-        condition: service_started
-  visionai-alert:
-    depends_on: !override
-      redis:
-        condition: service_healthy
-      zlmediakit:
-        condition: service_started
-  visionai-sip:
-    depends_on: !override
-      redis:
-        condition: service_healthy
-      zlmediakit:
-        condition: service_started
-YAML
+# MinIO 禁用时：setup_compose_files 用 !override 摘掉应用对 minio 的依赖，且启动列表不含 minio
+setup_compose_files
+if [ "$DEPLOY_MINIO" != "1" ]; then
     ok "MinIO 已禁用（截图仅本地），将不启动 minio 容器"
 fi
-
-COMPOSE_FILES=(-f docker-compose.yaml)
-[ -n "$OVERRIDE" ] && COMPOSE_FILES+=(-f "$OVERRIDE")
 
 # GPU：给四个应用容器挂 NVIDIA 设备
 if [ "$DEPLOY_INFERENCE" = "gpu" ]; then
@@ -421,20 +547,7 @@ if [ "$DEPLOY_ZLM" = "1" ]; then
 fi
 
 # ---------- 7. 等待就绪 ----------
-info "等待 API 就绪"
-ready=0
-for i in $(seq 1 120); do
-    if curl -fsS http://127.0.0.1:15000/healthz >/dev/null 2>&1; then
-        ready=1
-        break
-    fi
-    sleep 2
-done
-if [ "$ready" != "1" ]; then
-    warn "API 未在预期时间内就绪，最近日志："
-    "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" logs --tail=120 visionai-api visionai-worker visionai-alert || true
-    die "部署未完成。把上面日志发给我排查。"
-fi
+wait_api_ready
 
 "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" ps
 
