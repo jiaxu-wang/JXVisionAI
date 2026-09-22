@@ -9,13 +9,11 @@
 # 应用拆为四服务（同镜像）：visionai-api / visionai-worker / visionai-alert / visionai-sip
 # 模型与配置通过 volume 挂载，改 config.ini / 换权重后重启对应容器即可。
 
+# 注意：build 只挂在 visionai-api 上。四个服务共用同一镜像 visionai:latest，
+# 若每个服务都带 build，compose v5(bake) 会并行构建同一 tag，导出时竞态报
+# "image ... already exists"。其余服务只引用 image，构建一次即可。
 x-visionai-common: &visionai-common
   image: visionai:latest
-  build:
-    context: .
-    dockerfile: Dockerfile
-    args:
-      ORT_PKG: ${ORT_PKG:-onnxruntime}
   network_mode: host
   environment: &visionai-env
     # 应用时区（IANA）。优先环境变量 VISIONAI_TIMEZONE；未设则读 config.ini [basic] timezone
@@ -130,6 +128,12 @@ services:
   visionai-api:
     <<: *visionai-common
     container_name: visionai-api
+    # 唯一的 build 定义：产出 visionai:latest，worker/alert/sip 共用
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ORT_PKG: ${ORT_PKG:-onnxruntime}
     command: ["api"]
     environment:
       <<: *visionai-env
