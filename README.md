@@ -42,7 +42,16 @@
 
 ## 快速体验
 
-**推荐整栈 Docker**（API + worker + alert + sip + Redis + MinIO + ZLM）：
+**推荐：一键部署脚本**（交互式选推理设备/模型档位/MinIO/ZLM，自动生成密钥、下载权重、兜底 MinIO 镜像、构建并等待就绪）：
+
+```bash
+git clone https://github.com/jiaxu-wang/JXVisionAI.git
+cd JXVisionAI
+./scripts/install_linux.sh          # x86_64；ARM64 用 scripts/install_linux_arm.sh
+# 无人值守全默认：DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
+```
+
+**或手动整栈 Docker**（API + worker + alert + sip + Redis + MinIO + ZLM）：
 
 ```bash
 git clone https://github.com/jiaxu-wang/JXVisionAI.git

@@ -9,7 +9,35 @@
 
 ---
 
-## 推荐：整栈 Docker
+## 推荐：一键部署脚本（clone 后即可跑）
+
+```bash
+git clone https://github.com/jiaxu-wang/JXVisionAI.git
+cd JXVisionAI
+./scripts/install_linux.sh
+```
+
+> 架构：`install_linux.sh` 面向 **x86_64**；ARM64 / aarch64 系统用 `scripts/install_linux_arm.sh`。
+
+脚本会交互式让你选：**推理设备 cpu/gpu**、**YOLO 档位 n/s/m/l/x**、**是否启用 MinIO**、**是否启用 ZLM**；然后自动：
+
+- 生成 `config.ini` / `.env`（不存在时），并**自动生成** `VISIONAI_SECRET` / `REDIS_PASSWORD` / `MINIO_ROOT_PASSWORD` / `ZLM_SECRET` 等密钥，同步写进 `config.ini` 与 `config/zlm/*.ini`
+- 下载所选档位的 YOLO26 权重（含 pose）到 `models/`
+- MinIO 镜像拉取失败时自动改用 `quay.io/minio/minio` 兜底
+- 选 GPU 时自动检测 `nvidia-smi` / 容器 GPU 可用性，不满足则回退 CPU；满足则挂 GPU 并用 `onnxruntime-gpu` 构建
+- `docker compose up -d --build` 并等待 `/healthz` 就绪，最后打印访问地址与登录密钥
+
+无人值守（全默认 cpu + yolo26s + 启用 MinIO/ZLM）：
+
+```bash
+DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
+```
+
+可选环境变量：`DEPLOY_INFERENCE=gpu`、`DEPLOY_YOLO_SIZE=m`、`DEPLOY_MINIO=0`、`DEPLOY_ZLM=0`、`DEPLOY_SKIP_MODEL_DOWNLOAD=1`。
+
+---
+
+## 备选：手动 Docker Compose
 
 ```bash
 git clone https://github.com/jiaxu-wang/JXVisionAI.git
