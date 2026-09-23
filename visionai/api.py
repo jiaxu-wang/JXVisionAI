@@ -24,6 +24,10 @@ from visionai.web.app import app
 
 def main() -> None:
     logger = setup_logger()
+    # Compose 页面重启监听（VISIONAI_RESTART_MODE=exit 时生效）
+    from visionai.utils.restart_watch import start_restart_watcher
+
+    start_restart_watcher("api")
     # 端口：环境变量 PORT / VISIONAI_PORT 优先，默认 5000（compose host 网络下注入 15000）
     port = int(os.environ.get("PORT") or os.environ.get("VISIONAI_PORT") or "5000")
     logger.info("JXVisionAI API 启动 (port %s)", port)

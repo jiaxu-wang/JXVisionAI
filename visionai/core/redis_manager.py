@@ -484,6 +484,27 @@ class RedisManager:
     def _get_stream_list_key(self):
         """获取流配置列表的Redis键"""
         return f"{REDIS_KEY_PREFIX}streamlist"
+
+    # ---------- 页面重启信号（Compose：进程收到信号后退出，由 Docker restart 拉起） ----------
+    def set_restart_signal(self, ts: float) -> bool:
+        """写入重启时间戳；Redis 不可用返回 False。"""
+        if self._redis_client is None:
+            return False
+        try:
+            self._redis_client.set(f"{REDIS_KEY_PREFIX}control/restart_at", str(ts))
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def get_restart_signal(self) -> float:
+        """读取重启时间戳；无信号或 Redis 不可用返回 0.0。"""
+        if self._redis_client is None:
+            return 0.0
+        try:
+            v = self._redis_client.get(f"{REDIS_KEY_PREFIX}control/restart_at")
+            return float(v) if v else 0.0
+        except Exception:  # noqa: BLE001
+            return 0.0
     
     def get_streams(self):
         """

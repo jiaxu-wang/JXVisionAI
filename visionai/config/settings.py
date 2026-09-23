@@ -152,6 +152,9 @@ def _session_secret() -> str:
 
 SESSION_SECRET = _session_secret()
 ALLOW_PROCESS_RESTART = _cfg_bool("VISIONAI_ALLOW_PROCESS_RESTART", False)
+# 页面重启模式：exit = Compose 容器（写 Redis 信号，进程退出由 Docker restart 策略拉起）；
+# 空 = 禁用（除非 ALLOW_PROCESS_RESTART=1 走宿主机 start.sh/stop.sh）
+RESTART_MODE = _cfg_str("VISIONAI_RESTART_MODE", "").strip().lower()
 
 # 检测
 DETECTION_INTERVAL = _cfg_int("DETECTION_INTERVAL", 15)

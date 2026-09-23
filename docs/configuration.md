@@ -3,8 +3,8 @@
 **优先级**：环境变量 → `config/config.ini`（**多分节**）→ `visionai/config/settings.py` 内置默认。
 
 修改 `config.ini` 或环境变量后须重启应用：  
-- **Compose**：`docker compose restart visionai-api visionai-worker visionai-alert`  
-- **宿主机**：`./stop.sh && ./start.sh`  
+- **Compose**：管理端「系统设置 → 重启服务」按钮（`VISIONAI_RESTART_MODE=exit`，写 Redis 信号后各容器进程退出、由 Docker `restart: unless-stopped` 拉起，约 10~30 秒）；或命令行 `docker compose restart visionai-api visionai-worker visionai-alert` / `./scripts/install_linux.sh restart`
+- **宿主机**：`./stop.sh && ./start.sh`（页面重启需显式 `VISIONAI_ALLOW_PROCESS_RESTART=1`）  
 
 也可用 `VISIONAI_CONFIG` 指定其它 ini 路径。
 

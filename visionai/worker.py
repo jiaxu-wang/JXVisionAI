@@ -31,6 +31,9 @@ def _lease_gate(stream_info: dict) -> bool:
 def main() -> None:
     logger = setup_logger()
     logger.info("JXVisionAI stream worker 启动")
+    from visionai.utils.restart_watch import start_restart_watcher
+
+    start_restart_watcher("worker")
     try:
         from visionai.config.settings import describe_inference_backend
 

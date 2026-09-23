@@ -23,6 +23,9 @@ def main() -> None:
     logger = logging.getLogger("visionai.alert_worker")
     signal.signal(signal.SIGINT, _handle_sig)
     signal.signal(signal.SIGTERM, _handle_sig)
+    from visionai.utils.restart_watch import start_restart_watcher
+
+    start_restart_watcher("alert")
     logger.info("alert_worker started (log_dir=%s)", LOG_DIR)
     while not _stop:
         job = brpop_alert_job(timeout=ALERT_QUEUE_BLOCK_SEC)

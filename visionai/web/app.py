@@ -1795,7 +1795,19 @@ def alert_image(detection_id):
 @app.route('/api/restart', methods=['POST'])
 @login_required
 def restart_service():
-    """仅当显式开启 VISIONAI_ALLOW_PROCESS_RESTART=1 时，用项目脚本重启宿主机进程。"""
+    """页面重启。
+
+    - Compose（VISIONAI_RESTART_MODE=exit）：写 Redis 信号，各容器进程退出后由 Docker 拉起。
+    - 宿主机：仅当显式开启 VISIONAI_ALLOW_PROCESS_RESTART=1 时，用项目脚本重启进程。
+    """
+    from visionai.config import settings as _cfg
+
+    if (_cfg.RESTART_MODE or "").strip().lower() == "exit":
+        from visionai.utils.restart_watch import signal_compose_restart
+
+        if signal_compose_restart():
+            return jsonify({"success": True, "message": "已发送重启信号，各服务容器将自动重启（约 10~30 秒）"})
+        return jsonify({"success": False, "message": "Redis 不可用，重启信号发送失败"}), 500
     if not ALLOW_PROCESS_RESTART:
         return jsonify(
             {

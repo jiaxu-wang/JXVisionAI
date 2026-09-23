@@ -26,6 +26,8 @@ x-visionai-common: &visionai-common
     VISIONAI_SECRET: ${VISIONAI_SECRET}
     VISIONAI_SESSION_SECRET: ${VISIONAI_SESSION_SECRET:-}
     VISIONAI_ALLOW_PROCESS_RESTART: ${VISIONAI_ALLOW_PROCESS_RESTART:-0}
+    # 页面重启：exit = 写 Redis 信号，进程退出由 Docker restart 策略拉起（compose 固定开启）
+    VISIONAI_RESTART_MODE: exit
     SAVE_DIR: /app/snapshots
     LOG_DIR: /app/logs
     INFERENCE_DEVICE: ${INFERENCE_DEVICE:-cpu}
