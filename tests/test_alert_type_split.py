@@ -118,6 +118,99 @@ class AlertTypeSplitTests(unittest.TestCase):
         self.assertEqual(int(face[10:60, 10:60].sum()), 0)
         self.assertGreater(int(gather[10:60, 10:60].sum()), 0)
         self.assertEqual(int(gather[200:240, 200:240].sum()), 0)
+
+    def test_alert_boxes_every_face_and_dedupes_stranger_name(self):
+        flags = _flags(**{FACE_RECOG_KEY: True})
+        detections = {
+            "by_class": {},
+            "behaviors": {
+                FACE_RECOG_KEY: {
+                    "alert": True,
+                    "trigger_types": ["known", "unknown"],
+                    # 时长闸只放行了其中一张，本帧其实有三张脸
+                    "alert_matches": [
+                        {
+                            "box": (1, 1, 8, 8),
+                            "person_name": "陌生人",
+                            "match_type": "unknown",
+                            "similarity": 0.0,
+                        }
+                    ],
+                    "matches": [
+                        {
+                            "box": (1, 1, 8, 8),
+                            "person_name": "陌生人",
+                            "match_type": "unknown",
+                            "similarity": 0.0,
+                        },
+                        {
+                            "box": (20, 20, 40, 40),
+                            "person_id": "p1",
+                            "person_name": "wjx",
+                            "match_type": "known",
+                            "similarity": 0.91,
+                        },
+                        {
+                            "box": (50, 50, 70, 70),
+                            "person_name": "陌生人",
+                            "match_type": "unknown",
+                            "similarity": 0.0,
+                        },
+                    ],
+                }
+            },
+        }
+        units = collect_alert_units(flags, detections)
+        self.assertEqual(len(units), 1)
+        self.assertEqual(len(units[0].matches), 3)
+        self.assertEqual(units[0].info, "人脸识别: wjx, 陌生人")
+        names = units[0].extra["face_recognition"]["person_names"]
+        self.assertEqual(names, ["wjx", "陌生人"])
+
+    def test_two_known_names_keep_each_person(self):
+        flags = _flags(**{FACE_RECOG_KEY: True})
+        detections = {
+            "by_class": {},
+            "behaviors": {
+                FACE_RECOG_KEY: {
+                    "alert": True,
+                    "trigger_types": ["known", "unknown"],
+                    "alert_matches": [
+                        {"box": (1, 1, 8, 8), "person_name": "wjx", "match_type": "known"},
+                    ],
+                    "matches": [
+                        {"box": (1, 1, 8, 8), "person_name": "wjx", "match_type": "known"},
+                        {"box": (20, 1, 28, 8), "person_name": "胡", "match_type": "known"},
+                    ],
+                }
+            },
+        }
+        unit = collect_alert_units(flags, detections)[0]
+        self.assertEqual(len(unit.matches), 2)
+        self.assertEqual(unit.info, "人脸识别: wjx, 胡")
+
+    def test_strangers_only_name_once(self):
+        flags = _flags(**{FACE_RECOG_KEY: True})
+        detections = {
+            "by_class": {},
+            "behaviors": {
+                FACE_RECOG_KEY: {
+                    "alert": True,
+                    "trigger_types": ["unknown"],
+                    "alert_matches": [
+                        {"box": (1, 1, 8, 8), "person_name": "陌生人", "match_type": "unknown"},
+                    ],
+                    "matches": [
+                        {"box": (1, 1, 8, 8), "person_name": "陌生人", "match_type": "unknown"},
+                        {"box": (20, 1, 28, 8), "person_name": "陌生人", "match_type": "unknown"},
+                        {"box": (40, 1, 48, 8), "person_name": "wjx", "match_type": "known"},
+                    ],
+                }
+            },
+        }
+        unit = collect_alert_units(flags, detections)[0]
+        self.assertEqual(len(unit.matches), 2)
+        self.assertEqual(unit.info, "人脸识别: 陌生人")
         np.testing.assert_array_equal(src, np.zeros((280, 280, 3), dtype=np.uint8))
 
 

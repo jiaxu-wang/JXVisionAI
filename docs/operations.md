@@ -40,8 +40,8 @@ YOLO模型加载完成
 
 健康检查：
 
-- Compose：`curl -s http://127.0.0.1:15000/healthz` · `curl -s http://127.0.0.1:15000/readyz`
-- 宿主机 `./start.sh`：`:5000` 同上路径
+- Compose：`curl -s http://127.0.0.1:5000/healthz` · `curl -s http://127.0.0.1:5000/readyz`（端口以 `.env` 的 `VISIONAI_PORT` 为准）
+- 宿主机 `./start.sh`：`:5000` 同上路径（`VISIONAI_PORT` 环境变量可改）
 
 `readyz` 正常示例：`{"checks":{"inferd":"python","redis":true,"zlm":true},"ready":true}`。
 

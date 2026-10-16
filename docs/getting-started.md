@@ -36,10 +36,14 @@ DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
 安装后的日常管理（同一脚本）：
 
 ```bash
-./scripts/install_linux.sh start      # 启动
-./scripts/install_linux.sh stop       # 停止（容器与数据保留）
-./scripts/install_linux.sh restart    # 重启
-./scripts/install_linux.sh uninstall  # 卸载：删容器，保留代码 / .env / config.ini / models
+./scripts/install_linux.sh start      # 启动（容器不存在则创建，compose/.env 变更自动应用）
+./scripts/install_linux.sh stop       # 暂停容器（容器与数据保留）
+./scripts/install_linux.sh restart    # 重启进程并应用 compose/.env 变更（force-recreate）
+./scripts/install_linux.sh down       # 停止并删除容器（镜像/数据保留，start 即可恢复）
+./scripts/install_linux.sh uninstall  # down + 删镜像；保留代码 / .env / config.ini / models
+
+改动生效矩阵：`visionai/` 代码是卷挂载——改 Python 代码或 .env/compose 配置跑 `restart` 即可；
+只有 `Dockerfile` / `requirements.txt` 变了才需要重新 `install`（重建镜像）。
 # uninstall 可选：--purge-data 连数据目录一起删；--keep-image 保留 visionai:latest 镜像
 ```
 
@@ -67,8 +71,8 @@ bash scripts/compose_up.sh
 
 | 项 | 地址 / 说明 |
 |----|-------------|
-| 管理端 | <http://服务器IP:15000> |
-| 健康检查 | `curl -s http://127.0.0.1:15000/healthz` · `curl -s http://127.0.0.1:15000/readyz` |
+| 管理端 | <http://服务器IP:5000>（`.env` 里 `VISIONAI_PORT` 可改） |
+| 健康检查 | `curl -s http://127.0.0.1:5000/healthz` · `curl -s http://127.0.0.1:5000/readyz` |
 | Redis（宿主机） | `127.0.0.1:16379`，密码见 `.env` 的 `REDIS_PASSWORD`（须自行设置） |
 | MinIO 控制台 | <http://127.0.0.1:19001> |
 | ZLM HTTP | `http://127.0.0.1:18080` |

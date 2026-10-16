@@ -380,6 +380,7 @@
     "nothingToCopy": "Nothing to copy",
     "copiedGb": "GB device params copied",
     "delSipConfirm": "Delete SIP account {id}?",
+    "deleteWithAnalyze": "This device has analysis streams ({names}). Confirming will also delete those streams, so they disappear from Overview and Detection.",
     "sipUserRequired": "SIP user is required",
     "editSaved": "Changes saved",
     "clickNewFirst": "Click New first",

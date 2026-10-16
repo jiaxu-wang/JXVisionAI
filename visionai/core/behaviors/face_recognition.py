@@ -139,7 +139,7 @@ class FaceRecognitionBehaviorPlugin:
 
         out["matches"] = matches
 
-        alerting_keys, alert = apply_keyed_duration_alert(
+        _alerting_keys, alert = apply_keyed_duration_alert(
             scores_for_alert,
             state,
             ctx.now,
@@ -148,17 +148,16 @@ class FaceRecognitionBehaviorPlugin:
             since_key="face_recog_since",
         )
 
+        # 时长闸只决定本轮是否告警。一旦告警，框出当前画面里所有符合触发类型的人脸：
+        # 多名库内人员、多名陌生人、以及两者同时出现，都各自画框。
         alert_matches: List[Dict[str, Any]] = []
         if alert:
-            key_set = set(alerting_keys)
             for m in matches:
                 if m["match_type"] not in trigger_types:
                     continue
                 if m["match_type"] == "known" and lib_empty:
                     continue
-                ak = m["person_id"] if m["match_type"] == "known" else f"unknown_{m['face_key']}"
-                if ak in key_set:
-                    alert_matches.append(m)
+                alert_matches.append(m)
 
         out["alert_matches"] = alert_matches
         out["alert"] = len(alert_matches) > 0

@@ -6,6 +6,32 @@ async function fetchAllStreams() {
     return await response.json();
 }
 
+function gbStreamMatches(stream, deviceId, channelId) {
+    const gb = stream && stream.gb28181;
+    if (!gb || typeof gb !== 'object') return false;
+    const did = String(gb.device_id || gb.sip_user || '');
+    if (did !== String(deviceId || '')) return false;
+    if (channelId && String(gb.channel_id || '') !== String(channelId)) return false;
+    return true;
+}
+
+async function confirmDeleteDeviceWithAnalysis(plainMessage, matcher) {
+    let linked = [];
+    try {
+        const data = await fetchAllStreams();
+        const all = Array.isArray(data) ? data : [];
+        linked = all.filter(function (s) {
+            if (typeof isAnalysisJoined === 'function' && !isAnalysisJoined(s)) return false;
+            return matcher(s);
+        });
+    } catch (e) {
+        linked = [];
+    }
+    if (!linked.length) return confirm(plainMessage);
+    const names = linked.map(function (s) { return s.name || s.id || ''; }).filter(Boolean).join('、');
+    return confirm(t('msg.deleteWithAnalyze', { names: names }));
+}
+
 async function refreshZlmStatusCache() {
     try {
         const zlmRes = await fetch('/api/zlm/status');
@@ -256,7 +282,12 @@ function addOnvifManageItem(container, stream) {
         openTalkModal(sid, stream.name || sid, !!stream.talk_supported);
     });
     streamItem.querySelector('[data-del-stream]')?.addEventListener('click', async function () {
-        if (!sid || !confirm(t('access.deleteConfirmOnvif'))) return;
+        if (!sid) return;
+        const ok = await confirmDeleteDeviceWithAnalysis(
+            t('access.deleteConfirmOnvif'),
+            function (s) { return String(s.id || '') === String(sid); }
+        );
+        if (!ok) return;
         const r = await apiDeleteStream(sid);
         showMessage(r.success ? t('access.deleted') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
         if (r.success) await loadOnvifStreams();
@@ -318,7 +349,11 @@ function addDirectStreamItem(stream) {
     bindAccessAnalyzeButtons(streamItem, stream || {});
     streamItem.querySelector('[data-del-direct]')?.addEventListener('click', async function () {
         if (id) {
-            if (!confirm(t('access.deleteConfirmRtsp'))) return;
+            const ok = await confirmDeleteDeviceWithAnalysis(
+                t('access.deleteConfirmRtsp'),
+                function (s) { return String(s.id || '') === String(id); }
+            );
+            if (!ok) return;
             const r = await apiDeleteStream(id);
             showMessage(r.success ? t('access.deleted') : (r.message || t('common.fail')), r.success ? 'success' : 'error');
             if (r.success) await loadDirectStreams();

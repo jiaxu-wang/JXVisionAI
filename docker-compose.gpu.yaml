@@ -1,0 +1,38 @@
+# GPU 设备挂载覆盖文件：给四个应用容器挂 NVIDIA 显卡。
+# 安装时推理设备选 gpu，.env 会写入 INFERENCE_DEVICE=gpu，
+# scripts/install_linux.sh 的 setup_compose_files 检测到后自动带上本文件
+# （install / start / restart 均生效，重建容器不丢 GPU）。
+# 手动使用：docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d
+services:
+  visionai-api:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  visionai-worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  visionai-alert:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  visionai-sip:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

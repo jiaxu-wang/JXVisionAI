@@ -19,6 +19,9 @@
 #   DEPLOY_NONINTERACTIVE 1              不提问，全用默认/环境变量
 #   DEPLOY_SKIP_MODEL_DOWNLOAD 1         跳过模型下载（已手动放好权重时）
 #
+# GPU：选 gpu 后 .env 记录 INFERENCE_DEVICE=gpu，install / start / restart 均自动带上
+# docker-compose.gpu.yaml 挂载显卡，重建容器不丢 GPU。
+#
 # 幂等：重复执行 install 会复用已生成的 .env / config.ini / models，只重启服务。
 
 set -euo pipefail
@@ -218,13 +221,25 @@ services:
 YAML
         COMPOSE_FILES+=(-f "$ov")
     fi
+    # GPU：.env 的 INFERENCE_DEVICE=gpu 时自动带上固化的挂载文件（install 选 gpu 时写入），
+    # start/restart 重建容器也不会丢 GPU
+    if [ "$(env_get INFERENCE_DEVICE)" = "gpu" ] && [ -f docker-compose.gpu.yaml ]; then
+        COMPOSE_FILES+=(-f docker-compose.gpu.yaml)
+    fi
+}
+
+# Web 端口：环境变量 VISIONAI_PORT > .env 的 VISIONAI_PORT > 默认 5000
+web_port() {
+    local p="${VISIONAI_PORT:-}"
+    [ -z "$p" ] && p="$(env_get VISIONAI_PORT)"
+    echo "${p:-5000}"
 }
 
 wait_api_ready() {
     info "等待 API 就绪"
     local i
     for i in $(seq 1 120); do
-        if curl -fsS http://127.0.0.1:15000/healthz >/dev/null 2>&1; then
+        if curl -fsS "http://127.0.0.1:$(web_port)/healthz" >/dev/null 2>&1; then
             return 0
         fi
         sleep 2
@@ -235,10 +250,28 @@ wait_api_ready() {
 }
 
 print_endpoints() {
-    echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):15000"
-    echo "  健康检查:      curl -s http://127.0.0.1:15000/readyz"
+    local wp; wp="$(web_port)"
+    echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):${wp}"
+    echo "  健康检查:      curl -s http://127.0.0.1:${wp}/readyz"
     [ "$(minio_enabled)" = "1" ] && echo "  MinIO 控制台:  http://127.0.0.1:19001"
     echo "  ZLM HTTP:      http://127.0.0.1:18080"
+}
+
+# 清掉同名但非本 compose 项目托管的遗留容器（如 start.sh 用 docker run 起的 visionai-zlm、
+# 旧部署残留），否则 compose up 报 "container name already in use"。
+remove_orphan_containers() {
+    local project name id labels
+    project="${COMPOSE_PROJECT_NAME:-$(basename "$ROOT" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9_-]//g')}"
+    for name in visionai-zlm visionai-redis visionai-minio visionai-api visionai-worker visionai-alert visionai-sip; do
+        id="$(docker ps -aq --filter "name=^/${name}$" 2>/dev/null || true)"
+        [ -z "$id" ] && continue
+        labels="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$id" 2>/dev/null || true)"
+        if [ -n "$project" ] && [ "$labels" = "$project" ]; then
+            continue  # 本 compose 项目托管，交给 compose 自己处理
+        fi
+        warn "移除遗留容器: $name（非本 compose 项目托管，否则 up 会因重名失败）"
+        docker rm -f "$id" >/dev/null 2>&1 || true
+    done
 }
 
 # ---------- stop ----------
@@ -255,6 +288,7 @@ if [ "$ACTION" = "start" ] || [ "$ACTION" = "restart" ]; then
     [ -f .env ] || die ".env 不存在，请先执行 ./scripts/install_linux.sh 完成安装"
     command -v curl >/dev/null 2>&1 || die "未安装 curl。"
     setup_compose_files
+    remove_orphan_containers
     if [ "$ACTION" = "restart" ]; then
         info "重启服务: ${UP_SERVICES[*]}"
         "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" restart "${UP_SERVICES[@]}" 2>/dev/null \
@@ -359,12 +393,33 @@ ask_yn DEPLOY_ZLM "启用 ZLM 媒体面（WebRTC 预览 / 拉流代理）" "y"
 
 # GPU 可行性检查
 if [ "$DEPLOY_INFERENCE" = "gpu" ]; then
-    if ! command -v nvidia-smi >/dev/null 2>&1; then
+    # WSL 下 nvidia-smi 在 /usr/lib/wsl/lib，root 登录 PATH 常不含该目录，显式兜底
+    NVIDIA_SMI_BIN="$(command -v nvidia-smi || true)"
+    if [ -z "$NVIDIA_SMI_BIN" ] && [ -x /usr/lib/wsl/lib/nvidia-smi ]; then
+        NVIDIA_SMI_BIN=/usr/lib/wsl/lib/nvidia-smi
+    fi
+    if [ -z "$NVIDIA_SMI_BIN" ]; then
         warn "未检测到 nvidia-smi，回退 CPU"
         DEPLOY_INFERENCE="cpu"
-    elif ! docker run --rm --gpus all nvidia/cuda:12.0.0-base nvidia-smi >/dev/null 2>&1; then
-        warn "Docker 无法使用 GPU（缺 nvidia-container-toolkit？），回退 CPU"
-        DEPLOY_INFERENCE="cpu"
+    else
+        # 容器 GPU 注入测试：优先官方 cuda 镜像；镜像源拉不动（如 403）时退回本地基础镜像，
+        # 改用 libcuda 注入 / WSL /dev/dxg 判定（这些镜像内没有 nvidia-smi）
+        gpu_ok=0
+        gpu_test_out=""
+        for gpu_img in nvidia/cuda:12.0.0-base python:3.12-slim-bookworm; do
+            if ! docker image inspect "$gpu_img" >/dev/null 2>&1; then
+                docker pull "$gpu_img" >/dev/null 2>&1 || continue
+            fi
+            if gpu_test_out="$(docker run --rm --gpus all "$gpu_img" sh -c 'nvidia-smi >/dev/null 2>&1 || ldconfig -p 2>/dev/null | grep -q libcuda || [ -e /dev/dxg ]' 2>&1)"; then
+                gpu_ok=1
+                break
+            fi
+        done
+        if [ "$gpu_ok" != "1" ]; then
+            warn "Docker 无法使用 GPU（缺 nvidia-container-toolkit？），回退 CPU。错误："
+            echo "${gpu_test_out:-测试镜像拉取失败}" | tail -5
+            DEPLOY_INFERENCE="cpu"
+        fi
     fi
 fi
 ok "推理设备: $DEPLOY_INFERENCE | 模型: yolo26$DEPLOY_YOLO_SIZE | MinIO: $DEPLOY_MINIO | ZLM: $DEPLOY_ZLM"
@@ -427,9 +482,13 @@ env_set INFERENCE_DEVICE "$DEPLOY_INFERENCE"
 if [ "$DEPLOY_INFERENCE" = "gpu" ]; then
     env_set ONNX_PROVIDER "cuda_first"
     env_set ORT_PKG "onnxruntime-gpu"
+    # 让裸 docker compose 命令（up/down/ps）也自动合并 GPU 挂载文件；
+    # 脚本内显式 -f 优先级高于 COMPOSE_FILE，不受影响
+    env_set COMPOSE_FILE "docker-compose.yaml:docker-compose.gpu.yaml"
 else
     env_set ONNX_PROVIDER "cpu"
     env_set ORT_PKG "onnxruntime"
+    env_set COMPOSE_FILE "docker-compose.yaml"
 fi
 
 # 同步 ZLM 旁路配置里的 api secret（compose 挂载 config/zlm/config.ini）
@@ -490,49 +549,12 @@ if [ "$DEPLOY_MINIO" != "1" ]; then
     ok "MinIO 已禁用（截图仅本地），将不启动 minio 容器"
 fi
 
-# GPU：给四个应用容器挂 NVIDIA 设备
-if [ "$DEPLOY_INFERENCE" = "gpu" ]; then
-    GPU_OVERRIDE="$(mktemp /tmp/visionai-deploy-gpu.XXXXXX.yaml)"
-    cat > "$GPU_OVERRIDE" <<'YAML'
-services:
-  visionai-api:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-  visionai-worker:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-  visionai-alert:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-  visionai-sip:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-YAML
-    COMPOSE_FILES+=(-f "$GPU_OVERRIDE")
-    ok "已启用 GPU 设备挂载"
-fi
+# GPU：设备挂载由固化的 docker-compose.gpu.yaml 提供；.env 已写入 INFERENCE_DEVICE=gpu，
+# 上面 setup_compose_files 已自动带上（start/restart 同样生效）
+[ "$DEPLOY_INFERENCE" = "gpu" ] && ok "已启用 GPU 设备挂载（docker-compose.gpu.yaml）"
 
 info "构建并启动服务（首次构建较慢）: ${UP_SERVICES[*]}"
+remove_orphan_containers
 "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --build "${UP_SERVICES[@]}"
 
 # ZLM secret 一致性：容器是长驻的，配置变了 compose 不会自动重启。
@@ -553,9 +575,9 @@ wait_api_ready
 
 echo
 ok "部署完成"
-echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):15000"
+echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):$(web_port)"
 echo "  登录密钥:      $VISIONAI_SECRET"
-echo "  健康检查:      curl -s http://127.0.0.1:15000/readyz"
+echo "  健康检查:      curl -s http://127.0.0.1:$(web_port)/readyz"
 [ "$DEPLOY_MINIO" = "1" ] && echo "  MinIO 控制台:  http://127.0.0.1:19001  ($MINIO_ROOT_USER / $MINIO_ROOT_PASSWORD)"
 [ "$DEPLOY_ZLM" = "1" ] && echo "  ZLM HTTP:      http://127.0.0.1:18080"
 echo

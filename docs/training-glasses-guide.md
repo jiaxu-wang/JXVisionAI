@@ -34,7 +34,7 @@ docker compose up -d --build
 # 或：docker compose up -d redis && ./stop.sh 2>/dev/null; ./start.sh
 ```
 
-- 管理端：Compose `http://服务器IP:15000`；宿主机 `./start.sh` 则为 `:5000`
+- 管理端：Compose 与宿主机 `./start.sh` 均为 `http://服务器IP:5000`（`VISIONAI_PORT` 可改）
 - 登录密钥：`VISIONAI_SECRET` / `config.ini` 中 `visionai_secret`
 - 至少一路可用 RTSP（设备接入中已配置，或训练页直接填 URL）
 

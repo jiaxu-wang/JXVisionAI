@@ -36,6 +36,15 @@ RUN sed "s/onnxruntime-gpu.*/${ORT_PKG}>=1.16.0,<2.0/" requirements.txt > /tmp/r
     && pip install --no-cache-dir "waitress>=3.0.0" "requests>=2.31.0" \
     && python -c "from rapidocr_onnxruntime import RapidOCR; RapidOCR()" || true
 
+# rapidocr_onnxruntime 会额外拉入 CPU 版 onnxruntime，与 onnxruntime-gpu 是同名模块，
+# 后装的 CPU 轮子会覆盖 GPU 轮子的文件，导致 CUDAExecutionProvider 丢失。
+# GPU 模式：卸掉 CPU 轮子并强制重装 GPU 轮子，构建期断言 CUDA EP 可用（失败则构建直接报错）。
+RUN if [ "$ORT_PKG" = "onnxruntime-gpu" ]; then \
+        pip uninstall -y onnxruntime || true; \
+        pip install --no-cache-dir --force-reinstall --no-deps "onnxruntime-gpu>=1.16.0,<2.0"; \
+        python -c "import onnxruntime as ort; assert 'CUDAExecutionProvider' in ort.get_available_providers(), ort.get_available_providers()"; \
+    fi
+
 COPY visionai/ ./visionai/
 COPY config/ ./config/
 COPY training_system/ ./training_system/

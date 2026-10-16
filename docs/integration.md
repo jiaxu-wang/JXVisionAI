@@ -21,7 +21,7 @@ JXVisionAI 通过 **告警 Webhook** 和 **开放 HTTP API** 对接任意业务�
 ```ini
 [integration]
 # 告警 JSON 里 image_url 的对外根（无尾斜杠），须是对接方能访问的地址
-public_base_url = http://JX_HOST:15000
+public_base_url = http://JX_HOST:5000
 # 全局推送 URL；与每路视频的 alert_webhook_urls 合并去重
 outbound_webhook_url = http://YOUR_HOST:8080/hooks/visionai-alert
 ```

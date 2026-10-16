@@ -857,15 +857,20 @@ async function saveGbChannelRow(tr) {
 async function deleteGbChannelRow(tr) {
     if (!tr || !gbChannelModalDeviceId) return;
     const cid = tr.getAttribute('data-channel-id') || '';
-    if (!cid || !confirm(t('msg.delChConfirm', { cid: cid }))) return;
+    if (!cid) return;
+    const ok = await confirmDeleteDeviceWithAnalysis(
+        t('msg.delChConfirm', { cid: cid }),
+        function (s) { return gbStreamMatches(s, gbChannelModalDeviceId, cid); }
+    );
+    if (!ok) return;
     try {
-        if (!gbChannelModalDevice) {
-            gbChannelModalDevice = await fetchGbDeviceById(gbChannelModalDeviceId);
-        }
-        const channels = normalizeGbChannelsClient(gbChannelModalDevice.channels || [])
-            .filter(function (c) { return c.channel_id !== cid; });
-        const saved = await saveGbDeviceChannels(channels);
-        showMessage(t('msg.chDeleted'), 'success');
+        const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(gbChannelModalDeviceId) +
+            '/channels/' + encodeURIComponent(cid), { method: 'DELETE' });
+        const j = await fetchJsonOrThrow(r);
+        if (!j.success) throw new Error(j.message || t('common.fail'));
+        const saved = normalizeGbChannelsClient((j.device && j.device.channels) || j.channels || []);
+        if (gbChannelModalDevice) gbChannelModalDevice.channels = saved;
+        showMessage(j.message || t('msg.chDeleted'), 'success');
         renderGbChannelRows(saved);
         await loadGb28181Devices();
     } catch (e) {
@@ -902,7 +907,12 @@ function bindGbSipListActions(box) {
         btn.addEventListener('click', async function () {
             const card = gbSipRowEl(this);
             const id = card && card.getAttribute('data-sip-user');
-            if (!id || !confirm(t('msg.delSipConfirm', { id: id }))) return;
+            if (!id) return;
+            const ok = await confirmDeleteDeviceWithAnalysis(
+                t('msg.delSipConfirm', { id: id }),
+                function (s) { return gbStreamMatches(s, id); }
+            );
+            if (!ok) return;
             try {
                 const r = await fetch('/api/gb28181/devices/' + encodeURIComponent(id), { method: 'DELETE' });
                 const j = await fetchJsonOrThrow(r);

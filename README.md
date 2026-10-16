@@ -49,7 +49,7 @@ git clone https://github.com/jiaxu-wang/JXVisionAI.git
 cd JXVisionAI
 ./scripts/install_linux.sh          # x86_64；ARM64 用 scripts/install_linux_arm.sh
 # 无人值守全默认：DEPLOY_NONINTERACTIVE=1 ./scripts/install_linux.sh
-# 日常管理：./scripts/install_linux.sh start|stop|restart|uninstall（uninstall 不删代码）
+# 日常管理：./scripts/install_linux.sh start|stop|restart|down|uninstall（uninstall 不删代码）
 ```
 
 **或手动整栈 Docker**（API + worker + alert + sip + Redis + MinIO + ZLM）：
@@ -66,8 +66,8 @@ docker compose up -d --build
 
 文档或旧 compose 里出现过的口令均视为**已公开**，生产必须轮换。
 
-管理端：<http://服务器IP:15000>。  
-健康检查：`curl -s http://127.0.0.1:15000/readyz`。  
+管理端：<http://服务器IP:5000>（`.env` 里 `VISIONAI_PORT` 可改）。  
+健康检查：`curl -s http://127.0.0.1:5000/readyz`。  
 Compose 全服务 **host 网络**（ONVIF 组播发现、国标 RTP 收流需要），端口直接绑宿主机：Redis `16379`、MinIO `19000/19001`、ZLM `18080/18554/18000`、国标 SIP `15060`、PS/RTP `10000-10200`。
 
 可选第三方对接见 [docs/integration.md](docs/integration.md)，不是运行本仓库的前提。

@@ -7,7 +7,7 @@
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
     {# 按功能页拆分的静态资源；改 CSS/JS 后递增 v= 以防缓存 #}
-    {% set admin_asset_v = 10 %}
+    {% set admin_asset_v = 11 %}
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/common.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/overview.css') }}?v={{ admin_asset_v }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/access.css') }}?v={{ admin_asset_v }}">

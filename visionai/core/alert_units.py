@@ -76,6 +76,39 @@ def _public_face_match(m: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def face_alert_names(matches: Sequence[Mapping[str, Any]]) -> List[str]:
+    """告警人员姓名：库内人员各显示一次，陌生人无论几张脸只出现一次，且排在姓名后面。"""
+    known: List[str] = []
+    has_stranger = False
+    for m in matches:
+        name = str(m.get("person_name") or "陌生人").strip() or "陌生人"
+        is_stranger = str(m.get("match_type") or "") == "unknown" or name == "陌生人"
+        if is_stranger:
+            has_stranger = True
+            continue
+        if name not in known:
+            known.append(name)
+    if has_stranger:
+        known.append("陌生人")
+    return known
+
+
+def face_matches_for_alert(fr: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """时长闸已通过（alert_matches 非空）时，框出本帧全部符合触发类型的人脸。"""
+    qualified = list(fr.get("alert_matches") or [])
+    if not qualified:
+        return []
+    pool = list(fr.get("matches") or qualified)
+    triggers = {str(t) for t in (fr.get("trigger_types") or []) if str(t)}
+    picked: List[Dict[str, Any]] = []
+    for m in pool:
+        mt = str(m.get("match_type") or "unknown")
+        if triggers and mt not in triggers:
+            continue
+        picked.append(dict(m))
+    return picked or [dict(m) for m in qualified]
+
+
 def plate_type_label(match: Mapping[str, Any]) -> str:
     if match.get("match_type") == "known":
         return "车牌识别: 库内"
@@ -133,14 +166,10 @@ def collect_alert_units(flags: Mapping[str, Any], detections: Mapping[str, Any])
 
     fr = behaviors.get(FACE_RECOG_KEY) or {}
     if _enabled(flags, FACE_RECOG_KEY) and fr.get("alert"):
-        matches = [dict(m) for m in (fr.get("alert_matches") or [])]
+        matches = face_matches_for_alert(fr)
         if matches:
             extra_matches = [_public_face_match(m) for m in matches]
-            info_names = []
-            for m in extra_matches:
-                name = m["person_name"]
-                if name not in info_names:
-                    info_names.append(name)
+            info_names = face_alert_names(extra_matches)
             zh = label_zh_for_extension(FACE_RECOG_KEY)
             units.append(
                 AlertUnit(
@@ -150,6 +179,7 @@ def collect_alert_units(flags: Mapping[str, Any], detections: Mapping[str, Any])
                     extra={
                         "face_recognition": {
                             "trigger_types": fr.get("trigger_types") or [],
+                            "person_names": info_names,
                             "matches": extra_matches,
                             "alert_matches": extra_matches,
                         }

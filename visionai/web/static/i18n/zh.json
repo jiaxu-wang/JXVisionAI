@@ -380,6 +380,7 @@
     "nothingToCopy": "无可复制参数",
     "copiedGb": "已复制设备端国标参数",
     "delSipConfirm": "确定删除整行 SIP 账号 {id}？",
+    "deleteWithAnalyze": "该设备存在流分析（{names}）。确认删除后，这些分析流会一并删除，概览和检测配置里也不再显示。",
     "sipUserRequired": "SIP用户不能为空",
     "editSaved": "已保存修改",
     "clickNewFirst": "请先点「新建」",

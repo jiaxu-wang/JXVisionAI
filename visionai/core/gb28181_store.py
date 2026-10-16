@@ -1301,6 +1301,29 @@ def worker_rtp_url(device_id: str, channel_id: str) -> str:
     return rtp_pull_url(rtp_stream_id(device_id, channel_id))
 
 
+def streams_for_gb(
+    streams: List[Dict[str, Any]],
+    device_id: str,
+    channel_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """分析流依附设备（及可选的某一通道）。设备或通道删除时用这份列表清理。"""
+    device_id = str(device_id or "")
+    want_ch = None if channel_id is None else str(channel_id)
+    if not device_id:
+        return []
+    out: List[Dict[str, Any]] = []
+    for s in streams or []:
+        gb = s.get("gb28181") if isinstance(s.get("gb28181"), dict) else {}
+        did = str(gb.get("device_id") or gb.get("sip_user") or "")
+        cid = str(gb.get("channel_id") or "")
+        if did != device_id:
+            continue
+        if want_ch is not None and cid != want_ch:
+            continue
+        out.append(s)
+    return out
+
+
 def find_stream_for_channel(streams: List[Dict[str, Any]], device_id: str, channel_id: str):
     device_id = str(device_id or "")
     channel_id = str(channel_id or "")

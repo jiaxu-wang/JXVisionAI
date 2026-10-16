@@ -798,6 +798,55 @@ def _stream_by_id(stream_id: str):
     return None
 
 
+def _drop_stream_record(stream) -> bool:
+    """删除一条分析流：国标先发 Bye，再删 Redis 记录和 ZLM 代理。"""
+    if not redis_manager or not isinstance(stream, dict):
+        return False
+    stream_id = str(stream.get("id") or "")
+    if not stream_id:
+        return False
+    name = (stream.get("name") or "").strip()
+    gb = stream.get("gb28181") if isinstance(stream.get("gb28181"), dict) else {}
+    if stream.get("access_method") == ACCESS_GB28181 or gb:
+        try:
+            from visionai.core.sip import cmd as sip_cmd
+
+            sip_cmd.enqueue_cmd(
+                "bye",
+                device_id=str(gb.get("device_id") or ""),
+                channel_id=str(gb.get("channel_id") or ""),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    if not redis_manager.delete_stream(stream_id):
+        return False
+    _try_remove_zlm_proxy(stream_id)
+    if name:
+        try:
+            set_stream_status(name, "offline")
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
+def _drop_gb_analysis_streams(device_id: str, channel_id: str | None = None) -> list:
+    """删掉依附该国标设备（或其中一个通道）的分析流。"""
+    if not redis_manager:
+        return []
+    linked = gb28181_store.streams_for_gb(
+        redis_manager.get_streams() or [],
+        device_id,
+        channel_id,
+    )
+    removed = []
+    for stream in linked:
+        if _drop_stream_record(stream):
+            removed.append(str(stream.get("name") or stream.get("id") or ""))
+    if removed:
+        stream_sync.notify_streams_changed()
+    return removed
+
+
 def _try_remove_zlm_proxy(stream_id: str) -> None:
     try:
         from visionai.core.zlm_client import get_zlm_client
@@ -866,27 +915,8 @@ def delete_stream_api(stream_id: str):
     stream = _stream_by_id(stream_id)
     if not stream:
         return jsonify({"success": False, "message": "未找到视频流"}), 404
-    name = (stream.get("name") or "").strip()
-    gb = stream.get("gb28181") if isinstance(stream.get("gb28181"), dict) else {}
-    if stream.get("access_method") == ACCESS_GB28181 or gb:
-        try:
-            from visionai.core.sip import cmd as sip_cmd
-
-            sip_cmd.enqueue_cmd(
-                "bye",
-                device_id=str(gb.get("device_id") or ""),
-                channel_id=str(gb.get("channel_id") or ""),
-            )
-        except Exception:  # noqa: BLE001
-            pass
-    if not redis_manager.delete_stream(stream_id):
+    if not _drop_stream_record(stream):
         return jsonify({"success": False, "message": "删除失败"}), 500
-    _try_remove_zlm_proxy(stream_id)
-    if name:
-        try:
-            set_stream_status(name, "offline")
-        except Exception:  # noqa: BLE001
-            pass
     stream_sync.notify_streams_changed()
     return jsonify({"success": True, "message": "已删除", "stream_id": stream_id})
 
@@ -1228,13 +1258,18 @@ def gb28181_patch_channel(device_id: str, channel_id: str):
 @login_required
 def gb28181_delete_channel(device_id: str, channel_id: str):
     try:
+        removed = _drop_gb_analysis_streams(device_id, channel_id)
         row = gb28181_store.delete_channel(redis_manager, device_id, channel_id)
+        message = "通道已删除"
+        if removed:
+            message += "，并清理分析流 " + "、".join(removed)
         return jsonify(
             {
                 "success": True,
                 "device": row,
                 "channels": row.get("channels") or [],
-                "message": "通道已删除",
+                "removed_streams": removed,
+                "message": message,
             }
         )
     except ValueError as ex:
@@ -1549,10 +1584,14 @@ def gb28181_delete_device(device_id: str):
     # 避免把保留字当成设备 ID
     if device_id in ("preview-ids", "refresh-status", "preview-channel-id"):
         return jsonify({"success": False, "message": "无效的设备 ID"}), 400
+    removed = _drop_gb_analysis_streams(device_id)
     ok = gb28181_store.delete_device(redis_manager, device_id)
     if not ok:
         return jsonify({"success": False, "message": "账号不存在或删除失败"}), 404
-    return jsonify({"success": True, "message": "已删除 SIP 接入账号"})
+    message = "已删除 SIP 接入账号"
+    if removed:
+        message += "，并清理分析流 " + "、".join(removed)
+    return jsonify({"success": True, "message": message, "removed_streams": removed})
 
 
 @app.route("/api/talk/probe", methods=["POST"])

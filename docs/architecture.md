@@ -32,7 +32,7 @@ JXVisionAI：多路 RTSP / ONVIF / 国标 28181 视频智能分析。主检为 *
 
 | 形态 | 说明 | 管理端 |
 |------|------|--------|
-| **整栈 Docker（推荐）** | `docker compose up -d`：Redis + MinIO + ZLM + `visionai-api` / `visionai-worker` / `visionai-alert` / `visionai-sip` | <http://IP:15000> |
+| **整栈 Docker（推荐）** | `docker compose up -d`：Redis + MinIO + ZLM + `visionai-api` / `visionai-worker` / `visionai-alert` / `visionai-sip` | <http://IP:5000> |
 | **宿主机多进程** | compose 只起依赖；`./start.sh` 起 API / worker / alert / sip | <http://IP:5000> |
 
 当前仓库 `docker-compose.yaml` 已包含应用服务（同镜像 `visionai:latest`，`command` 分别为 `api` / `worker` / `alert` / `sip`），挂载 `./config`、`./models`、`./visionai`、`./snapshots`、`./logs`。
@@ -41,7 +41,7 @@ Compose 全服务 **host 网络**（ONVIF WS-Discovery 组播、国标 RTP 收�
 
 | 用途 | 宿主机端口 |
 |------|------------|
-| Web / API | **15000**（容器 `PORT=15000`） |
+| Web / API | **5000**（容器 `PORT=${VISIONAI_PORT:-5000}`，`.env` 可改） |
 | Redis | **16379** |
 | MinIO API / 控制台 | **19000** / **19001** |
 | ZLM HTTP | **18080** |
@@ -63,7 +63,7 @@ flowchart LR
   end
 
   subgraph compose [docker compose]
-    API["visionai-api<br/>:15000"]
+    API["visionai-api<br/>:5000"]
     Worker["visionai-worker<br/>拉流 + 检测"]
     AlertW["visionai-alert<br/>邮件 / Webhook"]
     Sip["visionai-sip<br/>:15060"]
@@ -102,7 +102,7 @@ flowchart LR
 ```text
 docker compose up -d
   ├─ redis / minio / zlmediakit
-  ├─ visionai-api      # Flask，宿主机 :15000
+  ├─ visionai-api      # Flask，宿主机 :5000
   ├─ visionai-worker   # 拉流 + 检测（WORKER_ID=compose-worker-1）
   ├─ visionai-alert    # 异步告警队列消费
   └─ visionai-sip      # 国标 SIP :15060

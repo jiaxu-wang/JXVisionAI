@@ -3,7 +3,7 @@
 #
 # 全部服务 network_mode: host —— ONVIF WS-Discovery 组播、国标 RTP 收流都要求宿主机网络。
 # 端口直接绑宿主机（与旧桥接映射保持一致，无 ports 映射）：
-#   Web 15000 | Redis 16379 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935
+#   Web 5000 | Redis 16379 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935
 #   WebRTC 18000 | 国标 SIP 15060 | PS/RTP 10000-10200
 #
 # 应用拆为四服务（同镜像）：visionai-api / visionai-worker / visionai-alert / visionai-sip
@@ -139,9 +139,9 @@ services:
     command: ["api"]
     environment:
       <<: *visionai-env
-      PORT: "15000"
+      PORT: "${VISIONAI_PORT:-5000}"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:15000/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${VISIONAI_PORT:-5000}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

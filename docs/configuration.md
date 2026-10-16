@@ -130,7 +130,7 @@ WebRTC 预览：管理端「预览」→ **ZLM WebRTC**；信令走 `POST /api/z
 
 **重要**：勿使用 ZLM 出厂默认 secret（`035c73f7-…`）。Docker 端口映射后源 IP 不是 `127.0.0.1`，**必须**带正确 secret。项目模板使用非默认值（如 `jxvisionai-zlm-…`）；改 secret 后须 **`docker compose restart zlmediakit`** 并重启应用。
 
-自检：`curl -s http://127.0.0.1:15000/readyz`（Compose）或 `:5000`（宿主机 `./start.sh`）；登录后 `GET /api/zlm/status`。
+自检：`curl -s http://127.0.0.1:5000/readyz`（Compose 与宿主机 `./start.sh` 默认均为 5000，`VISIONAI_PORT` 可改）；登录后 `GET /api/zlm/status`。
 
 ---
 

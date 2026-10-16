@@ -138,7 +138,7 @@ sleep 2
 
 if [ -n "$(_visionai_api_pids)" ]; then
     echo "✅ JXVisionAI 已启动（api + worker + alert_worker + sip）"
-    echo "📋 Web: http://0.0.0.0:5000  （compose 部署请用 :15000）"
+    echo "📋 Web: http://0.0.0.0:5000"
     echo "🩺 healthz: http://127.0.0.1:5000/healthz"
     echo "📝 日志: ./logs/visionai.log ./logs/worker.log ./logs/alert_worker.log ./logs/sip.log"
     echo "🔧 停止: ./stop.sh"
