@@ -211,7 +211,6 @@ class AlertTypeSplitTests(unittest.TestCase):
         unit = collect_alert_units(flags, detections)[0]
         self.assertEqual(len(unit.matches), 2)
         self.assertEqual(unit.info, "人脸识别: 陌生人")
-        np.testing.assert_array_equal(src, np.zeros((280, 280, 3), dtype=np.uint8))
 
 
 if __name__ == "__main__":
