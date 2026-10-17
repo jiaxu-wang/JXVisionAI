@@ -73,6 +73,9 @@ function renderAlertsTable(detections) {
         let imageUrl = '';
         if (detection.id) {
             imageUrl = '/api/alert-image/' + encodeURIComponent(detection.id);
+            if (detection.stream_id) {
+                imageUrl += '?stream_id=' + encodeURIComponent(detection.stream_id);
+            }
         } else if (detection.image_path) {
             const norm = String(detection.image_path).replace(/\\/g, '/');
             const marker = '/snapshots/';
@@ -92,12 +95,12 @@ function renderAlertsTable(detections) {
         const imgSrc = imageUrl || noImg;
         
         row.innerHTML = `
-            <td><input type="checkbox" class="alert-checkbox" value="${detection.id}"></td>
+            <td><input type="checkbox" class="alert-checkbox" value="${detection.id}" data-stream-id="${detection.stream_id || ''}"></td>
             <td>${formattedTime}</td>
             <td>${detection.stream_name}</td>
             <td>${detectionType}</td>
             <td><img src="${imgSrc}" class="alert-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4='"></td>
-            <td><button class="btn-delete" onclick="deleteAlert('${detection.id}')">${t('common.delete')}</button></td>
+            <td><button class="btn-delete" onclick="deleteAlert('${detection.id}','${detection.stream_id || ''}')">${t('common.delete')}</button></td>
         `;
         tableBody.appendChild(row);
     });
@@ -170,10 +173,11 @@ function jumpToPage() {
 }
 
 // 删除告警
-async function deleteAlert(id) {
+async function deleteAlert(id, streamId) {
     if (confirm(t('alerts.delOne'))) {
         try {
-            const response = await fetch(`/api/detections/${id}`, {
+            const qs = streamId ? ('?stream_id=' + encodeURIComponent(streamId)) : '';
+            const response = await fetch(`/api/detections/${encodeURIComponent(id)}${qs}`, {
                 method: 'DELETE'
             });
             const result = await response.json();
@@ -230,13 +234,16 @@ document.getElementById('deleteSelectedBtn')?.addEventListener('click', async fu
     
     if (confirm(t('alerts.delN', { n: selectedCheckboxes.length }))) {
         try {
-            const ids = Array.from(selectedCheckboxes).map(cb => cb.value);
+            const items = Array.from(selectedCheckboxes).map(cb => ({
+                id: cb.value,
+                stream_id: cb.getAttribute('data-stream-id') || ''
+            }));
             const response = await fetch('/api/detections/batch', {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ ids: ids })
+                body: JSON.stringify({ items: items })
             });
             const result = await response.json();
             

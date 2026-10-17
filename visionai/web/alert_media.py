@@ -8,14 +8,16 @@ from typing import Optional, Tuple
 from flask import Response, send_file
 
 
-def detection_image_response(detection_id: str) -> Tuple[Optional[Response], int]:
+def detection_image_response(
+    detection_id: str, stream_id: Optional[str] = None
+) -> Tuple[Optional[Response], int]:
     """返回 (response, status)。404/503 时 response 为 None。"""
     from visionai.core.object_storage import get_object_storage
     from visionai.core.redis_manager import redis_manager
 
     if not redis_manager:
         return None, 503
-    doc = redis_manager.get_detection_by_id(detection_id)
+    doc = redis_manager.get_detection_by_id(detection_id, stream_id=stream_id)
     if not doc:
         return None, 404
     if doc.get("object_key"):

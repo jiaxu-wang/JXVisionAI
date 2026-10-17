@@ -170,7 +170,8 @@ def open_alert_image(detection_id):
     token_ok = verify_alert_image_token(detection_id, token)
     if not key_ok and not token_ok:
         return _unauthorized("invalid api key")
-    resp, status = detection_image_response(detection_id)
+    stream_id = (request.args.get("stream_id") or "").strip() or None
+    resp, status = detection_image_response(detection_id, stream_id=stream_id)
     if resp is not None:
         return resp, status
     return jsonify({"success": False, "message": "not found"}), status

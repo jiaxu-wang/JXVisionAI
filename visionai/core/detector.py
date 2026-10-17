@@ -774,11 +774,17 @@ class Detector:
         any_ok = False
         ts_name = now.strftime(SAVE_FORMAT)
         stem, ext = os.path.splitext(ts_name)
+        sid_slug = "".join(
+            ch if ch.isalnum() or ch in "-_" else "_"
+            for ch in ((self.stream_id or "").strip() or "unknown")
+        )[:32]
         for i, unit in enumerate(units):
             try:
                 vis = render_alert_frame(src, detections, unit)
                 slug = filename_slug(unit.label)
-                save_path = os.path.join(save_dir, f"{stem}_{i:02d}_{slug}{ext}")
+                save_path = os.path.join(
+                    save_dir, f"{sid_slug}_{stem}_{i:02d}_{slug}{ext}"
+                )
                 if not cv2.imwrite(save_path, vis):
                     logger.error("[%s] 写入截图失败: %s", self.stream_name, save_path)
                     continue
@@ -804,7 +810,8 @@ class Detector:
         from visionai.config.settings import ALERT_QUEUE_ENABLED
         from visionai.core.alert_queue import enqueue_alert_job
 
-        record_id = f"{int(now.timestamp())}_{int(seq):02d}"
+        sid = (self.stream_id or "").strip() or "unknown"
+        record_id = f"{sid}_{int(now.timestamp())}_{int(seq):02d}"
         if ALERT_QUEUE_ENABLED:
             job = {
                 "stream_name": self.stream_name,

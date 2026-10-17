@@ -1784,7 +1784,8 @@ def delete_detection(detection_id):
         return jsonify({'success': False, 'message': 'Redis未连接'})
     
     try:
-        success = redis_manager.delete_detection_by_id(detection_id)
+        stream_id = (request.args.get("stream_id") or "").strip() or None
+        success = redis_manager.delete_detection_by_id(detection_id, stream_id=stream_id)
         if success:
             return jsonify({'success': True, 'message': '删除成功'})
         else:
@@ -1801,7 +1802,8 @@ def delete_detections_batch():
     
     try:
         data = request.get_json()
-        detection_ids = data.get('ids', [])
+        items = data.get('items')
+        detection_ids = items if isinstance(items, list) and items else data.get('ids', [])
         
         if not detection_ids:
             return jsonify({'success': False, 'message': '请选择要删除的记录'})
@@ -1826,7 +1828,8 @@ def alert_image(detection_id):
     """历史告警缩略图：对象存储或本地路径各选其一。"""
     from visionai.web.alert_media import detection_image_response
 
-    resp, status = detection_image_response(detection_id)
+    stream_id = (request.args.get("stream_id") or "").strip() or None
+    resp, status = detection_image_response(detection_id, stream_id=stream_id)
     if resp is not None:
         return resp
     abort(status)

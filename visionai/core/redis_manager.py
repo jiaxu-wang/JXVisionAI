@@ -267,14 +267,22 @@ class RedisManager:
             logger.error(f"获取检测结果失败: {e}")
             return [], 0
 
-    def get_detection_by_id(self, detection_id):
+    def get_detection_by_id(self, detection_id, stream_id=None):
         """
-        按记录 ID（时间戳字符串）查找单条检测记录；跨所有已配置流。
+        按记录 ID 查找单条检测记录。
+
+        同一秒多路告警时记录号可能相同。传入 ``stream_id`` 时只查该流，
+        避免把别的视频源的截图当成这一条。
         """
         if not self.is_connected():
             return None
         try:
-            for stream in self.get_streams():
+            wanted = (stream_id or "").strip()
+            if wanted:
+                streams = [{"id": wanted}]
+            else:
+                streams = self.get_streams()
+            for stream in streams:
                 sid = stream.get("id")
                 if not sid:
                     continue
@@ -408,15 +416,11 @@ class RedisManager:
             logger.error(f"删除检测记录失败: {e}")
             return False
     
-    def delete_detection_by_id(self, detection_id):
+    def delete_detection_by_id(self, detection_id, stream_id=None):
         """
-        通过ID删除检测记录（兼容旧接口）
-        
-        Args:
-            detection_id: 检测记录ID（即时间戳）
-        
-        Returns:
-            是否成功删除
+        通过ID删除检测记录（兼容旧接口）。
+
+        传入 ``stream_id`` 时只删该流下的这一条，避免同秒记录号撞车删错源。
         """
         if not self.is_connected():
             return False
@@ -424,8 +428,11 @@ class RedisManager:
         from visionai.core.object_storage import get_object_storage
 
         try:
-            # 遍历所有流查找该记录
-            streams = self.get_streams()
+            wanted = (stream_id or "").strip()
+            if wanted:
+                streams = [{"id": wanted}]
+            else:
+                streams = self.get_streams()
             for stream in streams:
                 sid = stream.get("id")
                 if sid:
@@ -471,8 +478,14 @@ class RedisManager:
             成功删除的数量
         """
         count = 0
-        for detection_id in detection_ids:
-            if self.delete_detection_by_id(detection_id):
+        for item in detection_ids:
+            if isinstance(item, dict):
+                ok = self.delete_detection_by_id(
+                    item.get("id"), stream_id=item.get("stream_id")
+                )
+            else:
+                ok = self.delete_detection_by_id(item)
+            if ok:
                 count += 1
         return count
     
