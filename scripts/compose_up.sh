@@ -31,4 +31,4 @@ docker compose "${COMPOSE_ARGS[@]}" ps
 echo "Web:      http://127.0.0.1:15000"
 echo "healthz:  http://127.0.0.1:15000/healthz"
 echo "MinIO:    http://127.0.0.1:19001  (API :19000)"
-echo "ZLM HTTP: http://127.0.0.1:18080  RTSP:18554 RTMP:11935 WebRTC:18000"
+echo "ZLM HTTP: http://127.0.0.1:80  RTSP:554 RTMP:1937 WebRTC:8003"

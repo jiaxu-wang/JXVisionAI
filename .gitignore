@@ -16,6 +16,7 @@ venv/
 
 # ---------- 运行数据（本地/Docker 卷，不入库）----------
 logs/
+run/
 snapshots/
 redis-data/
 minio-data/

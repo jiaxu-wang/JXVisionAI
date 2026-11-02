@@ -33,8 +33,8 @@ DEFAULT_PLATFORM: Dict[str, Any] = {
     "password": "",
     "device_password_mode": "per_device",
     "media_ip": "",
-    "media_port": 10000,
-    "media_port_end": 10200,
+    "media_port": 32000,
+    "media_port_end": 32999,
     "remark": "",
 }
 
@@ -182,25 +182,25 @@ def _port(raw: Any, default: int) -> int:
 def parse_media_port_range(
     raw: Any,
     *,
-    start: Any = 10000,
-    end: Any = 10200,
+    start: Any = 32000,
+    end: Any = 32999,
 ) -> Tuple[int, int]:
-    """解析「10000-10200」或单一端口；旧配置只有 media_port 时补一段范围。"""
+    """解析「32000-32999」或单一端口；旧配置只有 media_port 时补一段范围。"""
     text = str(raw or "").strip().replace("～", "-").replace("—", "-").replace("~", "-")
     text = "".join(text.split())
     if "-" in text:
         a, b = text.split("-", 1)
-        lo = _port(a, 10000)
-        hi = _port(b, 10200)
+        lo = _port(a, 32000)
+        hi = _port(b, 32999)
     elif text:
-        lo = _port(text, 10000)
-        hi = _port(end, max(lo, 10200))
+        lo = _port(text, 32000)
+        hi = _port(end, max(lo, 32999))
         if hi < lo:
-            hi = min(65535, lo + 200)
+            hi = min(65535, lo + 999)
     else:
-        lo = _port(start, 10000)
-        hi = _port(end, 10200)
-        # 旧数据只有单端口 10000、未配结束端口 → 默认扩到 10200
+        lo = _port(start, 32000)
+        hi = _port(end, 32999)
+        # 旧数据只有单端口、未配结束端口 → 默认扩到该段末尾
         if raw in (None, "") and end in (None, "") and hi == lo:
             hi = min(65535, lo + 200)
     if hi < lo:
@@ -1408,5 +1408,5 @@ def attach_monitor_status(
     return out
 
 
-def suggested_play_url(device_id: str, channel_id: str, *, rtsp_port: int = 18554) -> str:
+def suggested_play_url(device_id: str, channel_id: str, *, rtsp_port: int = 554) -> str:
     return f"rtsp://127.0.0.1:{rtsp_port}/rtp/{rtp_stream_id(device_id, channel_id)}"

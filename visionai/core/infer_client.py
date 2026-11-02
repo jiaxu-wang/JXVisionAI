@@ -42,7 +42,6 @@ class InferClient:
         self._lock = threading.Lock()
         self._channel = None
         self._stub = None
-        self._fallback_yolo = None
 
     def connect(self) -> None:
         with self._lock:
@@ -68,16 +67,38 @@ class InferClient:
         resp = self._stub.Ready(_pb2.ReadyRequest(), timeout=self.timeout_s)
         return bool(resp.ready)
 
-    def load_primary(self, version: str = "1", device: str = "") -> None:
+    def load_model(
+        self,
+        name: str,
+        path: str,
+        *,
+        task: str = "detect",
+        num_classes: int = 80,
+        imgsz: int = 640,
+        labels: str = "",
+        device: str = "",
+    ) -> None:
         self.connect()
         req = _pb2.LoadModelRequest()
-        req.model.name = "primary"
-        req.model.version = version
+        req.model.name = name or "primary"
+        req.model.version = "1"
+        req.model.format = "onnx"
+        req.model.path = path
         if device:
             req.model.device = device
-        resp = self._stub.LoadModel(req, timeout=self.timeout_s)
+        req.model.meta["task"] = task or "detect"
+        req.model.meta["num_classes"] = str(int(num_classes))
+        req.model.meta["imgsz"] = str(int(imgsz))
+        if labels:
+            req.model.meta["labels"] = labels
+        resp = self._stub.LoadModel(req, timeout=max(self.timeout_s, 120.0))
         if resp.status.code != _pb2.OK:
             raise RuntimeError(f"LoadModel failed: {resp.status.message}")
+
+    def unload_model(self, name: str) -> None:
+        self.connect()
+        req = _pb2.UnloadModelRequest(name=name, version="1")
+        self._stub.UnloadModel(req, timeout=self.timeout_s)
 
     def open_session(
         self,
@@ -85,13 +106,14 @@ class InferClient:
         conf: float = 0.25,
         imgsz: int = 640,
         class_filter: Optional[Sequence[int]] = None,
+        model_name: str = "primary",
     ) -> None:
         if not session_id:
-            raise ValueError("session_id (stream id) required")
+            raise ValueError("session_id required")
         self.connect()
         req = _pb2.OpenSessionRequest()
         req.config.session_id = session_id
-        req.config.model_name = "primary"
+        req.config.model_name = model_name or "primary"
         req.config.conf = float(conf)
         req.config.imgsz = int(imgsz)
         if class_filter:
@@ -145,6 +167,7 @@ class InferClient:
                     conf=d.conf,
                     label=d.label,
                     model_name=d.model_name or "primary",
+                    keypoints=list(d.keypoint),
                 )
             )
         return InferResult(
@@ -154,6 +177,43 @@ class InferClient:
             error_code="OK",
             frame_id=resp.frame_id,
         )
+
+    def analyze_face(
+        self,
+        frame_bgr: np.ndarray,
+        *,
+        det_model: str,
+        embed_model: str = "",
+        genderage_model: str = "",
+        det_conf: float = 0.5,
+        det_size: int = 640,
+        max_faces: int = 5,
+        with_embedding: bool = True,
+        with_genderage: bool = False,
+    ):
+        self.connect()
+        h, w = frame_bgr.shape[:2]
+        req = _pb2.AnalyzeFaceRequest()
+        img = req.image
+        img.height = int(h)
+        img.width = int(w)
+        img.channels = 3
+        img.layout = "HWC"
+        img.color = "BGR"
+        img.dtype = "UINT8"
+        img.data = np.ascontiguousarray(frame_bgr).tobytes()
+        req.det_model = det_model
+        req.embed_model = embed_model or ""
+        req.genderage_model = genderage_model or ""
+        req.det_conf = float(det_conf)
+        req.det_size = int(det_size)
+        req.max_faces = int(max_faces)
+        req.with_embedding = bool(with_embedding)
+        req.with_genderage = bool(with_genderage)
+        resp = self._stub.AnalyzeFace(req, timeout=self.timeout_s)
+        if resp.status.code != _pb2.OK:
+            raise RuntimeError(f"AnalyzeFace failed: {resp.status.message}")
+        return resp
 
 
 _client: Optional[InferClient] = None

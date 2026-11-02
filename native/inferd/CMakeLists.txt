@@ -58,6 +58,7 @@ add_executable(visionai-inferd
   src/core/session_manager.cpp
   src/core/engine_hub.cpp
   src/backend/ort_yolo_backend.cpp
+  src/backend/face_backend.cpp
   src/prepost/yolo_letterbox.cpp
 )
 target_include_directories(visionai-inferd PRIVATE

@@ -2,6 +2,7 @@
 
 #include "prepost/yolo_letterbox.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -161,31 +162,144 @@ InferRawResult OrtYoloBackend::RunOnSession(Ort::Session* session, const uint8_t
     float* data = outputs[0].GetTensorMutableData<float>();
     auto info = outputs[0].GetTensorTypeAndShapeInfo();
     auto dims = info.GetShape();
-    if (dims.size() != 3 || dims[2] < 6) {
+    if (dims.size() != 3) {
+      out.error = "unexpected output rank";
+      return out;
+    }
+    const bool channel_first = dims[1] < dims[2] && dims[1] <= 512;
+    const int64_t rows = channel_first ? dims[2] : dims[1];
+    const int64_t cols = channel_first ? dims[1] : dims[2];
+    if (cols < 6 && !(meta_.task == "pose" && cols >= 5)) {
       out.error = "unexpected output shape";
       return out;
     }
-    const int64_t n = dims[1];
+    auto at = [&](int64_t r, int64_t c) -> float {
+      if (channel_first) return data[c * rows + r];
+      return data[r * cols + c];
+    };
     std::unordered_set<int> allow;
     if (class_filter) {
       for (int c : *class_filter) allow.insert(c);
     }
+    std::vector<std::string> labels;
+    if (!meta_.labels.empty()) {
+      std::string cur;
+      auto push = [&]() {
+        const auto a = cur.find_first_not_of(' ');
+        const auto b = cur.find_last_not_of(' ');
+        labels.push_back(a == std::string::npos ? std::string() : cur.substr(a, b - a + 1));
+        cur.clear();
+      };
+      for (char ch : meta_.labels) {
+        if (ch == ',') {
+          push();
+        } else {
+          cur.push_back(ch);
+        }
+      }
+      push();
+    }
+    auto put_label = [&](DetectionBox* box) {
+      if (box->class_id >= 0 && box->class_id < static_cast<int>(labels.size())) {
+        box->label = labels[static_cast<size_t>(box->class_id)];
+      }
+    };
 
-    for (int64_t i = 0; i < n; ++i) {
-      const float* row = data + i * dims[2];
-      const float score = row[4];
-      if (score < conf) continue;
-      const int cls = static_cast<int>(row[5]);
-      if (class_filter && !allow.empty() && !allow.count(cls)) continue;
+    // 已做完 NMS 的导出：[1, N, 6] = xyxy, score, class，坐标在 letterbox 像素空间。
+    const bool end2end = !channel_first && cols >= 6 && cols <= 7;
+    if (end2end) {
+      for (int64_t i = 0; i < rows; ++i) {
+        const float score = at(i, 4);
+        if (score < conf) continue;
+        const int cls = static_cast<int>(at(i, 5));
+        if (class_filter && !allow.empty() && !allow.count(cls)) continue;
+        DetectionBox box;
+        box.x1 = at(i, 0);
+        box.y1 = at(i, 1);
+        box.x2 = at(i, 2);
+        box.y2 = at(i, 3);
+        box.conf = score;
+        box.class_id = cls;
+        MapBoxToOriginal(&box.x1, &box.y1, &box.x2, &box.y2, lb);
+        put_label(&box);
+        out.boxes.push_back(std::move(box));
+      }
+      out.ok = true;
+      return out;
+    }
+
+    int nc = meta_.num_classes > 0 ? meta_.num_classes : 80;
+    if (meta_.task == "pose" && meta_.num_classes <= 0) nc = 1;
+    if (cols < 4 + nc) nc = static_cast<int>(cols - 4);
+    const int kpt_ch = static_cast<int>(cols) - 4 - nc;
+    struct Cand {
       DetectionBox box;
-      box.x1 = row[0];
-      box.y1 = row[1];
-      box.x2 = row[2];
-      box.y2 = row[3];
-      box.conf = score;
+      float area = 0;
+    };
+    std::vector<Cand> cands;
+    cands.reserve(256);
+    for (int64_t i = 0; i < rows; ++i) {
+      float best = 0.f;
+      int cls = 0;
+      for (int c = 0; c < nc; ++c) {
+        const float s = at(i, 4 + c);
+        if (s > best) {
+          best = s;
+          cls = c;
+        }
+      }
+      if (best < conf) continue;
+      if (class_filter && !allow.empty() && !allow.count(cls)) continue;
+      const float cx = at(i, 0);
+      const float cy = at(i, 1);
+      const float w = at(i, 2);
+      const float h = at(i, 3);
+      DetectionBox box;
+      box.x1 = cx - w * 0.5f;
+      box.y1 = cy - h * 0.5f;
+      box.x2 = cx + w * 0.5f;
+      box.y2 = cy + h * 0.5f;
+      box.conf = best;
       box.class_id = cls;
+      if (kpt_ch >= 3 && kpt_ch % 3 == 0) {
+        box.keypoints.resize(static_cast<size_t>(kpt_ch));
+        for (int k = 0; k < kpt_ch; ++k) box.keypoints[static_cast<size_t>(k)] = at(i, 4 + nc + k);
+      }
+      Cand cand;
+      cand.area = std::max(0.f, box.x2 - box.x1) * std::max(0.f, box.y2 - box.y1);
+      cand.box = std::move(box);
+      cands.push_back(std::move(cand));
+    }
+    std::sort(cands.begin(), cands.end(),
+              [](const Cand& a, const Cand& b) { return a.box.conf > b.box.conf; });
+    std::vector<char> drop(cands.size(), 0);
+    constexpr float kIou = 0.45f;
+    for (size_t i = 0; i < cands.size(); ++i) {
+      if (drop[i]) continue;
+      const auto& a = cands[i].box;
+      for (size_t j = i + 1; j < cands.size(); ++j) {
+        if (drop[j] || cands[j].box.class_id != a.class_id) continue;
+        const auto& b = cands[j].box;
+        const float ix1 = std::max(a.x1, b.x1);
+        const float iy1 = std::max(a.y1, b.y1);
+        const float ix2 = std::min(a.x2, b.x2);
+        const float iy2 = std::min(a.y2, b.y2);
+        const float iw = std::max(0.f, ix2 - ix1);
+        const float ih = std::max(0.f, iy2 - iy1);
+        const float inter = iw * ih;
+        const float uni = cands[i].area + cands[j].area - inter;
+        if (uni > 0.f && inter / uni > kIou) drop[j] = 1;
+      }
+    }
+    for (size_t i = 0; i < cands.size() && out.boxes.size() < 300; ++i) {
+      if (drop[i]) continue;
+      DetectionBox box = std::move(cands[i].box);
+      for (size_t k = 0; k + 2 < box.keypoints.size(); k += 3) {
+        MapPointToOriginal(&box.keypoints[k], &box.keypoints[k + 1], lb);
+      }
       MapBoxToOriginal(&box.x1, &box.y1, &box.x2, &box.y2, lb);
-      out.boxes.push_back(box);
+      put_label(&box);
+      out.boxes.push_back(std::move(box));
     }
     out.ok = true;
     return out;

@@ -245,23 +245,18 @@ MAKE_CALL_REQUIRE_PERSON_OVERLAP = _cfg_bool("MAKE_CALL_REQUIRE_PERSON_OVERLAP",
 SAVE_DIR = _cfg_path("SAVE_DIR", "./snapshots")
 SAVE_FORMAT = "%Y%m%d_%H%M%S_%f.jpg"
 SAVE_INTERVAL = _cfg_int("SAVE_INTERVAL", 10)
+# 告警短录像：触发前保留的秒数。0 关闭。环境变量 ALERT_CLIP_SECONDS 可覆盖。
+ALERT_CLIP_SECONDS = max(0, _cfg_int("ALERT_CLIP_SECONDS", 6))
 
 # YOLO26 主检权重（[models] yolo_model）。
 # 可选 models/yolo26{n,s,m,l,x}.pt — 越大通常越准越慢；改配置后须重启进程。
 # 下载：scripts/download_yolo26.sh 或 docs/getting-started.md
 YOLO_MODEL = _cfg_path("YOLO_MODEL", _models_default("yolo26s.pt"))
 
-# ---------- 主检后端 [infer]（见 docs/architecture.md）----------
-# python：Ultralytics 直接加载 YOLO_MODEL（.pt），换档位最方便
-# cpp：走 visionai-inferd（ONNX 仓库 models/repo/…），多路共享引擎
-INFER_BACKEND = _cfg_str("INFER_BACKEND", "python").strip().lower()
+# 运行时检测走本机 visionai-inferd（ONNX Runtime）。训练仍用 Ultralytics。
 INFER_ENDPOINT = _cfg_str("INFER_ENDPOINT", "unix:///tmp/visionai-inferd.sock")
 INFER_MODEL_REPOSITORY = _cfg_path("INFER_MODEL_REPOSITORY", "models/repo")
-INFER_PRIMARY_NAME = _cfg_str("INFER_PRIMARY_NAME", "primary")
-INFER_PRIMARY_VERSION = _cfg_str("INFER_PRIMARY_VERSION", "1")
-# daemon 不可用：fail=本周期失败；fallback_python=回退 Ultralytics（开发用）
-INFER_ON_DAEMON_ERROR = _cfg_str("INFER_ON_DAEMON_ERROR", "fail").strip().lower()
-INFER_DEVICE = _cfg_str("INFER_DEVICE", "")  # 空则继承 [basic] inference_device
+INFER_DEVICE = _cfg_str("INFER_DEVICE", "")  # 当前打包的 ONNX Runtime 为 CPU
 
 # ---------- ZLMediaKit 媒体面 [zlm] ----------
 ZLM_ENABLED = _cfg_bool("ZLM_ENABLED", False)

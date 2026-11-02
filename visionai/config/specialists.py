@@ -181,6 +181,7 @@ def normalize_specialist_meta(raw: Dict[str, Any], *, key: str) -> Dict[str, Any
         "test_metrics": raw.get("test_metrics"),
         "source": "specialist",
         "origin": _normalize_origin(raw.get("origin")),
+        "active_version": str(raw.get("active_version") or "").strip(),
     }
 
 
@@ -252,6 +253,7 @@ def load_specialist(key: str, repo_root: Optional[Path] = None) -> Optional[Dict
                     abs_model = cand
                     break
         meta["weights_exists"] = abs_model.is_file()
+        meta["versions"] = list_version_records(specialist_dir(key, root))
         return meta
     except Exception as e:  # noqa: BLE001
         logger.warning("读取专模 %s 失败: %s", key, e)
@@ -308,6 +310,168 @@ def save_specialist_meta(meta: Dict[str, Any], repo_root: Optional[Path] = None)
     return path
 
 
+_MAX_VERSIONS = 8
+
+
+def _version_weight(directory: Path) -> Optional[Path]:
+    if not directory.is_dir():
+        return None
+    for name in ("model.pt", "model.onnx"):
+        cand = directory / name
+        if cand.is_file():
+            return cand
+    found = sorted(directory.glob("model.*"))
+    return found[0] if found else None
+
+
+def list_version_records(dest_dir: Path) -> List[Dict[str, Any]]:
+    """版本目录加上部署前留下的 model.bak_*。"""
+    records: List[Dict[str, Any]] = []
+    vroot = dest_dir / "versions"
+    if vroot.is_dir():
+        for child in sorted(vroot.iterdir()):
+            if not child.is_dir():
+                continue
+            weight = _version_weight(child)
+            if weight is None:
+                continue
+            info: Dict[str, Any] = {}
+            meta_path = child / "meta.json"
+            if meta_path.is_file():
+                try:
+                    raw = json.loads(meta_path.read_text(encoding="utf-8"))
+                    if isinstance(raw, dict):
+                        info = raw
+                except (OSError, json.JSONDecodeError):
+                    info = {}
+            records.append(
+                {
+                    "id": child.name,
+                    "created_at": info.get("created_at") or weight.stat().st_mtime,
+                    "label": str(info.get("label") or ""),
+                    "origin": str(info.get("origin") or ""),
+                    "legacy": False,
+                }
+            )
+    for bak in sorted(dest_dir.glob("model.bak_*")):
+        if not bak.is_file():
+            continue
+        records.append(
+            {
+                "id": "legacy:" + bak.name,
+                "created_at": bak.stat().st_mtime,
+                "label": bak.name,
+                "origin": "",
+                "legacy": True,
+            }
+        )
+    return records
+
+
+def _snapshot_version(
+    dest_dir: Path,
+    weights: Path,
+    *,
+    label: str,
+    origin: str,
+) -> str:
+    vid = str(time.time_ns())
+    vdir = dest_dir / "versions" / vid
+    vdir.mkdir(parents=True, exist_ok=True)
+    suffix = weights.suffix.lower() if weights.suffix else ".pt"
+    if suffix not in (".pt", ".onnx"):
+        suffix = ".pt"
+    shutil.copy2(weights, vdir / f"model{suffix}")
+    payload = {
+        "id": vid,
+        "created_at": time.time(),
+        "label": label,
+        "origin": origin,
+    }
+    (vdir / "meta.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return vid
+
+
+def _prune_versions(dest_dir: Path, keep_ids: Sequence[str]) -> None:
+    vroot = dest_dir / "versions"
+    if not vroot.is_dir():
+        return
+    keep = {str(x) for x in keep_ids if x}
+    dirs = sorted((p for p in vroot.iterdir() if p.is_dir()), key=lambda p: p.name)
+    extra = [p for p in dirs if p.name not in keep]
+    overflow = len(dirs) - _MAX_VERSIONS
+    for old in extra:
+        if overflow <= 0:
+            break
+        shutil.rmtree(old, ignore_errors=True)
+        overflow -= 1
+
+
+def _resolve_version_file(dest_dir: Path, version_id: str) -> Optional[Path]:
+    vid = str(version_id or "").strip()
+    if vid.startswith("legacy:"):
+        name = vid.split(":", 1)[1]
+        if not name.startswith("model.bak_") or "/" in name or "\\" in name:
+            return None
+        cand = dest_dir / name
+        return cand if cand.is_file() else None
+    if not vid or "/" in vid or "\\" in vid or ".." in vid:
+        return None
+    return _version_weight(dest_dir / "versions" / vid)
+
+
+def activate_specialist_version(
+    key: str,
+    version_id: str,
+    repo_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """把历史权重复制为当前 model.*，检测进程下次推理会按文件时间重新加载。"""
+    key = (key or "").strip()
+    meta = load_specialist(key, repo_root)
+    if not meta:
+        return {"success": False, "message": "专模不存在"}
+    dest_dir = specialist_dir(key, repo_root)
+    src = _resolve_version_file(dest_dir, version_id)
+    if src is None:
+        return {"success": False, "message": "版本不存在"}
+    suffix = src.suffix.lower() if src.suffix else ".pt"
+    if suffix not in (".pt", ".onnx"):
+        suffix = ".pt"
+    root = Path(repo_root) if repo_root else None
+    if root is None:
+        from visionai.config.settings import PROJECT_ROOT
+
+        root = Path(PROJECT_ROOT)
+    for name in ("model.pt", "model.onnx"):
+        old = dest_dir / name
+        if old.is_file() and old.suffix.lower() != suffix:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    dest = dest_dir / f"model{suffix}"
+    shutil.copy2(src, dest)
+    meta["model_path"] = str(dest.relative_to(root)).replace("\\", "/")
+    meta["active_version"] = str(version_id).strip()
+    meta.pop("versions", None)
+    save_specialist_meta(meta, root)
+    try:
+        from visionai.core.dedicated_yolo import drop_model
+
+        drop_model(str(dest))
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "success": True,
+        "message": f"已回退专模「{meta.get('name_zh') or key}」到所选版本，一般无需重启",
+        "key": key,
+        "active_version": meta["active_version"],
+        "restart_required": False,
+    }
+
+
 def deploy_specialist(
     repo_root: Path,
     *,
@@ -350,9 +514,17 @@ def deploy_specialist(
         suffix = ".pt"
     dest = dest_dir / f"model{suffix}"
     backup_path = None
+    previous_vid = ""
     if backup and dest.is_file():
         backup_path = dest_dir / f"model.bak_{int(time.time())}{suffix}"
         shutil.copy2(dest, backup_path)
+        previous_vid = _snapshot_version(
+            dest_dir, dest, label="previous", origin=origin
+        )
+    new_vid = _snapshot_version(
+        dest_dir, weights_path, label="deploy", origin=origin
+    )
+    _prune_versions(dest_dir, [previous_vid, new_vid])
     shutil.copy2(weights_path, dest)
 
     rel = str(dest.relative_to(repo_root)).replace("\\", "/")
@@ -388,6 +560,7 @@ def deploy_specialist(
         "test_metrics": test_metrics,
         "source": "specialist",
         "origin": _normalize_origin(origin),
+        "active_version": new_vid,
     }
     meta = normalize_specialist_meta(raw, key=key)
     save_specialist_meta(meta, repo_root)

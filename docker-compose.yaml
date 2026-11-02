@@ -3,8 +3,8 @@
 #
 # 全部服务 network_mode: host —— ONVIF WS-Discovery 组播、国标 RTP 收流都要求宿主机网络。
 # 端口直接绑宿主机（与旧桥接映射保持一致，无 ports 映射）：
-#   Web 5000 | Redis 16379 | MinIO 19000/19001 | ZLM HTTP 18080 | RTSP 18554 | RTMP 11935
-#   WebRTC 18000 | 国标 SIP 15060 | PS/RTP 10000-10200
+#   Web 5000 | Redis 16379 | MinIO 19000/19001 | ZLM HTTP 80 | RTSP 554 | RTMP 1937
+#   WebRTC 8003 | 国标 SIP 15060 | PS/RTP 32000-32999
 #
 # 应用拆为四服务（同镜像）：visionai-api / visionai-worker / visionai-alert / visionai-sip
 # 模型与配置通过 volume 挂载，改 config.ini / 换权重后重启对应容器即可。
@@ -41,17 +41,19 @@ x-visionai-common: &visionai-common
     S3_USE_SSL: "false"
     S3_REGION: us-east-1
     ZLM_ENABLED: "true"
-    ZLM_API_BASE: http://127.0.0.1:18080
+    ZLM_API_BASE: http://127.0.0.1:80
     ZLM_SECRET: ${ZLM_SECRET}
-    ZLM_HTTP_PORT: "18080"
-    ZLM_RTSP_PORT: "18554"
+    ZLM_HTTP_PORT: "80"
+    ZLM_RTSP_PORT: "554"
     ZLM_APP: "jvai"
     ZLM_PUBLIC_HOST: "127.0.0.1"
-    ZLM_RTC_PORT: "18000"
+    ZLM_RTC_PORT: "8003"
     ZLM_PULL_HOST: 127.0.0.1
-    ZLM_PULL_RTSP_PORT: "18554"
+    ZLM_PULL_RTSP_PORT: "554"
     ZLM_PREFER_LOCAL_PULL: "true"
     ZLM_FALLBACK_DIRECT_RTSP: "true"
+    # 与宿主机 visionai-inferd 共用 ./run 里的套接字
+    INFER_ENDPOINT: unix:///app/run/visionai-inferd.sock
     NO_PROXY: "127.0.0.1,localhost"
     no_proxy: "127.0.0.1,localhost"
   volumes:
@@ -60,6 +62,7 @@ x-visionai-common: &visionai-common
     - ./config:/app/config
     - ./models:/app/models
     - ./visionai:/app/visionai
+    - ./run:/app/run
     - ./docker/docker-entrypoint.sh:/docker-entrypoint.sh:ro
     - /usr/share/fonts:/usr/share/fonts:ro
   depends_on:
@@ -122,7 +125,7 @@ services:
     container_name: visionai-zlm
     network_mode: host
     volumes:
-      # host 网络专用配置：HTTP 18080 / RTSP 18554 / RTMP 11935 / WebRTC 18000 / RTP 10000-10200
+      # host 网络专用配置：HTTP 80 / RTSP 554 / RTMP 1937 / WebRTC 8003 / RTP 32000-32999
       - ./config/zlm/config.host.ini:/opt/media/conf/config.ini:ro
       - ./logs/zlm:/opt/media/bin/log
     restart: unless-stopped

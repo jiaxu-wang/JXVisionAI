@@ -141,11 +141,11 @@ def process_alert_job(job: Dict[str, Any]) -> None:
     object_key = None
     storage_kind = None
     store = get_object_storage()
+    sid = stream_id or "unknown"
+    if not stream_id and redis_manager and redis_manager.is_connected():
+        sid = redis_manager.get_stream_id_by_name(stream_name) or "unknown"
     if store and image_path and os.path.isfile(image_path):
         rel_name = os.path.basename(image_path)
-        sid = stream_id or "unknown"
-        if not stream_id and redis_manager and redis_manager.is_connected():
-            sid = redis_manager.get_stream_id_by_name(stream_name) or "unknown"
         s3_key = store.build_snapshot_key(sid, rel_name)
         try:
             ur = store.upload_file(image_path, s3_key, content_type="image/jpeg")
@@ -163,6 +163,28 @@ def process_alert_job(job: Dict[str, Any]) -> None:
                 pass
         path_for_redis = ""
 
+    video_path = str(job.get("video_path") or "")
+    video_object_key = None
+    video_storage_kind = None
+    video_for_redis = video_path
+    if store and video_path and os.path.isfile(video_path):
+        vkey = store.build_key("videos", sid, os.path.basename(video_path))
+        try:
+            vr = store.upload_file(
+                video_path, vkey, content_type="application/octet-stream"
+            )
+            video_object_key = vr.object_key
+            video_storage_kind = vr.kind
+        except Exception as ex:  # noqa: BLE001
+            logger.error("[%s] 短录像上传失败: %s", stream_name, ex, exc_info=True)
+    if video_object_key and not OBJECT_STORAGE_KEEP_LOCAL:
+        if video_path and os.path.isfile(video_path):
+            try:
+                os.remove(video_path)
+            except OSError:
+                pass
+        video_for_redis = ""
+
     if not redis_manager:
         raise RuntimeError("redis unavailable")
 
@@ -175,6 +197,9 @@ def process_alert_job(job: Dict[str, Any]) -> None:
         storage_kind=storage_kind,
         extra=extra if isinstance(extra, dict) else None,
         record_id=record_id,
+        video_path=video_for_redis or None,
+        video_object_key=video_object_key,
+        video_storage_kind=video_storage_kind,
     )
     if rec_id and alert_emails and alert_email_enabled:
         img_for_mail = (
@@ -202,4 +227,6 @@ def process_alert_job(job: Dict[str, Any]) -> None:
             detection_id=rec_id,
             timestamp=now,
             extra=extra if isinstance(extra, dict) else None,
+            platform_event_type=job.get("platform_event_type"),
+            has_clip=bool(video_for_redis or video_object_key),
         )

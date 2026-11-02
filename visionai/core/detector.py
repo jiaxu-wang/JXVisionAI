@@ -5,19 +5,17 @@
 按 ``detection_interval`` 开一轮，窗内抽多帧 → ``detect()`` → ``process_results()`` →
 命中率聚合 → ``save_snapshot()``（一轮按类型各存一条/一张，框不混画）。``detect_burst_frames=1`` 时退回单帧。
 
-多路并行加载同一权重文件时加锁，避免 torch.load 竞态。
+主检、专模和姿态的逐帧推理都在 visionai-inferd。``.pt`` 只在首次导出 ONNX 时用到。
 """
 
 import colorsys
 import logging
 import os
-import threading
 import time
 from typing import List
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 from visionai.config.detection_catalog import (
     CALL_KEY,
@@ -37,9 +35,6 @@ from visionai.config.settings import (
     CONF_THRESHOLD,
     GATHER_MIN_DURATION_SEC,
     GATHER_MIN_PERSONS,
-    INFER_BACKEND,
-    INFER_ON_DAEMON_ERROR,
-    INFER_PRIMARY_VERSION,
     MAKE_CALL_MODEL_PATH,
     MAKE_CALL_REQUIRE_PERSON_OVERLAP,
     MAKE_CALL_USE_DEDICATED,
@@ -49,7 +44,6 @@ from visionai.config.settings import (
     SAVE_FORMAT,
     SAVE_INTERVAL,
     YOLO_MODEL,
-    yolo_inference_device,
 )
 from visionai.core.alert_units import collect_alert_units, filename_slug, render_alert_frame
 from visionai.core.behaviors import BehaviorContext, run_behaviors
@@ -74,8 +68,7 @@ from visionai.utils.frame_draw import draw_labeled_box, label_font_px, put_text
 
 logger = logging.getLogger(__name__)
 
-# 多路流并行创建 Detector 时，同一权重路径的 torch.load 需要串行化
-_yolo_model_load_lock = threading.Lock()
+_COCO_LABELS = ",".join(COCO_NAMES[i] for i in range(NUM_COCO_CLASSES))
 
 
 def _bgr_for_class(class_id: int):
@@ -122,7 +115,6 @@ class Detector:
         self.stream_id = stream_id
         self.save_dir = save_dir
         self.detections = normalize_detections(detections)
-        self.model = None
         self.last_save_time = 0
         self._gather_since = None
         self._behavior_state: dict = {}
@@ -133,61 +125,11 @@ class Detector:
         self.face_recognition_config = default_face_recognition_config()
         self.plate_recognition_config = default_plate_recognition_config()
         self.fatigue_driving_config = default_fatigue_config()
-        self._cpp_session_ready = False
-        self._load_model()
+        from visionai.core.intrusion_zone import normalize_intrusion_zone
 
-    def _load_model(self):
-        if (INFER_BACKEND or "").strip().lower() == "cpp":
-            logger.info(
-                "infer.backend=cpp：主检走 visionai-inferd（stream_id=%s）",
-                self.stream_id or "(pending)",
-            )
-            if INFER_ON_DAEMON_ERROR == "fallback_python":
-                # 预加载 Ultralytics 以便 daemon 故障时回退
-                self._load_yolo_python()
-            return
-        self._load_yolo_python()
-
-    def _load_yolo_python(self):
-        """加载 [models] yolo_model（YOLO26 n/s/m/l/x .pt）。多路并行加载时加锁。"""
-        try:
-            logger.info("正在加载YOLO模型: %s", YOLO_MODEL)
-            with _yolo_model_load_lock:
-                self.model = YOLO(YOLO_MODEL)
-            dev = yolo_inference_device()
-            logger.info(
-                "YOLO模型加载完成 path=%s device=%s",
-                YOLO_MODEL,
-                dev if dev is not None else "auto",
-            )
-        except Exception as e:
-            logger.error(f"加载模型失败: {e}")
-            raise
-
-    def _ensure_cpp_session(self):
-        sid = (self.stream_id or "").strip()
-        if not sid:
-            raise RuntimeError("cpp backend requires stream id (session_id)")
-        if self._cpp_session_ready:
-            return
-        from visionai.core.infer_client import get_infer_client
-
-        client = get_infer_client()
-        if not client.ready():
-            client.load_primary(version=INFER_PRIMARY_VERSION)
-        client.open_session(sid, conf=float(CONF_THRESHOLD), imgsz=640)
-        self._cpp_session_ready = True
-
-    def _detect_python(self, frame):
-        from visionai.core.infer_types import boxes_from_ultralytics
-
-        if self.model is None:
-            self._load_yolo_python()
-        dev = yolo_inference_device()
-        kw = {"conf": CONF_THRESHOLD}
-        if dev is not None:
-            kw["device"] = dev
-        return boxes_from_ultralytics(self.model(frame, **kw))
+        self.intrusion_zone = normalize_intrusion_zone(None)
+        self.alert_clip_enabled = True
+        logger.info("主检走 visionai-inferd: %s", YOLO_MODEL)
 
     def process_dms_frame(self, frame):
         """密检窗内只跑疲劳驾驶，不跑主检 YOLO。"""
@@ -235,28 +177,21 @@ class Detector:
         return fg
 
     def detect(self, frame):
-        """返回 DetectionBox 列表（python / cpp 统一）。"""
+        """返回 DetectionBox 列表。主检只走 visionai-inferd。"""
         try:
-            if (INFER_BACKEND or "").strip().lower() != "cpp":
-                return self._detect_python(frame)
+            from visionai.core.cpp_yolo import infer_boxes
 
-            from visionai.core.infer_client import get_infer_client
-
-            try:
-                self._ensure_cpp_session()
-                client = get_infer_client()
-                result = client.infer((self.stream_id or "").strip(), frame)
-                if not result.ok:
-                    raise RuntimeError(f"{result.error_code}: {result.message}")
-                return result.boxes
-            except Exception as e:
-                if INFER_ON_DAEMON_ERROR == "fallback_python":
-                    logger.warning("inferd 失败，fallback_python: %s", e)
-                    return self._detect_python(frame)
-                logger.error("cpp 检测失败: %s", e)
-                return []
+            return infer_boxes(
+                YOLO_MODEL,
+                frame,
+                conf=float(CONF_THRESHOLD),
+                task="detect",
+                num_classes=NUM_COCO_CLASSES,
+                imgsz=640,
+                labels=_COCO_LABELS,
+            )
         except Exception as e:
-            logger.error(f"检测失败: {e}")
+            logger.error("检测失败: %s", e)
             return []
 
     def process_results_from_boxes(self, frame, boxes):
@@ -766,8 +701,18 @@ class Detector:
             return False
 
         from visionai.utils.timeutil import app_now
+        from visionai.core.intrusion_zone import filter_person_zone
 
         now = app_now()
+        units = filter_person_zone(
+            units,
+            detections or {},
+            getattr(src, "shape", None),
+            getattr(self, "intrusion_zone", None),
+            now,
+        )
+        if not units:
+            return False
         save_dir = self.save_dir or SAVE_DIR
         os.makedirs(save_dir, exist_ok=True)
         infos = []
@@ -778,7 +723,9 @@ class Detector:
             ch if ch.isalnum() or ch in "-_" else "_"
             for ch in ((self.stream_id or "").strip() or "unknown")
         )[:32]
-        for i, unit in enumerate(units):
+        shared_clip = self._write_shared_clip(save_dir, f"{sid_slug}_{stem}")
+        for i, pair in enumerate(units):
+            unit, platform_event_type = pair
             try:
                 vis = render_alert_frame(src, detections, unit)
                 slug = filename_slug(unit.label)
@@ -788,12 +735,23 @@ class Detector:
                 if not cv2.imwrite(save_path, vis):
                     logger.error("[%s] 写入截图失败: %s", self.stream_name, save_path)
                     continue
+                unit_clip = ""
+                if shared_clip:
+                    unit_clip = os.path.join(save_dir, f"{sid_slug}_{stem}_{i:02d}.jclip")
+                    try:
+                        import shutil
+
+                        shutil.copy2(shared_clip, unit_clip)
+                    except OSError:
+                        unit_clip = ""
                 rec_ok = self._persist_alert(
                     save_path=save_path,
                     detection_types=[unit.label],
                     extra=unit.extra,
                     now=now,
                     seq=i,
+                    platform_event_type=platform_event_type,
+                    video_path=unit_clip or None,
                 )
                 if rec_ok:
                     any_ok = True
@@ -801,12 +759,42 @@ class Detector:
             except Exception as e:
                 logger.error("[%s] 保存类型 %s 截图失败: %s", self.stream_name, unit.label, e)
 
+        if shared_clip and os.path.isfile(shared_clip):
+            try:
+                os.remove(shared_clip)
+            except OSError:
+                pass
         if any_ok:
             self.last_save_time = current_time
             logger.info("[%s] 检测到: %s，已按类型分别保存", self.stream_name, ", ".join(infos))
         return any_ok
 
-    def _persist_alert(self, save_path, detection_types, extra, now, seq=0):
+    def _write_shared_clip(self, save_dir, stem):
+        if not getattr(self, "alert_clip_enabled", True):
+            return ""
+        ring = getattr(self, "clip_ring", None)
+        if ring is None:
+            return ""
+        frames = ring.frames()
+        if len(frames) < 2:
+            return ""
+        dest = os.path.join(save_dir, f"{stem}.jclip")
+        from visionai.core.alert_clip import write_clip_file
+
+        if not write_clip_file(frames, dest, ring.fps()):
+            return ""
+        return dest
+
+    def _persist_alert(
+        self,
+        save_path,
+        detection_types,
+        extra,
+        now,
+        seq=0,
+        platform_event_type=None,
+        video_path=None,
+    ):
         from visionai.config.settings import ALERT_QUEUE_ENABLED
         from visionai.core.alert_queue import enqueue_alert_job
 
@@ -826,6 +814,10 @@ class Detector:
                 "alert_webhook_urls": list(self.alert_webhook_urls or []),
                 "alert_webhook_enabled": bool(self.alert_webhook_enabled),
             }
+            if video_path:
+                job["video_path"] = video_path
+            if platform_event_type is not None:
+                job["platform_event_type"] = int(platform_event_type)
             if enqueue_alert_job(job):
                 return True
             logger.warning("[%s] 告警入队失败，回退同步写库", self.stream_name)
@@ -853,6 +845,23 @@ class Detector:
                     )
 
             path_for_redis = save_path
+            video_for_redis = video_path or ""
+            video_object_key = None
+            video_storage_kind = None
+            if store and video_path and os.path.isfile(video_path):
+                vkey = store.build_key(
+                    "videos",
+                    (self.stream_id or "").strip() or "unknown",
+                    os.path.basename(video_path),
+                )
+                try:
+                    vr = store.upload_file(
+                        video_path, vkey, content_type="application/octet-stream"
+                    )
+                    video_object_key = vr.object_key
+                    video_storage_kind = vr.kind
+                except Exception as ex:
+                    logger.error("[%s] 短录像上传失败: %s", self.stream_name, ex, exc_info=True)
             if object_key and not OBJECT_STORAGE_KEEP_LOCAL:
                 if os.path.isfile(save_path):
                     try:
@@ -862,6 +871,13 @@ class Detector:
                             "[%s] 仅对象存储时删除本地文件失败: %s", self.stream_name, ex
                         )
                 path_for_redis = ""
+            if video_object_key and not OBJECT_STORAGE_KEEP_LOCAL:
+                if video_for_redis and os.path.isfile(video_for_redis):
+                    try:
+                        os.remove(video_for_redis)
+                    except OSError:
+                        pass
+                video_for_redis = ""
 
             rec_id = redis_manager.save_detection(
                 stream_name=self.stream_name,
@@ -872,6 +888,9 @@ class Detector:
                 storage_kind=storage_kind,
                 extra=extra,
                 record_id=record_id,
+                video_path=video_for_redis or None,
+                video_object_key=video_object_key,
+                video_storage_kind=video_storage_kind,
             )
             if rec_id and self.alert_emails and self.alert_email_enabled:
                 img_for_mail = (
@@ -902,6 +921,8 @@ class Detector:
                     detection_id=rec_id,
                     timestamp=now,
                     extra=extra if isinstance(extra, dict) else None,
+                    platform_event_type=platform_event_type,
+                    has_clip=bool(video_for_redis or video_object_key),
                 )
             return bool(rec_id)
         except Exception as e:

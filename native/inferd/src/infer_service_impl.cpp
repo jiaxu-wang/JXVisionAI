@@ -2,6 +2,9 @@
 
 #include "version.h"
 
+#include <chrono>
+#include <cstdlib>
+
 namespace visionai::inferd {
 namespace {
 
@@ -39,15 +42,9 @@ grpc::Status InferServiceImpl::Live(grpc::ServerContext*,
 grpc::Status InferServiceImpl::Ready(grpc::ServerContext*,
                                      const visionai::infer::v1::ReadyRequest*,
                                      visionai::infer::v1::ReadyResponse* response) {
-  const bool ready = hub_->primary.IsLoaded();
-  response->set_ready(ready);
-  if (ready) {
-    *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "ready");
-    for (const auto& n : hub_->repo.LoadedNames()) response->add_loaded_models(n);
-  } else {
-    *response->mutable_status() =
-        MakeStatus(visionai::infer::v1::NOT_READY, "no model loaded");
-  }
+  response->set_ready(true);
+  *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "ready");
+  for (const auto& n : hub_->LoadedNames()) response->add_loaded_models(n);
   return grpc::Status::OK;
 }
 
@@ -74,18 +71,33 @@ grpc::Status InferServiceImpl::LoadModel(grpc::ServerContext*,
   const auto& m = request->model();
   const std::string name = m.name().empty() ? "primary" : m.name();
   const std::string version = m.version().empty() ? "1" : m.version();
-  if (name != "primary") {
-    *response->mutable_status() =
-        MakeStatus(visionai::infer::v1::UNSUPPORTED, "only primary supported in Phase1");
-    return grpc::Status::OK;
-  }
   if (!m.device().empty()) hub_->default_device = m.device();
+  ModelMeta meta;
+  if (!m.path().empty()) {
+    meta.name = name;
+    meta.version = version;
+    meta.path = m.path();
+    meta.format = m.format().empty() ? "onnx" : m.format();
+    meta.task = "detect";
+    meta.imgsz = 640;
+    meta.num_classes = 80;
+    const auto& kv = m.meta();
+    if (kv.count("task")) meta.task = kv.at("task");
+    if (kv.count("labels")) meta.labels = kv.at("labels");
+    if (kv.count("imgsz")) meta.imgsz = std::atoi(kv.at("imgsz").c_str());
+    if (kv.count("num_classes")) meta.num_classes = std::atoi(kv.at("num_classes").c_str());
+  } else {
+    auto resolved = hub_->repo.Resolve(name, version);
+    if (!resolved) {
+      *response->mutable_status() =
+          MakeStatus(visionai::infer::v1::NOT_FOUND, "model not found: " + name + "/" + version);
+      return grpc::Status::OK;
+    }
+    meta = *resolved;
+  }
   std::string err;
-  if (!hub_->LoadPrimary(name, version, &err)) {
-    const auto code = err.find("not found") != std::string::npos
-                          ? visionai::infer::v1::NOT_FOUND
-                          : visionai::infer::v1::BACKEND_FAILURE;
-    *response->mutable_status() = MakeStatus(code, err);
+  if (!hub_->LoadExplicit(meta, &err)) {
+    *response->mutable_status() = MakeStatus(visionai::infer::v1::BACKEND_FAILURE, err);
     return grpc::Status::OK;
   }
   *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "loaded");
@@ -96,13 +108,7 @@ grpc::Status InferServiceImpl::UnloadModel(grpc::ServerContext*,
                                            const visionai::infer::v1::UnloadModelRequest* request,
                                            visionai::infer::v1::UnloadModelResponse* response) {
   const std::string name = request->name().empty() ? "primary" : request->name();
-  if (name != "primary") {
-    *response->mutable_status() =
-        MakeStatus(visionai::infer::v1::UNSUPPORTED, "only primary supported in Phase1");
-    return grpc::Status::OK;
-  }
-  hub_->primary.Unload();
-  hub_->repo.MarkUnloaded("primary");
+  hub_->Unload(name);
   *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "unloaded");
   return grpc::Status::OK;
 }
@@ -116,9 +122,12 @@ grpc::Status InferServiceImpl::OpenSession(grpc::ServerContext*,
         MakeStatus(visionai::infer::v1::INVALID_ARGUMENT, "session_id required (stream id)");
     return grpc::Status::OK;
   }
+  if (!hub_->Find(c.model_name().empty() ? "primary" : c.model_name())) {
+    *response->mutable_status() =
+        MakeStatus(visionai::infer::v1::NOT_READY, "model not loaded");
+    return grpc::Status::OK;
+  }
   hub_->sessions.Upsert(FromProto(c));
-  std::string serr;
-  hub_->primary.EnsureSessionSlot(c.session_id(), &serr);
   *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "opened");
   return grpc::Status::OK;
 }
@@ -149,7 +158,6 @@ grpc::Status InferServiceImpl::CloseSession(grpc::ServerContext*,
     *response->mutable_status() = MakeStatus(visionai::infer::v1::NOT_FOUND, "session not found");
     return grpc::Status::OK;
   }
-  hub_->primary.DropSessionSlot(request->session_id());
   *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "closed");
   return grpc::Status::OK;
 }
@@ -158,13 +166,14 @@ grpc::Status InferServiceImpl::Infer(grpc::ServerContext*,
                                      const visionai::infer::v1::InferRequest* request,
                                      visionai::infer::v1::InferResponse* response) {
   response->set_frame_id(request->frame_id());
-  if (!hub_->primary.IsLoaded()) {
-    *response->mutable_status() = MakeStatus(visionai::infer::v1::NOT_READY, "model not loaded");
-    return grpc::Status::OK;
-  }
   auto sess = hub_->sessions.Get(request->session_id());
   if (!sess) {
     *response->mutable_status() = MakeStatus(visionai::infer::v1::NOT_FOUND, "session not found");
+    return grpc::Status::OK;
+  }
+  auto backend = hub_->Find(sess->model_name);
+  if (!backend || !backend->IsLoaded()) {
+    *response->mutable_status() = MakeStatus(visionai::infer::v1::NOT_READY, "model not loaded");
     return grpc::Status::OK;
   }
 
@@ -179,9 +188,8 @@ grpc::Status InferServiceImpl::Infer(grpc::ServerContext*,
 
   const auto* filter =
       sess->class_filter.empty() ? nullptr : &sess->class_filter;
-  auto raw = hub_->primary.InferBgrForSession(
-      request->session_id(), reinterpret_cast<const uint8_t*>(img.data().data()), img.width(),
-      img.height(), sess->conf, sess->imgsz, filter);
+  auto raw = backend->InferBgr(reinterpret_cast<const uint8_t*>(img.data().data()), img.width(),
+                               img.height(), sess->conf, sess->imgsz, filter);
   if (!raw.ok) {
     *response->mutable_status() =
         MakeStatus(visionai::infer::v1::BACKEND_FAILURE, raw.error);
@@ -196,7 +204,51 @@ grpc::Status InferServiceImpl::Infer(grpc::ServerContext*,
     d->set_y2(b.y2);
     d->set_class_id(b.class_id);
     d->set_conf(b.conf);
+    d->set_label(b.label);
     d->set_model_name(sess->model_name);
+    for (float k : b.keypoints) d->add_keypoint(k);
+  }
+  *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "ok");
+  return grpc::Status::OK;
+}
+
+grpc::Status InferServiceImpl::AnalyzeFace(grpc::ServerContext*,
+                                           const visionai::infer::v1::AnalyzeFaceRequest* request,
+                                           visionai::infer::v1::AnalyzeFaceResponse* response) {
+  const auto& img = request->image();
+  if (img.channels() != 3 || img.layout() != "HWC" || img.color() != "BGR" ||
+      img.dtype() != "UINT8" || img.width() <= 0 || img.height() <= 0 ||
+      static_cast<int>(img.data().size()) != img.width() * img.height() * 3) {
+    *response->mutable_status() =
+        MakeStatus(visionai::infer::v1::INVALID_ARGUMENT, "invalid ImageTensor (expect BGR HWC UINT8)");
+    return grpc::Status::OK;
+  }
+  std::vector<FaceHitLocal> hits;
+  std::string err;
+  const auto t0 = std::chrono::steady_clock::now();
+  const bool ok = faces_.Analyze(
+      reinterpret_cast<const uint8_t*>(img.data().data()), img.width(), img.height(),
+      request->det_model(), request->embed_model(), request->genderage_model(), request->det_conf(),
+      request->det_size(), request->max_faces(), request->with_embedding(), request->with_genderage(),
+      &hits, &err);
+  const auto t1 = std::chrono::steady_clock::now();
+  response->set_infer_ms(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+  if (!ok) {
+    *response->mutable_status() = MakeStatus(visionai::infer::v1::BACKEND_FAILURE, err);
+    return grpc::Status::OK;
+  }
+  for (const auto& h : hits) {
+    auto* f = response->add_faces();
+    f->set_x1(h.x1);
+    f->set_y1(h.y1);
+    f->set_x2(h.x2);
+    f->set_y2(h.y2);
+    f->set_det_score(h.det_score);
+    for (float k : h.kps) f->add_kps(k);
+    for (float e : h.embedding) f->add_embedding(e);
+    f->set_has_attr(h.has_attr);
+    f->set_gender(h.gender);
+    f->set_age(h.age);
   }
   *response->mutable_status() = MakeStatus(visionai::infer::v1::OK, "ok");
   return grpc::Status::OK;

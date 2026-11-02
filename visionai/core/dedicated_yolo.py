@@ -1,49 +1,46 @@
-"""专训 YOLO 权重（.pt / .onnx）加载与推理，供行为层与场景检测复用。"""
+"""专训 YOLO 权重（.pt / .onnx）加载与推理，供行为层与场景检测复用。
+
+运行时只走 visionai-inferd。``.pt`` 在首次使用时导出为同名 ``.onnx``。
+"""
 
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from ultralytics import YOLO
 
-from visionai.config.settings import yolo_inference_device
+from visionai.core.weights_onnx import ensure_onnx
 
 logger = logging.getLogger(__name__)
 
-_load_lock = threading.Lock()
-_models: Dict[str, YOLO] = {}
-_failed: set[str] = set()
 
-
-def _resolve_path(path: str) -> str:
-    return (path or "").strip()
-
-
-def ensure_model(model_path: str) -> Optional[YOLO]:
-    path = _resolve_path(model_path)
+def drop_model(model_path: str) -> None:
+    """权重替换后清掉已加载记录，下次推理重新 LoadModel。"""
+    path = (model_path or "").strip()
     if not path:
-        return None
-    if path in _models:
-        return _models[path]
-    if path in _failed:
-        return None
-    with _load_lock:
-        if path in _models:
-            return _models[path]
-        if path in _failed:
-            return None
-        try:
-            m = YOLO(path)
-            _models[path] = m
-            logger.info("专模 YOLO 已加载: %s names=%s", path, getattr(m, "names", {}))
-        except Exception as ex:  # noqa: BLE001
-            _failed.add(path)
-            logger.warning("专模 YOLO 加载失败 %s: %s", path, ex)
-            return None
-    return _models.get(path)
+        return
+    try:
+        from visionai.core import cpp_yolo
+        from visionai.core.infer_client import get_infer_client
+
+        onnx_path = ensure_onnx(path)
+        if not onnx_path:
+            return
+        name = cpp_yolo.model_key(onnx_path)
+        with cpp_yolo._lock:
+            cpp_yolo._loaded.discard(name)
+            for sid in list(cpp_yolo._sessions):
+                if sid.startswith(name + ":"):
+                    cpp_yolo._sessions.discard(sid)
+        get_infer_client().unload_model(name)
+    except Exception as ex:  # noqa: BLE001
+        logger.debug("卸载专模失败 %s: %s", path, ex)
+
+
+def ensure_model(model_path: str) -> Optional[str]:
+    """权重能导出/找到 onnx 时返回路径，否则 None。"""
+    return ensure_onnx(model_path)
 
 
 def infer_detections(
@@ -54,41 +51,19 @@ def infer_detections(
     class_ids: Optional[Sequence[int]] = None,
 ) -> List[Dict[str, Any]]:
     """原图坐标检测框列表。"""
-    m = ensure_model(model_path)
-    if m is None or frame_bgr is None or frame_bgr.size == 0:
-        return []
+    from visionai.core.cpp_yolo import infer_boxes
 
-    dev = yolo_inference_device()
-    kw: Dict[str, Any] = {"conf": conf, "verbose": False}
-    if dev is not None:
-        kw["device"] = dev
-    if class_ids:
-        kw["classes"] = list(class_ids)
-
-    try:
-        results = m(frame_bgr, **kw)
-    except Exception as ex:  # noqa: BLE001
-        logger.debug("专模推理异常 %s: %s", model_path, ex)
-        return []
-
-    names = getattr(m, "names", {}) or {}
+    boxes = infer_boxes(model_path, frame_bgr, conf=float(conf), class_ids=class_ids, task="detect")
     out: List[Dict[str, Any]] = []
-    for r in results:
-        if r.boxes is None:
-            continue
-        for box in r.boxes:
-            cls = int(box.cls[0])
-            if class_ids is not None and cls not in class_ids:
-                continue
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            out.append(
-                {
-                    "box": (x1, y1, x2, y2),
-                    "class_id": cls,
-                    "name": str(names.get(cls, cls)),
-                    "confidence": float(box.conf[0]),
-                }
-            )
+    for box in boxes:
+        out.append(
+            {
+                "box": box.box,
+                "class_id": int(box.class_id),
+                "name": box.label or str(box.class_id),
+                "confidence": float(box.conf),
+            }
+        )
     return out
 
 

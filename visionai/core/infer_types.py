@@ -16,6 +16,7 @@ class DetectionBox:
     conf: float
     label: str = ""
     model_name: str = "primary"
+    keypoints: List[float] = field(default_factory=list)
 
     @property
     def box(self) -> Tuple[int, int, int, int]:

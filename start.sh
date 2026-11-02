@@ -58,7 +58,7 @@ export OBJECT_STORAGE_ENABLED="${OBJECT_STORAGE_ENABLED:-true}"
 
 mkdir -p "$LOG_DIR" ./logs ./snapshots
 
-# 国标 PS/RTP 收流口（默认 10000-10200）
+# 国标 PS/RTP 收流口（默认 32000-32999）
 if [ "$(id -u)" = "0" ] && [ -f scripts/open_gb_rtp_ports.sh ]; then
   echo "放行 ZLM 国标 RTP 端口..."
   bash scripts/open_gb_rtp_ports.sh || echo "警告: 防火墙放行失败（可手动 sudo bash scripts/open_gb_rtp_ports.sh）"
@@ -73,7 +73,7 @@ if [ "${START_COMPOSE_DEPS:-1}" = "1" ] && command -v docker >/dev/null 2>&1; th
   _ZLM_MODE="$(docker inspect visionai-zlm --format '{{.HostConfig.NetworkMode}}' 2>/dev/null || true)"
   _ZLM_HOST_INI="$(cd "$(dirname "$0")" && pwd)/config/zlm/config.host.ini"
   if [ "$_ZLM_MODE" != "host" ]; then
-    echo "以 host 网络启动 ZLM（国标收流口 10000 绑在宿主机）..."
+    echo "以 host 网络启动 ZLM（国标收流口 32000 起绑在宿主机）..."
     docker rm -f visionai-zlm >/dev/null 2>&1 || true
     if [ -f "$_ZLM_HOST_INI" ]; then
       docker run -d --name visionai-zlm --network host --restart unless-stopped \
@@ -89,38 +89,11 @@ if [ "${START_COMPOSE_DEPS:-1}" = "1" ] && command -v docker >/dev/null 2>&1; th
   fi
 fi
 
-_INFER_BACKEND="$(
-  PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target" \
-  "$_PY" -c "from visionai.config.settings import INFER_BACKEND; print(INFER_BACKEND)" 2>/dev/null || echo python
-)"
-_INFER_DEVICE="$(
-  PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target" \
-  "$_PY" -c "
-from visionai.config.settings import INFER_DEVICE, INFERENCE_DEVICE
-d=(INFER_DEVICE or INFERENCE_DEVICE or 'cpu').strip().lower()
-print('cuda' if d in ('gpu','cuda','0') else 'cpu')
-" 2>/dev/null || echo cpu
-)"
-_INFERD_BIN=""
-for _c in native/inferd/build-user/visionai-inferd native/inferd/build/visionai-inferd; do
-  if [ -x "$_c" ]; then _INFERD_BIN="$_c"; break; fi
-done
-if [ "$_INFER_BACKEND" = "cpp" ]; then
-  if [ -z "$_INFERD_BIN" ]; then
-    echo "错误: infer.backend=cpp 但未找到 visionai-inferd"
-    exit 1
-  fi
-  if ! pgrep -f '[v]isionai-inferd' >/dev/null 2>&1; then
-    echo "正在启动 visionai-inferd (device=$_INFER_DEVICE)..."
-    _REPO="$(
-      PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target" \
-      ./env/bin/python -c "from visionai.config.settings import INFER_MODEL_REPOSITORY; print(INFER_MODEL_REPOSITORY)" 2>/dev/null || echo models/repo
-    )"
-    nohup "$_INFERD_BIN" --uds /tmp/visionai-inferd.sock --repo "$_REPO" --device "$_INFER_DEVICE" \
-      > ./logs/inferd.log 2>&1 &
-    sleep 1
-  fi
+if ! ./scripts/run_inferd.sh; then
+  echo "错误: visionai-inferd 未能启动"
+  exit 1
 fi
+export INFER_ENDPOINT="unix://${PWD}/run/visionai-inferd.sock"
 
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PWD/.pip_target"
 export WORKER_ID="${WORKER_ID:-$(hostname)-$$}"

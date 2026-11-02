@@ -1,5 +1,6 @@
 #pragma once
 
+#include "backend/face_backend.h"
 #include "core/engine_hub.h"
 #include "visionai/infer/v1/infer.grpc.pb.h"
 
@@ -42,8 +43,13 @@ class InferServiceImpl final : public visionai::infer::v1::InferService::Service
   grpc::Status Infer(grpc::ServerContext* context, const visionai::infer::v1::InferRequest* request,
                      visionai::infer::v1::InferResponse* response) override;
 
+  grpc::Status AnalyzeFace(grpc::ServerContext* context,
+                           const visionai::infer::v1::AnalyzeFaceRequest* request,
+                           visionai::infer::v1::AnalyzeFaceResponse* response) override;
+
  private:
   EngineHub* hub_;
+  FaceBackend faces_;
 };
 
 }  // namespace visionai::inferd

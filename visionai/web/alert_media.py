@@ -44,3 +44,30 @@ def detection_image_response(
             if cand and os.path.isfile(cand):
                 return send_file(cand, mimetype="image/jpeg"), 200
     return None, 404
+
+
+def detection_clip_response(
+    detection_id: str, stream_id: Optional[str] = None
+) -> Tuple[Optional[Response], int]:
+    """短录像。本地文件优先，便于浏览器按范围读取。"""
+    from visionai.core.object_storage import get_object_storage
+    from visionai.core.redis_manager import redis_manager
+
+    if not redis_manager:
+        return None, 503
+    doc = redis_manager.get_detection_by_id(detection_id, stream_id=stream_id)
+    if not doc:
+        return None, 404
+    path = doc.get("video_path") or ""
+    if path and os.path.isfile(path):
+        return send_file(path, mimetype="application/octet-stream", conditional=True), 200
+    key = doc.get("video_object_key") or ""
+    if key:
+        st = get_object_storage()
+        if st:
+            try:
+                body = st.get_object_bytes(key)
+                return Response(body, mimetype="application/octet-stream"), 200
+            except Exception:  # noqa: BLE001
+                pass
+    return None, 404

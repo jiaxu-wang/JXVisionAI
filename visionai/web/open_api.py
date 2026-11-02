@@ -23,7 +23,7 @@ from visionai.utils.open_api_auth import (
     request_api_key,
     verify_alert_image_token,
 )
-from visionai.web.alert_media import detection_image_response
+from visionai.web.alert_media import detection_clip_response, detection_image_response
 
 open_api_bp = Blueprint("open_api", __name__, url_prefix="/api/open/v1")
 
@@ -172,6 +172,22 @@ def open_alert_image(detection_id):
         return _unauthorized("invalid api key")
     stream_id = (request.args.get("stream_id") or "").strip() or None
     resp, status = detection_image_response(detection_id, stream_id=stream_id)
+    if resp is not None:
+        return resp, status
+    return jsonify({"success": False, "message": "not found"}), status
+
+
+@open_api_bp.route("/alerts/<detection_id>/clip", methods=["GET"])
+def open_alert_clip(detection_id):
+    if not configured_open_api_key():
+        return _unauthorized("open api not configured")
+    token = (request.args.get("token") or "").strip()
+    key_ok = api_key_matches(request_api_key())
+    token_ok = verify_alert_image_token(detection_id, token)
+    if not key_ok and not token_ok:
+        return _unauthorized("invalid api key")
+    stream_id = (request.args.get("stream_id") or "").strip() or None
+    resp, status = detection_clip_response(detection_id, stream_id=stream_id)
     if resp is not None:
         return resp, status
     return jsonify({"success": False, "message": "not found"}), status

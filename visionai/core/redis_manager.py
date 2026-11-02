@@ -94,6 +94,9 @@ class RedisManager:
         storage_kind=None,
         extra=None,
         record_id=None,
+        video_path=None,
+        video_object_key=None,
+        video_storage_kind=None,
     ):
         """
         保存检测结果到Redis（使用Hash结构）
@@ -151,6 +154,12 @@ class RedisManager:
                 detection_data["storage_kind"] = storage_kind
             if extra:
                 detection_data["extra"] = extra
+            if video_path:
+                detection_data["video_path"] = video_path
+            if video_object_key:
+                detection_data["video_object_key"] = video_object_key
+            if video_storage_kind:
+                detection_data["video_storage_kind"] = video_storage_kind
             
             # 保存到Hash
             self._redis_client.hset(
@@ -365,6 +374,25 @@ class RedisManager:
             logger.error(f"统计今日告警失败: {e}")
             return 0
     
+    def _discard_detection_files(self, doc):
+        """删掉一条告警的截图和短录像（本地文件与对象存储）。"""
+        if not isinstance(doc, dict):
+            return
+        from visionai.core.object_storage import get_object_storage
+
+        store = get_object_storage()
+        for key_name in ("object_key", "video_object_key"):
+            okey = doc.get(key_name)
+            if okey and store:
+                store.delete_object(okey)
+        for path_name in ("image_path", "video_path"):
+            path = doc.get(path_name) or ""
+            if path and os.path.isfile(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
     def delete_detection(self, stream_id, timestamp_str):
         """
         删除指定的检测记录
@@ -379,8 +407,6 @@ class RedisManager:
         if not self.is_connected():
             return False
 
-        from visionai.core.object_storage import get_object_storage
-
         try:
             hash_key = self._get_stream_hash_key(stream_id)
             data_str = self._redis_client.hget(
@@ -391,17 +417,7 @@ class RedisManager:
                     doc = json.loads(data_str)
                 except json.JSONDecodeError:
                     doc = {}
-                okey = doc.get("object_key")
-                if okey:
-                    st = get_object_storage()
-                    if st:
-                        st.delete_object(okey)
-                ip = doc.get("image_path")
-                if ip and os.path.isfile(ip):
-                    try:
-                        os.remove(ip)
-                    except OSError:
-                        pass
+                self._discard_detection_files(doc)
             result = self._redis_client.hdel(
                 hash_key, str(timestamp_str)
             )
@@ -425,8 +441,6 @@ class RedisManager:
         if not self.is_connected():
             return False
 
-        from visionai.core.object_storage import get_object_storage
-
         try:
             wanted = (stream_id or "").strip()
             if wanted:
@@ -445,17 +459,7 @@ class RedisManager:
                             doc = json.loads(data_str)
                         except json.JSONDecodeError:
                             doc = {}
-                        okey = doc.get("object_key")
-                        if okey:
-                            st = get_object_storage()
-                            if st:
-                                st.delete_object(okey)
-                        ip = doc.get("image_path")
-                        if ip and os.path.isfile(ip):
-                            try:
-                                os.remove(ip)
-                            except OSError:
-                                pass
+                        self._discard_detection_files(doc)
                         self._redis_client.hdel(hash_key, str(detection_id))
                         logger.info(
                             f"检测记录已删除: {sid} - {detection_id}"

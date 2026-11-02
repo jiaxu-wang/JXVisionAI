@@ -189,6 +189,35 @@ body {
     width: min(780px, 96vw);
     max-height: 92vh;
 }
+#intrusionZoneModal .config-modal-panel {
+    width: min(960px, 96vw);
+    max-height: 92vh;
+}
+#intrusionZoneCanvas {
+    width: 100%;
+    height: auto;
+    background: #111;
+    cursor: crosshair;
+    border-radius: 8px;
+    display: block;
+}
+.zone-sched {
+    overflow-x: auto;
+    margin-top: 8px;
+}
+.zone-sched table {
+    border-collapse: collapse;
+    font-size: 11px;
+}
+.zone-sched td, .zone-sched th {
+    padding: 1px 2px;
+    text-align: center;
+    white-space: nowrap;
+}
+.zone-sched input {
+    width: 14px;
+    height: 14px;
+}
 #detectionConfigModal .config-modal-body {
     flex: 1;
 }

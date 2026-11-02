@@ -152,6 +152,8 @@ def notify_alert_by_webhooks(
     detection_id: str,
     timestamp: datetime,
     extra: Optional[Dict[str, Any]] = None,
+    platform_event_type: Optional[int] = None,
+    has_clip: bool = False,
 ) -> None:
     """后台线程对每个 URL POST 一次 JSON。"""
     urls = list(webhook_urls)
@@ -186,6 +188,20 @@ def notify_alert_by_webhooks(
         "storage_kind": storage_kind or "",
         "image_url": image_url,
     }
+    if platform_event_type is not None:
+        try:
+            payload["platform_event_type"] = int(platform_event_type)
+        except (TypeError, ValueError):
+            pass
+    if has_clip:
+        try:
+            from visionai.utils.open_api_auth import build_alert_clip_url
+
+            clip_url = build_alert_clip_url(detection_id)
+        except Exception:  # noqa: BLE001
+            clip_url = ""
+        if clip_url:
+            payload["clip_url"] = clip_url
     if extra:
         payload["extra"] = extra
     thread = threading.Thread(

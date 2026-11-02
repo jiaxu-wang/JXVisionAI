@@ -492,11 +492,11 @@ class ZlmClient:
     def open_rtp_mux(
         self,
         stream: str,
-        mux_port: int = 10000,
+        mux_port: int = 32000,
         *,
         tcp_mode: int = 2,
     ) -> Dict[str, Any]:
-        """挂到 rtp_proxy 默认口（启动时已在听），避免再占 10001 却 bind 失败。"""
+        """挂到 rtp_proxy 固定口（启动时已在听）。"""
         port = max(1, min(65535, int(mux_port)))
         opened = self.open_rtp_server(stream, port=port, tcp_mode=int(tcp_mode))
         if opened.get("success"):
@@ -550,8 +550,8 @@ class ZlmClient:
         used = self.used_rtp_ports()
         last = "媒体端口范围内无空闲端口"
         for port in range(lo, hi + 1):
-            # 10000 是 rtp_proxy 默认口，打上去会按 SSRC 十六进制命名（如 127A3981）
-            if port == 10000 or port in used:
+            # rtp_proxy 固定口打上去会按 SSRC 十六进制命名，收流从下一口开始
+            if port == 32000 or port in used:
                 continue
             opened = self.open_rtp_server(stream, port=port, tcp_mode=tcp_mode, ssrc=ssrc)
             if opened.get("success"):
@@ -564,7 +564,7 @@ class ZlmClient:
         self,
         stream: str,
         *,
-        port: int = 10000,
+        port: int = 32000,
         tcp_mode: int = 0,
         ssrc: str = "",
     ) -> Dict[str, Any]:

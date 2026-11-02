@@ -31,6 +31,7 @@ service InferService {
   rpc UpdateSession(UpdateSessionRequest) returns (UpdateSessionResponse);
   rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
   rpc Infer(InferRequest) returns (InferResponse);
+  rpc AnalyzeFace(AnalyzeFaceRequest) returns (AnalyzeFaceResponse);
 }
 
 message LiveRequest {}
@@ -143,6 +144,8 @@ message Detection {
   float conf = 6;
   string label = 7;
   string model_name = 8;
+  // 姿态关键点或人脸 5 点：x,y,conf 顺排（人脸 conf 填 1）。
+  repeated float keypoint = 9;
 }
 
 message InferResponse {
@@ -150,4 +153,35 @@ message InferResponse {
   repeated Detection detections = 2;
   int64 infer_ms = 3;
   int64 frame_id = 4;
+}
+
+message FaceHit {
+  float x1 = 1;
+  float y1 = 2;
+  float x2 = 3;
+  float y2 = 4;
+  float det_score = 5;
+  repeated float kps = 6;
+  repeated float embedding = 7;
+  bool has_attr = 8;
+  int32 gender = 9;
+  int32 age = 10;
+}
+
+message AnalyzeFaceRequest {
+  ImageTensor image = 1;
+  string det_model = 2;
+  string embed_model = 3;
+  string genderage_model = 4;
+  float det_conf = 5;
+  int32 det_size = 6;
+  int32 max_faces = 7;
+  bool with_embedding = 8;
+  bool with_genderage = 9;
+}
+
+message AnalyzeFaceResponse {
+  Status status = 1;
+  repeated FaceHit faces = 2;
+  int64 infer_ms = 3;
 }

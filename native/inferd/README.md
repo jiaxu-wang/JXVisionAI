@@ -1,25 +1,10 @@
 # visionai-inferd
 
-C++ gRPC 推理守护进程（架构说明见 [`docs/architecture.md`](../../docs/architecture.md)）。
+C++ gRPC 推理守护进程。运行时的 YOLO 检测、姿态、人脸检测 / 特征和性别年龄都只走这里。训练、标注、车牌 OCR 仍在 Python。
 
-已通过 `[infer] backend=cpp` 接入 Python：`start.sh` 在检测到可执行文件时自动拉起；worker 经 UDS `unix:///tmp/visionai-inferd.sock` 送帧做主检，行为/画框/告警仍在 Python。
+`./start.sh` 和 `./scripts/install_linux.sh start` 会拉起本进程。套接字在仓库 `run/visionai-inferd.sock`。Docker 把 `./run` 挂到 `/app/run`，容器里的 endpoint 是 `unix:///app/run/visionai-inferd.sock`。
 
-## 启用方式
-
-1. 构建本目录可执行文件（见下）
-2. 准备 `models/repo/primary/<version>/model.onnx`（及 `model.json`）
-3. `config.ini`：
-
-```ini
-[infer]
-backend = cpp
-endpoint = unix:///tmp/visionai-inferd.sock
-on_daemon_error = fail   # 或 fallback_python
-```
-
-4. `./stop.sh && ./start.sh`（日志：`logs/inferd.log`）
-
-日常对比 YOLO26 档位精度时，用默认 `backend=python` 改 `[models] yolo_model` 即可，不必启 inferd。
+`.pt` 第一次被用到时由 Ultralytics 导出成旁边的 `.onnx`，之后逐帧不再加载 PyTorch。
 
 ## 依赖
 
@@ -57,7 +42,7 @@ cmake --build build -j"$(nproc)"
 
 ## 手工验证 Live
 
-默认监听：`unix:///tmp/visionai-inferd.sock`
+默认监听：仓库下 `run/visionai-inferd.sock`
 
 ```bash
 # 终端 A
@@ -73,7 +58,7 @@ cmake --build build -j"$(nproc)"
 - `api_version=v1`
 - `server_version` 非空
 
-就绪探针：应用启动后 `curl -s http://127.0.0.1:5000/readyz`（`backend=cpp` 时会检查 inferd）。
+就绪探针：应用启动后 `curl -s http://127.0.0.1:5000/readyz`（inferd 不在时 ready 为 false）。
 
 ## 相关文档
 

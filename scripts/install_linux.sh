@@ -235,6 +235,15 @@ web_port() {
     echo "${p:-5000}"
 }
 
+# ZLM HTTP 端口：config.ini [zlm] http_port，缺省 18080
+zlm_http_port() {
+    local p=""
+    if [ -f config/config.ini ]; then
+        p="$(awk -F= '/^\[/{s=$0} s=="[zlm]" && $1 ~ /^[[:space:]]*http_port[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2}' config/config.ini | tail -n1)"
+    fi
+    echo "${p:-18080}"
+}
+
 wait_api_ready() {
     info "等待 API 就绪"
     local i
@@ -254,7 +263,7 @@ print_endpoints() {
     echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 127.0.0.1):${wp}"
     echo "  健康检查:      curl -s http://127.0.0.1:${wp}/readyz"
     [ "$(minio_enabled)" = "1" ] && echo "  MinIO 控制台:  http://127.0.0.1:19001"
-    echo "  ZLM HTTP:      http://127.0.0.1:18080"
+    echo "  ZLM HTTP:      http://127.0.0.1:$(zlm_http_port)"
 }
 
 # 清掉同名但非本 compose 项目托管的遗留容器（如 start.sh 用 docker run 起的 visionai-zlm、
@@ -297,6 +306,7 @@ if [ "$ACTION" = "start" ] || [ "$ACTION" = "restart" ]; then
         info "启动服务: ${UP_SERVICES[*]}"
         "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d "${UP_SERVICES[@]}"
     fi
+    ./scripts/run_inferd.sh
     wait_api_ready
     "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" ps
     echo
@@ -556,6 +566,7 @@ fi
 info "构建并启动服务（首次构建较慢）: ${UP_SERVICES[*]}"
 remove_orphan_containers
 "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up -d --build "${UP_SERVICES[@]}"
+./scripts/run_inferd.sh
 
 # ZLM secret 一致性：容器是长驻的，配置变了 compose 不会自动重启。
 # 比较容器内实际加载的 secret 与本次期望值，不一致则强制重建。
@@ -579,6 +590,6 @@ echo "  管理端:        http://$(hostname -I 2>/dev/null | awk '{print $1}' ||
 echo "  登录密钥:      $VISIONAI_SECRET"
 echo "  健康检查:      curl -s http://127.0.0.1:$(web_port)/readyz"
 [ "$DEPLOY_MINIO" = "1" ] && echo "  MinIO 控制台:  http://127.0.0.1:19001  ($MINIO_ROOT_USER / $MINIO_ROOT_PASSWORD)"
-[ "$DEPLOY_ZLM" = "1" ] && echo "  ZLM HTTP:      http://127.0.0.1:18080"
+[ "$DEPLOY_ZLM" = "1" ] && echo "  ZLM HTTP:      http://127.0.0.1:$(zlm_http_port)"
 echo
 echo "  密钥已写入 .env 与 config/config.ini，请妥善保存。"

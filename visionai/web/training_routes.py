@@ -1586,6 +1586,18 @@ def _register_api_routes(app):
             except Exception:  # noqa: BLE001
                 pass
 
+    @app.route("/api/training/specialists/<key>/versions/<vid>/activate", methods=["POST"])
+    @login_required
+    def training_activate_specialist_version(key, vid):
+        from visionai.config.specialists import activate_specialist_version
+        from visionai.core.behaviors.registry import reload_plugins
+
+        result = activate_specialist_version((key or "").strip(), vid, _repo_root())
+        if result.get("success"):
+            reload_plugins()
+        status = 200 if result.get("success") else 400
+        return jsonify(result), status
+
     @app.route("/api/training/specialists/<key>", methods=["DELETE"])
     @login_required
     def training_delete_specialist(key):

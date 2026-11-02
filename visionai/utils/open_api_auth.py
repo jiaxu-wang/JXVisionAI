@@ -69,3 +69,13 @@ def build_alert_image_url(detection_id: str) -> str:
     if not base or not sid or not token:
         return ""
     return f"{base}/api/open/v1/alerts/{quote(sid, safe='')}/image?token={quote(token, safe='')}"
+
+
+def build_alert_clip_url(detection_id: str) -> str:
+    """告警短录像地址，鉴权与截图相同。"""
+    base = public_base_url()
+    sid = (detection_id or "").strip()
+    token = sign_alert_image_token(sid)
+    if not base or not sid or not token:
+        return ""
+    return f"{base}/api/open/v1/alerts/{quote(sid, safe='')}/clip?token={quote(token, safe='')}"

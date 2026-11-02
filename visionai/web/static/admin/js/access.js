@@ -381,6 +381,7 @@ function addPolicyStreamItem(stream) {
     streamItem._face_recognition_config = normalizeFaceRecogConfigClient(stream.face_recognition_config);
     streamItem._plate_recognition_config = normalizePlateRecogConfigClient(stream.plate_recognition_config);
     streamItem._fatigue_driving_config = normalizeFatigueConfigClient(stream.fatigue_driving_config);
+    streamItem._intrusion_zone = normalizeIntrusionZoneClient(stream.intrusion_zone);
     streamItem._dms_status = stream.dms_status || null;
     streamItem._access_method = normalizeAccessMethodClient(stream);
     streamItem._url = stream.url || '';
@@ -395,20 +396,32 @@ function addPolicyStreamItem(stream) {
     streamItem.dataset.enabled = enabled ? 'true' : 'false';
     const alertEmailEnabled = stream.alert_email_enabled !== false;
     const alertWebhookEnabled = stream.alert_webhook_enabled === true;
+    const alertClipEnabled = stream.alert_clip_enabled !== false;
     streamItem.innerHTML = `
         <div class="stream-inputs">
             <strong style="min-width:120px;">${escapeHtml(stream.name || '')}</strong>
             <span class="access-badge">${escapeHtml(accessLabelForStream(stream))}</span>
             <button type="button" class="btn-save stream-detection-config-btn" onclick="openDetectionConfig(this)" style="padding: 8px 14px;">${t('policy.algo')}</button>
+            <button type="button" class="btn-filter-apply" onclick="openIntrusionZone(this)" style="padding: 8px 14px;">${t('policy.zoneBtn')}</button>
             <button type="button" class="${enabledClass}" onclick="toggleStreamEnabled(this)" style="padding: 8px 12px;">${enabledText}</button>
             <button type="button" class="btn-filter-apply" style="padding:8px 12px;" data-goto-access="${escapeHtml(id)}">${t('policy.gotoAccess')}</button>
             ${id ? '<button type="button" class="btn-delete" data-del-policy style="padding:8px 12px;">' + t('common.delete') + '</button>' : ''}
         </div>
         <p style="color:#6c757d;font-size:12px;word-break:break-all;margin:0 0 8px 0;">${escapeHtml(stream.url || '')}</p>
+        <label style="display:block;font-size:13px;color:#495057;margin:0 0 8px 0;">${t('policy.analyzeUrl')}
+            <input type="text" class="stream-analyze-url" value="${escapeHtml(stream.analyze_url || '')}" placeholder="${escapeHtml(t('policy.analyzePh'))}" style="display:block;width:100%;max-width:720px;margin-top:4px;padding:8px;border-radius:6px;border:1px solid #ced4da;">
+        </label>
+        <p style="font-size:12px;color:#6c757d;margin:-4px 0 8px 0;">${t('policy.analyzeHint')}</p>
+        <label class="stream-alert-email-enable-row" style="margin:0 0 8px 0;">
+            <input type="checkbox" class="stream-alert-clip-enabled" ${alertClipEnabled ? 'checked' : ''}>
+            <span>${t('policy.clipEnable')}</span>
+        </label>
+        <p style="font-size:12px;color:#6c757d;margin:-4px 0 8px 0;">${t('policy.clipHint')}</p>
         <div class="stream-detection-row">
             <div style="flex:1;min-width:220px;">
                 <span class="badge-supported">${t('policy.badge')}</span>
                 <div class="stream-detection-summary"></div>
+                <div class="stream-zone-summary" style="font-size:12px;color:#495057;margin-top:4px;"></div>
             </div>
         </div>
         <div class="stream-alert-emails-row" style="margin-top: 12px;">
@@ -446,6 +459,7 @@ function addPolicyStreamItem(stream) {
         else taWh.value = '';
     }
     updateStreamDetectionSummary(streamItem);
+    updateStreamZoneSummary(streamItem);
     const gotoBtn = streamItem.querySelector('[data-goto-access]');
     if (gotoBtn && id) {
         gotoBtn.addEventListener('click', function () {
@@ -616,6 +630,7 @@ async function savePolicyStreams() {
         const rawWh = taWh ? taWh.value.trim() : '';
         const mailSw = item.querySelector('.stream-alert-email-enabled');
         const whSw = item.querySelector('.stream-alert-webhook-enabled');
+        const clipSw = item.querySelector('.stream-alert-clip-enabled');
         policyById[id] = {
             detections: item._detections
                 ? JSON.parse(JSON.stringify(item._detections))
@@ -628,6 +643,7 @@ async function savePolicyStreams() {
                 ? rawWh.split(/[\s,;，]+/).map(s => s.trim()).filter(Boolean)
                 : [],
             alert_webhook_enabled: !!(whSw && whSw.checked),
+            alert_clip_enabled: !!(clipSw && clipSw.checked),
             enabled: item.dataset.enabled === 'true',
             face_recognition_config: item._face_recognition_config
                 ? JSON.parse(JSON.stringify(item._face_recognition_config))
@@ -637,7 +653,13 @@ async function savePolicyStreams() {
                 : undefined,
             fatigue_driving_config: item._fatigue_driving_config
                 ? JSON.parse(JSON.stringify(item._fatigue_driving_config))
-                : undefined
+                : undefined,
+            intrusion_zone: item._intrusion_zone
+                ? JSON.parse(JSON.stringify(item._intrusion_zone))
+                : { regions: [], schedule_all: true, schedule: null },
+            analyze_url: (item.querySelector('.stream-analyze-url') || {}).value
+                ? item.querySelector('.stream-analyze-url').value.trim()
+                : ''
         };
     });
     try {
@@ -656,10 +678,13 @@ async function savePolicyStreams() {
                 alert_email_enabled: pol.alert_email_enabled,
                 alert_webhook_urls: pol.alert_webhook_urls,
                 alert_webhook_enabled: pol.alert_webhook_enabled,
+                alert_clip_enabled: pol.alert_clip_enabled,
                 enabled: pol.enabled,
                 face_recognition_config: pol.face_recognition_config || s.face_recognition_config,
                 plate_recognition_config: pol.plate_recognition_config || s.plate_recognition_config,
-                fatigue_driving_config: pol.fatigue_driving_config || s.fatigue_driving_config
+                fatigue_driving_config: pol.fatigue_driving_config || s.fatigue_driving_config,
+                intrusion_zone: pol.intrusion_zone || s.intrusion_zone,
+                analyze_url: pol.analyze_url != null ? pol.analyze_url : (s.analyze_url || '')
             };
         });
         const result = await postStreamsMerged(streams);

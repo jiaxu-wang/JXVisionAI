@@ -144,6 +144,145 @@ def get_stream_config_current(stream_info):
                 return s
     return get_stream_config_by_name(str(stream_info.get("name") or "").strip())
 
+def _pull_is_analyze(handler) -> bool:
+    return str(getattr(handler, "pull_key", "") or "").startswith("analyze:")
+
+
+def _open_stream_handler(stream_info):
+    """按推理地址或预览地址连上拉流。失败返回 (None, stream_info)。"""
+    logger = logging.getLogger(__name__)
+    stream_name = stream_info.get("name") or ""
+    from visionai.config.stream_access import ACCESS_GB28181, normalize_access_method
+    from visionai.core.gb_play import is_gb_stream, prepare_gb_stream
+    from visionai.core.inference_source import inference_plan
+
+    plan = inference_plan(stream_info)
+    access = normalize_access_method(stream_info.get("access_method"), stream=stream_info)
+    gb = access == ACCESS_GB28181 or is_gb_stream(stream_info)
+    pull_url = None
+    zlm_fallback = True
+
+    if plan["use_analyze"]:
+        src = plan["source"]
+        try:
+            from visionai.config.settings import (
+                ZLM_ENABLED,
+                ZLM_FALLBACK_DIRECT_RTSP,
+                ZLM_PREFER_LOCAL_PULL,
+            )
+            from visionai.core.zlm_client import get_zlm_client
+
+            zlm_fallback = bool(ZLM_FALLBACK_DIRECT_RTSP)
+            if ZLM_ENABLED and ZLM_PREFER_LOCAL_PULL:
+                zlm = get_zlm_client()
+                if zlm and zlm.alive():
+                    proxied = zlm.ensure_proxy(plan["zlm_id"], src)
+                    if proxied.get("success") and proxied.get("local_rtsp"):
+                        pull_url = proxied["local_rtsp"]
+                        logger.info(
+                            f"[{stream_name}] 推理子码流经 ZLM: {pull_url}"
+                        )
+                    elif not zlm_fallback:
+                        logger.error(f"[{stream_name}] 推理子码流代理失败: {proxied}")
+                        return None, stream_info
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{stream_name}] 推理子码流接入异常，将直连: {e}")
+        handler = StreamHandler(stream_info, pull_url=pull_url or src)
+        if not handler.connect() and pull_url and zlm_fallback:
+            logger.warning(f"[{stream_name}] 推理子码流本地拉流失败，回退直连")
+            handler = StreamHandler(stream_info, pull_url=src)
+            if not handler.connect():
+                return None, stream_info
+        elif handler.cap is None or not handler.cap.isOpened():
+            return None, stream_info
+        handler.pull_key = plan["key"]
+        return handler, stream_info
+
+    if gb:
+        prepared, err = prepare_gb_stream(stream_info)
+        if err or not prepared:
+            logger.error(f"[{stream_name}] 国标点播失败: {err}")
+            return None, stream_info
+        stream_info = prepared
+        pull_url = prepared.get("url") or None
+        zlm_fallback = False
+    else:
+        try:
+            from visionai.config.settings import (
+                ZLM_ENABLED,
+                ZLM_FALLBACK_DIRECT_RTSP,
+                ZLM_PREFER_LOCAL_PULL,
+            )
+            from visionai.core.zlm_client import get_zlm_client
+
+            zlm_fallback = bool(ZLM_FALLBACK_DIRECT_RTSP)
+            if ZLM_ENABLED and ZLM_PREFER_LOCAL_PULL:
+                zlm = get_zlm_client()
+                sid = (stream_info.get("id") or stream_name).strip()
+                src = stream_info.get("url") or ""
+                if zlm and zlm.alive():
+                    proxied = zlm.ensure_proxy(sid, src)
+                    if proxied.get("success") and proxied.get("local_rtsp"):
+                        pull_url = proxied["local_rtsp"]
+                        logger.info(
+                            f"[{stream_name}] ZLM 代理就绪: {pull_url} online={proxied.get('online')}"
+                        )
+                    elif not zlm_fallback:
+                        logger.error(f"[{stream_name}] ZLM 代理失败且禁止直连: {proxied}")
+                        return None, stream_info
+                elif not zlm_fallback:
+                    logger.error(f"[{stream_name}] ZLM 不可用且禁止直连")
+                    return None, stream_info
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{stream_name}] ZLM 接入异常，将直连: {e}")
+
+    handler = StreamHandler(stream_info, pull_url=pull_url)
+    if not handler.connect():
+        if pull_url and zlm_fallback and not gb:
+            logger.warning(f"[{stream_name}] ZLM 本地拉流失败，回退直连源站")
+            handler = StreamHandler(stream_info, pull_url=None)
+            if not handler.connect():
+                logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
+                return None, stream_info
+        else:
+            logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
+            return None, stream_info
+    handler.pull_key = plan["key"]
+    return handler, stream_info
+
+
+def _retarget_pull(handler, stream_info):
+    """分析地址变了就换拉流。失败时保持原来的连接。"""
+    from visionai.core.inference_source import inference_plan
+
+    logger = logging.getLogger(__name__)
+    plan = inference_plan(stream_info)
+    if plan["key"] == getattr(handler, "pull_key", "primary"):
+        return handler, stream_info
+    opened, new_info = _open_stream_handler(stream_info)
+    if opened is None:
+        logger.warning("[%s] 推理拉流切换失败，保持当前连接", stream_info.get("name"))
+        return handler, stream_info
+    if plan["use_analyze"]:
+        try:
+            from visionai.config.stream_access import ACCESS_GB28181, normalize_access_method
+            from visionai.core.gb_play import is_gb_stream, stop_gb_play
+
+            access = normalize_access_method(
+                stream_info.get("access_method"), stream=stream_info
+            )
+            if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                stop_gb_play(stream_info)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        handler.disconnect()
+    except Exception:  # noqa: BLE001
+        pass
+    logger.info("[%s] 推理拉流已切换: %s", stream_info.get("name"), plan["key"])
+    return opened, new_info
+
+
 def run_video_processing(stream_info):
     """运行单个视频流处理"""
     logger = logging.getLogger(__name__)
@@ -163,8 +302,6 @@ def run_video_processing(stream_info):
         os.makedirs(stream_save_dir, exist_ok=True)
 
         # 先连 RTSP 再加载 YOLO，否则大模型会阻塞数十秒，界面长期显示「离线」
-        pull_url = None
-        zlm_fallback = True
         from visionai.config.stream_access import ACCESS_GB28181, normalize_access_method, stream_should_analyze
         from visionai.core.gb_play import (
             current_gb_rtp_name,
@@ -176,60 +313,10 @@ def run_video_processing(stream_info):
         access = normalize_access_method(
             stream_info.get("access_method"), stream=stream_info
         )
-        if access == ACCESS_GB28181 or is_gb_stream(stream_info):
-            prepared, err = prepare_gb_stream(stream_info)
-            if err or not prepared:
-                logger.error(f"[{stream_name}] 国标点播失败: {err}")
-                set_stream_status(stream_name, STATUS_OFFLINE)
-                return
-            stream_info = prepared
-            pull_url = prepared.get("url") or None
-            zlm_fallback = False
-        else:
-            try:
-                from visionai.config.settings import (
-                    ZLM_ENABLED,
-                    ZLM_FALLBACK_DIRECT_RTSP,
-                    ZLM_PREFER_LOCAL_PULL,
-                )
-                from visionai.core.zlm_client import get_zlm_client
-
-                zlm_fallback = bool(ZLM_FALLBACK_DIRECT_RTSP)
-                if ZLM_ENABLED and ZLM_PREFER_LOCAL_PULL:
-                    zlm = get_zlm_client()
-                    sid = (stream_info.get("id") or stream_name).strip()
-                    src = stream_info.get("url") or ""
-                    if zlm and zlm.alive():
-                        proxied = zlm.ensure_proxy(sid, src)
-                        if proxied.get("success") and proxied.get("local_rtsp"):
-                            pull_url = proxied["local_rtsp"]
-                            logger.info(
-                                f"[{stream_name}] ZLM 代理就绪: {pull_url} online={proxied.get('online')}"
-                            )
-                        elif not zlm_fallback:
-                            logger.error(f"[{stream_name}] ZLM 代理失败且禁止直连: {proxied}")
-                            set_stream_status(stream_name, STATUS_OFFLINE)
-                            return
-                    elif not zlm_fallback:
-                        logger.error(f"[{stream_name}] ZLM 不可用且禁止直连")
-                        set_stream_status(stream_name, STATUS_OFFLINE)
-                        return
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"[{stream_name}] ZLM 接入异常，将直连: {e}")
-
-        stream_handler = StreamHandler(stream_info, pull_url=pull_url)
-        if not stream_handler.connect():
-            if pull_url and zlm_fallback and access != ACCESS_GB28181:
-                logger.warning(f"[{stream_name}] ZLM 本地拉流失败，回退直连源站")
-                stream_handler = StreamHandler(stream_info, pull_url=None)
-                if not stream_handler.connect():
-                    logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
-                    set_stream_status(stream_name, STATUS_OFFLINE)
-                    return
-            else:
-                logger.error(f"[{stream_name}] 无法连接视频流，线程退出")
-                set_stream_status(stream_name, STATUS_OFFLINE)
-                return
+        stream_handler, stream_info = _open_stream_handler(stream_info)
+        if stream_handler is None:
+            set_stream_status(stream_name, STATUS_OFFLINE)
+            return
 
         set_stream_status(stream_name, STATUS_ONLINE)
         last_status_hb = time.time()
@@ -245,6 +332,13 @@ def run_video_processing(stream_info):
         detector.fatigue_driving_config = normalize_fatigue_config(
             stream_info.get("fatigue_driving_config")
         )
+        from visionai.config.settings import ALERT_CLIP_SECONDS
+        from visionai.core.alert_clip import FrameRing, normalize_alert_clip_enabled
+
+        detector.alert_clip_enabled = normalize_alert_clip_enabled(
+            stream_info.get("alert_clip_enabled")
+        )
+        detector.clip_ring = FrameRing(seconds=ALERT_CLIP_SECONDS) if ALERT_CLIP_SECONDS > 0 else None
         set_stream_status(stream_name, STATUS_ONLINE)
         last_status_hb = time.time()
         last_gb_live = 0.0
@@ -291,6 +385,14 @@ def run_video_processing(stream_info):
             detector.fatigue_driving_config = normalize_fatigue_config(
                 latest.get("fatigue_driving_config")
             )
+            from visionai.core.intrusion_zone import normalize_intrusion_zone
+
+            detector.intrusion_zone = normalize_intrusion_zone(latest.get("intrusion_zone"))
+            from visionai.core.alert_clip import normalize_alert_clip_enabled
+
+            detector.alert_clip_enabled = normalize_alert_clip_enabled(
+                latest.get("alert_clip_enabled")
+            )
             dms_sampler.update_cfg(latest.get("fatigue_driving_config"))
 
         # 主循环
@@ -310,6 +412,7 @@ def run_video_processing(stream_info):
                         break
                     _refresh_detector_cfg(latest_cfg)
                     stream_info = latest_cfg
+                    stream_handler, stream_info = _retarget_pull(stream_handler, stream_info)
                 last_cfg_refresh = now_loop
 
             fatigue_on = bool(detector.detections.get(FATIGUE_KEY, False))
@@ -325,7 +428,8 @@ def run_video_processing(stream_info):
             if burst_release and dms_sampler.waiting_for_next_pull(now_loop):
                 if stream_handler.cap is not None:
                     stream_handler.disconnect()
-                    stop_gb_play(stream_info)
+                    if not _pull_is_analyze(stream_handler):
+                        stop_gb_play(stream_info)
                     set_stream_status(stream_name, STATUS_ONLINE)
                 time.sleep(0.35)
                 continue
@@ -333,7 +437,7 @@ def run_video_processing(stream_info):
                 burst_release
                 and stream_handler.cap is None
             ):
-                if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and not _pull_is_analyze(stream_handler):
                     started = start_gb_play(stream_info)
                     if started.get("ok") and started.get("stream_info"):
                         stream_info = started["stream_info"]
@@ -353,7 +457,7 @@ def run_video_processing(stream_info):
                 # 只有连续失败次数超过阈值才尝试重连
                 if read_failure_count >= max_read_failures:
                     logger.warning(f"[{stream_name}] 连续读取帧失败次数过多，尝试重新连接")
-                    if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                    if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and not _pull_is_analyze(stream_handler):
                         prepared, err = prepare_gb_stream(stream_info)
                         if prepared and prepared.get("url"):
                             stream_info = prepared
@@ -361,7 +465,7 @@ def run_video_processing(stream_info):
                         elif err:
                             logger.warning(f"[{stream_name}] 国标重新点播: {err}")
                     if not stream_handler.reconnect():
-                        if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                        if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and not _pull_is_analyze(stream_handler):
                             prepared, err = prepare_gb_stream(stream_info, force=True)
                             if prepared and prepared.get("url"):
                                 stream_info = prepared
@@ -385,10 +489,15 @@ def run_video_processing(stream_info):
             # 读取成功，重置失败计数器
             if read_failure_count > 0:
                 read_failure_count = 0
+            if getattr(detector, "clip_ring", None) is not None:
+                if detector.alert_clip_enabled:
+                    detector.clip_ring.push(frame)
+                else:
+                    detector.clip_ring.clear()
 
             # 定期刷新 Redis 在线心跳，供独立 API 进程展示状态
             now_hb = time.time()
-            if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and now_hb - last_gb_live >= 8.0:
+            if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and not _pull_is_analyze(stream_handler) and now_hb - last_gb_live >= 8.0:
                 last_gb_live = now_hb
                 did, cid = gb_ids_from_stream(stream_info)
                 if did and cid and not current_gb_rtp_name(did, cid, live_only=True):
@@ -408,7 +517,7 @@ def run_video_processing(stream_info):
                     logger.info(f"[{stream_name}] 国标重新点播成功 {prepared.get('url')}")
             if now_hb - last_status_hb >= 20.0:
                 gb_ok = True
-                if access == ACCESS_GB28181 or is_gb_stream(stream_info):
+                if (access == ACCESS_GB28181 or is_gb_stream(stream_info)) and not _pull_is_analyze(stream_handler):
                     did, cid = gb_ids_from_stream(stream_info)
                     gb_ok = bool(did and cid and current_gb_rtp_name(did, cid, live_only=True))
                 if gb_ok:
@@ -425,7 +534,8 @@ def run_video_processing(stream_info):
                 if dms_sampler.maybe_close_window(time.time()):
                     if burst_release:
                         stream_handler.disconnect()
-                        stop_gb_play(stream_info)
+                        if not _pull_is_analyze(stream_handler):
+                            stop_gb_play(stream_info)
                         continue
 
             burst_batch = None

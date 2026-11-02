@@ -8,14 +8,12 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ultralytics import YOLO
-
 from visionai.config.settings import (
     SMOKING_CIGARETTE_CLASS_IDS,
     SMOKING_CIGARETTE_DETECTOR_CONF,
     SMOKING_CIGARETTE_DETECTOR_PATH,
-    yolo_inference_device,
 )
+from visionai.core.weights_onnx import ensure_onnx
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +44,24 @@ def allowed_class_ids() -> Optional[List[int]]:
     return _parse_class_ids(SMOKING_CIGARETTE_CLASS_IDS)
 
 
-def ensure_model() -> Optional[Any]:
+def ensure_model() -> Optional[str]:
     global _yolo, _load_attempted, _warned_fail
     path = (SMOKING_CIGARETTE_DETECTOR_PATH or "").strip()
     if not path:
         return None
-    if _yolo is not None:
+    if _yolo:
         return _yolo
     with _load_lock:
-        if _yolo is not None:
+        if _yolo:
             return _yolo
         if _load_attempted:
             return None
         _load_attempted = True
         try:
-            _yolo = YOLO(path)
-            logger.info("吸烟专模已加载: %s", path)
+            _yolo = ensure_onnx(path)
+            if not _yolo:
+                raise RuntimeError(f"找不到香烟权重: {path}")
+            logger.info("吸烟专模就绪: %s", _yolo)
         except Exception as ex:  # noqa: BLE001
             if not _warned_fail:
                 _warned_fail = True
@@ -77,43 +77,29 @@ def infer_cigarette_boxes(
     frame_bgr: np.ndarray,
 ) -> List[Dict[str, Any]]:
     """当前帧检出候选香烟框（原图坐标）。"""
-    m = ensure_model()
-    if m is None:
+    if ensure_model() is None:
         return []
-
-    dev = yolo_inference_device()
-    kw: dict[str, Any] = {"conf": SMOKING_CIGARETTE_DETECTOR_CONF, "verbose": False}
-    if dev is not None:
-        kw["device"] = dev
-
-    cls_ids = allowed_class_ids()
-    if cls_ids:
-        kw["classes"] = cls_ids
-
     try:
-        results = m(frame_bgr, **kw)
-    except Exception as ex:  # noqa: BLE001
-        logger.debug("香烟门控 YOLO 推理异常: %s", ex)
-        return []
+        from visionai.core.cpp_yolo import infer_boxes
 
-    boxes: List[Dict[str, Any]] = []
-    for r in results:
-        if r.boxes is None:
-            continue
-        for box in r.boxes:
-            cls = int(box.cls[0])
-            if cls_ids is not None and cls not in cls_ids:
-                continue
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            conf = float(box.conf[0])
-            boxes.append(
-                {
-                    "box": (x1, y1, x2, y2),
-                    "class_id": cls,
-                    "confidence": conf,
-                }
-            )
-    return boxes
+        found = infer_boxes(
+            SMOKING_CIGARETTE_DETECTOR_PATH,
+            frame_bgr,
+            conf=float(SMOKING_CIGARETTE_DETECTOR_CONF),
+            class_ids=allowed_class_ids(),
+            task="detect",
+        )
+    except Exception as ex:  # noqa: BLE001
+        logger.debug("香烟门控推理异常: %s", ex)
+        return []
+    return [
+        {
+            "box": box.box,
+            "class_id": int(box.class_id),
+            "confidence": float(box.conf),
+        }
+        for box in found
+    ]
 
 
 def _boxes_intersect_area(

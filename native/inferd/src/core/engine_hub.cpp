@@ -5,19 +5,34 @@ namespace visionai::inferd {
 EngineHub::EngineHub(std::string repo_root, std::string default_device)
     : repo(std::move(repo_root)), default_device(std::move(default_device)) {}
 
-bool EngineHub::LoadPrimary(const std::string& name, const std::string& version, std::string* err) {
-  auto meta = repo.Resolve(name, version);
-  if (!meta) {
-    if (err) *err = "model not found in repository: " + name + "/" + version;
-    return false;
+std::shared_ptr<OrtYoloBackend> EngineHub::Find(const std::string& name) {
+  std::lock_guard<std::mutex> lock(models_mu_);
+  auto it = models_.find(name);
+  if (it == models_.end()) return nullptr;
+  return it->second;
+}
+
+bool EngineHub::LoadExplicit(const ModelMeta& meta, std::string* err) {
+  auto backend = std::make_shared<OrtYoloBackend>();
+  if (!backend->Load(meta, default_device, err)) return false;
+  {
+    std::lock_guard<std::mutex> lock(models_mu_);
+    models_[meta.name] = std::move(backend);
   }
-  std::string local_err;
-  if (!primary.Load(*meta, default_device, &local_err)) {
-    if (err) *err = local_err;
-    return false;
-  }
-  repo.MarkLoaded(*meta);
+  repo.MarkLoaded(meta);
   return true;
+}
+
+void EngineHub::Unload(const std::string& name) {
+  {
+    std::lock_guard<std::mutex> lock(models_mu_);
+    models_.erase(name);
+  }
+  repo.MarkUnloaded(name);
+}
+
+std::vector<std::string> EngineHub::LoadedNames() const {
+  return repo.LoadedNames();
 }
 
 }  // namespace visionai::inferd

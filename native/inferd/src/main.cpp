@@ -233,7 +233,9 @@ int RunServer(const Options& opt) {
   visionai::inferd::EngineHub hub(opt.repo, opt.device);
   if (opt.autoload_primary) {
     std::string err;
-    if (!hub.LoadPrimary("primary", "1", &err)) {
+    auto meta = hub.repo.Resolve("primary", "1");
+    if (!meta) err = "model not found in repository: primary/1";
+    if (!meta || !hub.LoadExplicit(*meta, &err)) {
       std::cerr << "autoload primary failed: " << err << " (server still starts; use LoadModel)\n";
     } else {
       std::cout << "autoload primary OK device=" << opt.device << "\n";

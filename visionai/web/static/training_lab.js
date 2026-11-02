@@ -484,6 +484,44 @@
       });
       li.appendChild(inner);
       li.appendChild(del);
+      var versions = sp.versions || [];
+      if (versions.length) {
+        var verRow = document.createElement('div');
+        verRow.className = 'tl-row';
+        verRow.style.marginTop = '6px';
+        var sel = document.createElement('select');
+        sel.className = 'tl-input';
+        versions.forEach(function (ver) {
+          var opt = document.createElement('option');
+          opt.value = ver.id;
+          var when = ver.created_at ? new Date(ver.created_at * 1000).toLocaleString() : ver.id;
+          var mark = ver.id === sp.active_version ? ' · ' + tr('training.versionCurrent') : '';
+          opt.textContent = when + (ver.label ? ' · ' + ver.label : '') + mark;
+          sel.appendChild(opt);
+        });
+        if (sp.active_version) sel.value = sp.active_version;
+        var roll = document.createElement('button');
+        roll.type = 'button';
+        roll.className = 'tl-btn tl-btn-secondary tl-btn-sm';
+        roll.textContent = tr('training.rollback');
+        roll.addEventListener('click', async function () {
+          var vid = sel.value;
+          if (!vid || vid === sp.active_version) return;
+          var r = await api(
+            '/api/training/specialists/' + encodeURIComponent(sp.key) + '/versions/' + encodeURIComponent(vid) + '/activate',
+            { method: 'POST' }
+          );
+          var j = await r.json().catch(function () { return {}; });
+          if (!r.ok || !j.success) {
+            alert(j.message || tr('training.rollbackFail'));
+            return;
+          }
+          await loadSpecialists();
+        });
+        verRow.appendChild(sel);
+        verRow.appendChild(roll);
+        li.appendChild(verRow);
+      }
       ul.appendChild(li);
     });
   }

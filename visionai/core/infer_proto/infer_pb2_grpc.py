@@ -5,7 +5,7 @@ import warnings
 
 from visionai.core.infer_proto import infer_pb2 as visionai_dot_infer_dot_v1_dot_infer__pb2
 
-GRPC_GENERATED_VERSION = '1.83.0'
+GRPC_GENERATED_VERSION = '1.85.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -13,7 +13,7 @@ try:
     from grpc._utilities import first_version_is_lower
     _version_not_supported = first_version_is_lower(GRPC_VERSION, GRPC_GENERATED_VERSION)
 except ImportError:
-    _version_not_supported = False
+    _version_not_supported = True
 
 if False and _version_not_supported:
     raise RuntimeError(
@@ -79,6 +79,11 @@ class InferServiceStub:
                 request_serializer=visionai_dot_infer_dot_v1_dot_infer__pb2.InferRequest.SerializeToString,
                 response_deserializer=visionai_dot_infer_dot_v1_dot_infer__pb2.InferResponse.FromString,
                 _registered_method=True)
+        self.AnalyzeFace = channel.unary_unary(
+                '/visionai.infer.v1.InferService/AnalyzeFace',
+                request_serializer=visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceRequest.SerializeToString,
+                response_deserializer=visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceResponse.FromString,
+                _registered_method=True)
 
 
 class InferServiceServicer:
@@ -138,6 +143,12 @@ class InferServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AnalyzeFace(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_InferServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -185,6 +196,11 @@ def add_InferServiceServicer_to_server(servicer, server):
                     servicer.Infer,
                     request_deserializer=visionai_dot_infer_dot_v1_dot_infer__pb2.InferRequest.FromString,
                     response_serializer=visionai_dot_infer_dot_v1_dot_infer__pb2.InferResponse.SerializeToString,
+            ),
+            'AnalyzeFace': grpc.unary_unary_rpc_method_handler(
+                    servicer.AnalyzeFace,
+                    request_deserializer=visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceRequest.FromString,
+                    response_serializer=visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -430,6 +446,33 @@ class InferService:
             '/visionai.infer.v1.InferService/Infer',
             visionai_dot_infer_dot_v1_dot_infer__pb2.InferRequest.SerializeToString,
             visionai_dot_infer_dot_v1_dot_infer__pb2.InferResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnalyzeFace(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/visionai.infer.v1.InferService/AnalyzeFace',
+            visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceRequest.SerializeToString,
+            visionai_dot_infer_dot_v1_dot_infer__pb2.AnalyzeFaceResponse.FromString,
             options,
             channel_credentials,
             insecure,

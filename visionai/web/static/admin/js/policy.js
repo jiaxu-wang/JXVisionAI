@@ -231,6 +231,316 @@ async function fetchConfig() {
     }
 }
 
+var intrusionZoneEdit = null;
+
+function defaultIntrusionZone() {
+    return { regions: [], schedule_all: true, schedule: null };
+}
+
+function normalizeIntrusionZoneClient(raw) {
+    const z = raw && typeof raw === 'object' ? raw : {};
+    const regions = [];
+    (Array.isArray(z.regions) ? z.regions : []).forEach(function (reg) {
+        const pts = [];
+        const src = reg && Array.isArray(reg.points) ? reg.points : [];
+        src.forEach(function (p) {
+            if (!Array.isArray(p) || p.length < 2) return;
+            const x = Number(p[0]);
+            const y = Number(p[1]);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            if (x < 0 || x > 1 || y < 0 || y > 1) return;
+            pts.push([Math.round(x * 10000) / 10000, Math.round(y * 10000) / 10000]);
+        });
+        if (pts.length >= 3 && regions.length < 8) regions.push({ points: pts.slice(0, 32) });
+    });
+    let scheduleAll = z.schedule_all !== false;
+    let schedule = null;
+    if (!scheduleAll && Array.isArray(z.schedule) && z.schedule.length === 7) {
+        schedule = z.schedule.map(function (row) {
+            if (!Array.isArray(row) || row.length !== 24) return null;
+            return row.map(function (v) { return !!v; });
+        });
+        if (schedule.some(function (row) { return !row; })) {
+            scheduleAll = true;
+            schedule = null;
+        }
+    } else if (!scheduleAll) {
+        scheduleAll = true;
+    }
+    return { regions: regions, schedule_all: scheduleAll, schedule: schedule };
+}
+
+function blankSchedule(on) {
+    const rows = [];
+    for (let d = 0; d < 7; d++) {
+        const row = [];
+        for (let h = 0; h < 24; h++) row.push(!!on);
+        rows.push(row);
+    }
+    return rows;
+}
+
+function updateStreamZoneSummary(streamItem) {
+    if (!streamItem) return;
+    const el = streamItem.querySelector('.stream-zone-summary');
+    if (!el) return;
+    const z = streamItem._intrusion_zone || defaultIntrusionZone();
+    const n = (z.regions || []).length;
+    if (!n) {
+        el.textContent = t('policy.zoneNone');
+        return;
+    }
+    el.textContent = t('policy.zoneN', { n: n }) + (z.schedule_all === false ? t('policy.zoneTimed') : '');
+}
+
+function drawIntrusionZone() {
+    const canvas = document.getElementById('intrusionZoneCanvas');
+    const edit = intrusionZoneEdit;
+    if (!canvas || !edit) return;
+    const ctx = canvas.getContext('2d');
+    const img = edit.img;
+    const w = img && img.naturalWidth ? img.naturalWidth : 960;
+    const h = img && img.naturalHeight ? img.naturalHeight : 540;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    ctx.clearRect(0, 0, w, h);
+    if (img) ctx.drawImage(img, 0, 0, w, h);
+    else {
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, 0, w, h);
+    }
+    function strokePoly(pts, stroke, fill, close) {
+        if (!pts || !pts.length) return;
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0] * w, pts[0][1] * h);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * w, pts[i][1] * h);
+        if (close) ctx.closePath();
+        if (fill && close) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+        }
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = Math.max(2, w / 400);
+        ctx.stroke();
+    }
+    (edit.regions || []).forEach(function (reg) {
+        strokePoly(reg.points, '#22c55e', 'rgba(34,197,94,0.28)', true);
+    });
+    strokePoly(edit.draft, '#facc15', null, false);
+}
+
+function renderIntrusionRegionList() {
+    const box = document.getElementById('intrusionZoneRegionList');
+    const edit = intrusionZoneEdit;
+    if (!box || !edit) return;
+    box.innerHTML = '';
+    (edit.regions || []).forEach(function (reg, idx) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+        const label = document.createElement('span');
+        label.textContent = t('policy.zoneRegion', { n: idx + 1 }) + ' · ' + (reg.points || []).length;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-delete';
+        btn.style.padding = '4px 8px';
+        btn.textContent = t('policy.zoneDel');
+        btn.addEventListener('click', function () {
+            edit.regions.splice(idx, 1);
+            renderIntrusionRegionList();
+            drawIntrusionZone();
+        });
+        row.appendChild(label);
+        row.appendChild(btn);
+        box.appendChild(row);
+    });
+}
+
+function renderIntrusionSchedule() {
+    const wrap = document.getElementById('intrusionZoneSchedWrap');
+    const host = document.getElementById('intrusionZoneSched');
+    const edit = intrusionZoneEdit;
+    if (!wrap || !host || !edit) return;
+    wrap.style.display = edit.schedule_all ? 'none' : 'block';
+    if (edit.schedule_all) return;
+    if (!edit.schedule) edit.schedule = blankSchedule(true);
+    const table = document.createElement('table');
+    const head = document.createElement('tr');
+    head.appendChild(document.createElement('th'));
+    for (let h = 0; h < 24; h++) {
+        const th = document.createElement('th');
+        th.textContent = String(h);
+        head.appendChild(th);
+    }
+    table.appendChild(head);
+    for (let d = 0; d < 7; d++) {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.textContent = t('policy.wd' + d);
+        tr.appendChild(th);
+        for (let h = 0; h < 24; h++) {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = !!(edit.schedule[d] && edit.schedule[d][h]);
+            input.addEventListener('change', function () {
+                edit.schedule[d][h] = input.checked;
+            });
+            td.appendChild(input);
+            tr.appendChild(td);
+        }
+        table.appendChild(tr);
+    }
+    host.innerHTML = '';
+    host.appendChild(table);
+}
+
+function closeIntrusionZone() {
+    const el = document.getElementById('intrusionZoneModal');
+    if (el) {
+        el.classList.remove('show');
+        el.setAttribute('aria-hidden', 'true');
+    }
+    if (intrusionZoneEdit && intrusionZoneEdit.blobUrl) {
+        URL.revokeObjectURL(intrusionZoneEdit.blobUrl);
+    }
+    intrusionZoneEdit = null;
+}
+
+function openIntrusionZone(btn) {
+    const streamItem = btn && btn.closest ? btn.closest('.stream-item') : null;
+    if (!streamItem) return;
+    const z = normalizeIntrusionZoneClient(streamItem._intrusion_zone);
+    intrusionZoneEdit = {
+        streamItem: streamItem,
+        regions: JSON.parse(JSON.stringify(z.regions || [])),
+        draft: [],
+        schedule_all: z.schedule_all !== false,
+        schedule: z.schedule ? JSON.parse(JSON.stringify(z.schedule)) : null,
+        img: null,
+        blobUrl: ''
+    };
+    const all = document.getElementById('intrusionZoneAllHours');
+    if (all) all.checked = intrusionZoneEdit.schedule_all;
+    const msg = document.getElementById('intrusionZoneFrameMsg');
+    if (msg) {
+        msg.style.display = 'none';
+        msg.textContent = '';
+    }
+    renderIntrusionRegionList();
+    renderIntrusionSchedule();
+    drawIntrusionZone();
+    const modal = document.getElementById('intrusionZoneModal');
+    if (modal) {
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+    }
+    const id = streamItem.dataset.id || '';
+    if (!id) return;
+    fetch('/api/streams/' + encodeURIComponent(id) + '/preview-frame', { credentials: 'same-origin' })
+        .then(function (r) {
+            if (!r.ok) throw new Error('frame');
+            return r.blob();
+        })
+        .then(function (blob) {
+            if (!intrusionZoneEdit || intrusionZoneEdit.streamItem !== streamItem) return;
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            intrusionZoneEdit.blobUrl = url;
+            img.onload = function () {
+                if (!intrusionZoneEdit) return;
+                intrusionZoneEdit.img = img;
+                drawIntrusionZone();
+            };
+            img.src = url;
+        })
+        .catch(function () {
+            if (msg) {
+                msg.textContent = t('policy.zoneFrameFail');
+                msg.style.display = 'block';
+            }
+        });
+}
+
+function applyIntrusionZone() {
+    const edit = intrusionZoneEdit;
+    if (!edit || !edit.streamItem) return;
+    if (edit.draft && edit.draft.length) {
+        if (edit.draft.length < 3) {
+            if (typeof showMessage === 'function') showMessage(t('policy.zoneNeed3'), 'error');
+            return;
+        }
+        edit.regions.push({ points: edit.draft.slice() });
+        edit.draft = [];
+    }
+    edit.streamItem._intrusion_zone = {
+        regions: edit.regions.slice(0, 8),
+        schedule_all: !!edit.schedule_all,
+        schedule: edit.schedule_all ? null : edit.schedule
+    };
+    updateStreamZoneSummary(edit.streamItem);
+    closeIntrusionZone();
+}
+
+document.getElementById('intrusionZoneCloseBtn')?.addEventListener('click', closeIntrusionZone);
+document.getElementById('intrusionZoneCancel')?.addEventListener('click', closeIntrusionZone);
+document.getElementById('intrusionZoneApply')?.addEventListener('click', applyIntrusionZone);
+document.getElementById('intrusionZoneClosePoly')?.addEventListener('click', function () {
+    const edit = intrusionZoneEdit;
+    if (!edit) return;
+    if (edit.draft.length < 3) {
+        if (typeof showMessage === 'function') showMessage(t('policy.zoneNeed3'), 'error');
+        return;
+    }
+    if (edit.regions.length >= 8) return;
+    edit.regions.push({ points: edit.draft.slice() });
+    edit.draft = [];
+    renderIntrusionRegionList();
+    drawIntrusionZone();
+});
+document.getElementById('intrusionZoneUndo')?.addEventListener('click', function () {
+    const edit = intrusionZoneEdit;
+    if (!edit || !edit.draft.length) return;
+    edit.draft.pop();
+    drawIntrusionZone();
+});
+document.getElementById('intrusionZoneClear')?.addEventListener('click', function () {
+    const edit = intrusionZoneEdit;
+    if (!edit) return;
+    edit.regions = [];
+    edit.draft = [];
+    renderIntrusionRegionList();
+    drawIntrusionZone();
+});
+document.getElementById('intrusionZoneAllHours')?.addEventListener('change', function (ev) {
+    const edit = intrusionZoneEdit;
+    if (!edit) return;
+    edit.schedule_all = !!ev.target.checked;
+    if (!edit.schedule_all && !edit.schedule) edit.schedule = blankSchedule(true);
+    renderIntrusionSchedule();
+});
+document.getElementById('intrusionZoneWorkday')?.addEventListener('click', function () {
+    const edit = intrusionZoneEdit;
+    if (!edit) return;
+    edit.schedule = blankSchedule(false);
+    for (let d = 0; d < 5; d++) {
+        for (let h = 8; h < 18; h++) edit.schedule[d][h] = true;
+    }
+    renderIntrusionSchedule();
+});
+document.getElementById('intrusionZoneCanvas')?.addEventListener('click', function (ev) {
+    const edit = intrusionZoneEdit;
+    const canvas = ev.currentTarget;
+    if (!edit || !canvas) return;
+    if ((edit.regions || []).length >= 8 && !(edit.draft || []).length) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (ev.clientY - rect.top) / rect.height));
+    if (edit.draft.length >= 32) return;
+    edit.draft.push([Math.round(x * 10000) / 10000, Math.round(y * 10000) / 10000]);
+    drawIntrusionZone();
+});
+
 function formatAlertTime(tsRaw) {
     const time = new Date(tsRaw || '');
     if (Number.isNaN(time.getTime())) return String(tsRaw || '');

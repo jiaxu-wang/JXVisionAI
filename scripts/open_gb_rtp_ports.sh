@@ -1,9 +1,9 @@
 #!/bin/bash
-# 放行 ZLM 国标 PS/RTP 收流口（媒体端口范围，默认 10000-10200，TCP + UDP）。
+# 放行 ZLM 国标 PS/RTP 收流口（媒体端口范围，默认 32000-32999，TCP + UDP）。
 set -euo pipefail
 
-LO="${GB_RTP_PORT_MIN:-10000}"
-HI="${GB_RTP_PORT_MAX:-10200}"
+LO="${GB_RTP_PORT_MIN:-32000}"
+HI="${GB_RTP_PORT_MAX:-32999}"
 NAME="JXVisionAI-GB28181-RTP"
 
 _allow_ipt() {

@@ -66,6 +66,7 @@ from visionai.core.dms.config import (
     normalize_fatigue_config,
 )
 from visionai.core.dms.gate import get_all_dms_status
+from visionai.core.intrusion_zone import normalize_intrusion_zone
 from visionai.core.plate_recognition_config import (
     default_plate_recognition_config,
     normalize_plate_recognition_config,
@@ -197,23 +198,15 @@ def readyz():
     except Exception as e:  # noqa: BLE001
         checks["zlm"] = f"error:{e}"
     try:
-        from visionai.config.settings import INFER_BACKEND
+        from visionai.core.infer_client import get_infer_client
 
-        if INFER_BACKEND == "cpp":
-            try:
-                from visionai.core.infer_client import InferClient
-
-                cli = InferClient()
-                live = bool(cli.live())
-            except Exception:  # noqa: BLE001
-                live = False
-            checks["inferd"] = live
-            if not live:
-                ok = False
-        else:
-            checks["inferd"] = "python"
+        live = bool(get_infer_client().live())
+        checks["inferd"] = live
+        if not live:
+            ok = False
     except Exception as e:  # noqa: BLE001
         checks["inferd"] = f"error:{e}"
+        ok = False
     try:
         plat = gb28181_store.get_platform(redis_manager)
         if plat.get("enabled"):
@@ -558,6 +551,17 @@ def get_streams():
         stream_copy['fatigue_driving_config'] = normalize_fatigue_config(
             stream_copy.get('fatigue_driving_config')
         )
+        stream_copy['intrusion_zone'] = normalize_intrusion_zone(
+            stream_copy.get('intrusion_zone')
+        )
+        from visionai.core.inference_source import normalize_analyze_url
+
+        stream_copy['analyze_url'] = normalize_analyze_url(stream_copy.get('analyze_url'))
+        from visionai.core.alert_clip import normalize_alert_clip_enabled
+
+        stream_copy['alert_clip_enabled'] = normalize_alert_clip_enabled(
+            stream_copy.get('alert_clip_enabled')
+        )
         apply_access_fields(stream_copy)
         apply_analyze_field(stream_copy)
         # 添加状态信息（Redis 跨进程；worker 写入，API 读取）
@@ -619,6 +623,17 @@ def save_streams():
             )
             stream['fatigue_driving_config'] = normalize_fatigue_config(
                 stream.get('fatigue_driving_config')
+            )
+            stream['intrusion_zone'] = normalize_intrusion_zone(
+                stream.get('intrusion_zone')
+            )
+            from visionai.core.inference_source import normalize_analyze_url
+
+            stream['analyze_url'] = normalize_analyze_url(stream.get('analyze_url'))
+            from visionai.core.alert_clip import normalize_alert_clip_enabled
+
+            stream['alert_clip_enabled'] = normalize_alert_clip_enabled(
+                stream.get('alert_clip_enabled')
             )
             apply_access_fields(stream)
             apply_analyze_field(stream, default=False if was_new else None)
@@ -796,6 +811,24 @@ def _stream_by_id(stream_id: str):
         if str(s.get("id") or "") == str(stream_id):
             return s
     return None
+
+
+@app.route("/api/streams/<stream_id>/preview-frame")
+@login_required
+def stream_preview_frame(stream_id: str):
+    """抓一帧 JPEG，供检测配置里画入侵区域。"""
+    stream = _stream_by_id(stream_id)
+    if not stream:
+        abort(404)
+    from visionai.core.stream_frame import read_frame_bgr_prefer_snap
+
+    frame = read_frame_bgr_prefer_snap(str(stream.get("url") or ""), timeout_sec=8.0)
+    if frame is None:
+        abort(404)
+    ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    if not ok:
+        abort(500)
+    return Response(buf.tobytes(), mimetype="image/jpeg")
 
 
 def _drop_stream_record(stream) -> bool:
@@ -1830,6 +1863,19 @@ def alert_image(detection_id):
 
     stream_id = (request.args.get("stream_id") or "").strip() or None
     resp, status = detection_image_response(detection_id, stream_id=stream_id)
+    if resp is not None:
+        return resp
+    abort(status)
+
+
+@app.route("/api/alert-clip/<detection_id>")
+@login_required
+def alert_clip(detection_id):
+    """历史告警短录像。"""
+    from visionai.web.alert_media import detection_clip_response
+
+    stream_id = (request.args.get("stream_id") or "").strip() or None
+    resp, status = detection_clip_response(detection_id, stream_id=stream_id)
     if resp is not None:
         return resp
     abort(status)

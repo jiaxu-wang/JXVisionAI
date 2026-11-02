@@ -1184,8 +1184,8 @@ class SipStack:
             if last_info:
                 await self._send_dialog_bye(sess, target, last_info)
                 sess.invites.pop(target, None)
-        # 独立 RTP 口 + openRtpServer(stream_id=设备_通道)，不要打到 rtp_proxy:10000
-        # 否则 ZLM 会用 SSRC 十六进制当流名（0310000001 → 127A3981）
+        # 独立 RTP 口 + openRtpServer(stream_id=设备_通道)，不要打到 rtp_proxy 固定口
+        # 否则 ZLM 会用 SSRC 十六进制当流名
         last_info: Optional[Dict[str, Any]] = None
         play_stream = stream
         range_end = port_max if port_max >= port_min else port_min

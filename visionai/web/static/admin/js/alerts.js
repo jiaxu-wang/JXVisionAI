@@ -93,18 +93,118 @@ function renderAlertsTable(detections) {
         }
         const noImg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4=';
         const imgSrc = imageUrl || noImg;
+        const hasClip = !!(detection.video_path || detection.video_object_key);
+        const clipBtn = hasClip
+            ? '<div><button type="button" class="btn-filter-apply alert-clip-btn" data-id="' + escapeHtml(detection.id || '') + '" data-stream-id="' + escapeHtml(detection.stream_id || '') + '">' + t('alerts.playClip') + '</button></div>'
+            : '';
         
         row.innerHTML = `
             <td><input type="checkbox" class="alert-checkbox" value="${detection.id}" data-stream-id="${detection.stream_id || ''}"></td>
             <td>${formattedTime}</td>
             <td>${detection.stream_name}</td>
             <td>${detectionType}</td>
-            <td><img src="${imgSrc}" class="alert-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4='"></td>
+            <td><img src="${imgSrc}" class="alert-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI2MCIgdmlld0JveD0iMCAwIDgwIDYwIj48cGF0aCBkPSJNMTAgMTBoNjB2NDBoLTYweiIvPjxwYXRoIGQ9Ik0zMCAzMGMwLTEwIDgtMjAgMTgtMjAgMTAgMCAxOCA4IDE4IDIwcy04IDIwLTE4IDIwLTE4LTgtMTgtMjB6IiBzdHJva2U9IiMyMTk2RjMiIGZpbGw9Im5vbmUiLz48L3N2Zz4='">${clipBtn}</td>
             <td><button class="btn-delete" onclick="deleteAlert('${detection.id}','${detection.stream_id || ''}')">${t('common.delete')}</button></td>
         `;
         tableBody.appendChild(row);
     });
+    tableBody.querySelectorAll('.alert-clip-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            playAlertClip(btn.getAttribute('data-id'), btn.getAttribute('data-stream-id'));
+        });
+    });
 }
+
+var alertClipTimer = 0;
+
+function closeAlertClip() {
+    if (alertClipTimer) {
+        clearTimeout(alertClipTimer);
+        alertClipTimer = 0;
+    }
+    const modal = document.getElementById('alertClipModal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function playAlertClip(id, streamId) {
+    if (!id) return;
+    const modal = document.getElementById('alertClipModal');
+    const canvas = document.getElementById('alertClipCanvas');
+    const msg = document.getElementById('alertClipMsg');
+    if (!modal || !canvas) return;
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    if (msg) msg.textContent = t('alerts.clipLoading');
+    let url = '/api/alert-clip/' + encodeURIComponent(id);
+    if (streamId) url += '?stream_id=' + encodeURIComponent(streamId);
+    fetch(url, { credentials: 'same-origin' })
+        .then(function (r) {
+            if (!r.ok) throw new Error('clip');
+            return r.arrayBuffer();
+        })
+        .then(function (buf) {
+            const parsed = parseAlertClip(buf);
+            if (!parsed || !parsed.frames.length) throw new Error('clip');
+            if (msg) msg.textContent = t('alerts.clipHint');
+            drawAlertClip(canvas, parsed.frames, parsed.fps);
+        })
+        .catch(function () {
+            if (msg) msg.textContent = t('alerts.clipFail');
+        });
+}
+
+function parseAlertClip(buf) {
+    const bytes = new Uint8Array(buf);
+    const magic = [74, 86, 67, 76, 73, 80, 49];
+    if (bytes.length < 13) return null;
+    for (let i = 0; i < magic.length; i++) {
+        if (bytes[i] !== magic[i]) return null;
+    }
+    const view = new DataView(buf);
+    const fps = view.getFloat32(7, true) || 4;
+    const count = view.getUint16(11, true);
+    let off = 13;
+    const frames = [];
+    for (let i = 0; i < count; i++) {
+        if (off + 4 > bytes.length) return null;
+        const n = view.getUint32(off, true);
+        off += 4;
+        if (off + n > bytes.length) return null;
+        frames.push(bytes.slice(off, off + n));
+        off += n;
+    }
+    return { fps: fps, frames: frames };
+}
+
+function drawAlertClip(canvas, frames, fps) {
+    if (alertClipTimer) clearTimeout(alertClipTimer);
+    const ctx = canvas.getContext('2d');
+    let index = 0;
+    const wait = Math.max(40, Math.round(1000 / (fps || 4)));
+    function step() {
+        const blob = new Blob([frames[index]], { type: 'image/jpeg' });
+        const img = new Image();
+        const url = URL.createObjectURL(blob);
+        img.onload = function () {
+            canvas.width = img.naturalWidth || 640;
+            canvas.height = img.naturalHeight || 360;
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            index = (index + 1) % frames.length;
+            alertClipTimer = setTimeout(step, wait);
+        };
+        img.onerror = function () {
+            URL.revokeObjectURL(url);
+        };
+        img.src = url;
+    }
+    step();
+}
+
+document.getElementById('alertClipClose')?.addEventListener('click', closeAlertClip);
 
 // 渲染分页
 function renderPagination(total, currentPage) {

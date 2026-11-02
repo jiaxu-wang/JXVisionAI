@@ -151,7 +151,7 @@
 
     function loadCatalogs() {
         var prefix = "/static/i18n/";
-        var ver = "15";
+        var ver = "18";
         readyPromise = Promise.all([
             fetch(prefix + "zh.json?v=" + ver).then(function (r) { return r.json(); }),
             fetch(prefix + "en.json?v=" + ver).then(function (r) { return r.json(); }),

@@ -260,6 +260,53 @@
         </div>
     </div>
 
+    <div id="intrusionZoneModal" class="config-modal-overlay" aria-hidden="true">
+        <div class="config-modal-panel" role="dialog" aria-labelledby="intrusionZoneTitle">
+            <div class="config-modal-header">
+                <h3 id="intrusionZoneTitle" data-i18n="policy.zoneTitle">人物入侵区域</h3>
+                <button type="button" class="config-modal-close" id="intrusionZoneCloseBtn" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
+            </div>
+            <div class="config-modal-body" style="overflow:auto;">
+                <p id="intrusionZoneHint" style="font-size:13px;color:#495057;margin:0;" data-i18n="policy.zoneHint"></p>
+                <p id="intrusionZoneFrameMsg" style="font-size:12px;color:#b45309;margin:0;display:none;"></p>
+                <canvas id="intrusionZoneCanvas" width="960" height="540"></canvas>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn-save" id="intrusionZoneClosePoly" data-i18n="policy.zoneClose">闭合区域</button>
+                    <button type="button" class="btn-filter-apply" id="intrusionZoneUndo" data-i18n="policy.zoneUndo">撤销点</button>
+                    <button type="button" class="btn-delete" id="intrusionZoneClear" data-i18n="policy.zoneClear">清空区域</button>
+                </div>
+                <div id="intrusionZoneRegionList" style="font-size:13px;"></div>
+                <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
+                    <input type="checkbox" id="intrusionZoneAllHours" checked style="width:auto;">
+                    <span data-i18n="policy.zoneAll">全时段布防</span>
+                </label>
+                <p style="font-size:12px;color:#6c757d;margin:0;" data-i18n="policy.zoneSchedHint"></p>
+                <div id="intrusionZoneSchedWrap" style="display:none;">
+                    <button type="button" class="btn-filter-apply" id="intrusionZoneWorkday" data-i18n="policy.zoneWork">工作日 8–18 点</button>
+                    <div id="intrusionZoneSched" class="zone-sched"></div>
+                </div>
+                <p style="font-size:12px;color:#6c757d;margin:0;" data-i18n="policy.zoneApplyHint"></p>
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn-save" id="intrusionZoneApply" data-i18n="policy.zoneApply">写入本路</button>
+                    <button type="button" class="btn-filter-apply" id="intrusionZoneCancel" data-i18n="policy.zoneCancel">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="alertClipModal" class="config-modal-overlay" aria-hidden="true">
+        <div class="config-modal-panel" role="dialog" aria-labelledby="alertClipTitle" style="max-width:860px;">
+            <div class="config-modal-header">
+                <h3 id="alertClipTitle" data-i18n="alerts.playClip">短录像</h3>
+                <button type="button" class="config-modal-close" id="alertClipClose" data-i18n-aria="common.close" aria-label="关闭">&times;</button>
+            </div>
+            <div class="config-modal-body">
+                <canvas id="alertClipCanvas" width="640" height="360" style="width:100%;height:auto;background:#111;border-radius:8px;"></canvas>
+                <p id="alertClipMsg" style="font-size:12px;color:#6c757d;margin:0;"></p>
+            </div>
+        </div>
+    </div>
+
     <div id="gbChannelModal" class="config-modal-overlay" aria-hidden="true">
         <div class="config-modal-panel" role="dialog" aria-labelledby="gbChannelModalTitle" style="max-width: 980px; width: min(980px, 96vw);">
             <div class="config-modal-header">

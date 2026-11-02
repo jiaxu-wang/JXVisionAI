@@ -12,6 +12,9 @@ struct DetectionBox {
   float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
   int class_id = -1;
   float conf = 0;
+  std::string label;
+  // 姿态或人脸关键点，x,y,conf 顺排。坐标已映射回原图。
+  std::vector<float> keypoints;
 };
 
 struct InferRawResult {

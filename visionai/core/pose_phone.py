@@ -8,7 +8,6 @@ import threading
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
-from ultralytics import YOLO
 
 from visionai.config.settings import (
     PHONE_CALL_HEAD_RATIO,
@@ -17,8 +16,8 @@ from visionai.config.settings import (
     PHONE_VERTICAL_BOUNDARY,
     POSE_FOR_PHONE_ENABLED,
     POSE_MODEL,
-    yolo_inference_device,
 )
+from visionai.core.weights_onnx import ensure_onnx
 
 logger = logging.getLogger(__name__)
 
@@ -43,103 +42,76 @@ def _iou_xyxy(
     return float(inter / (area_a + area_b - inter + 1e-9))
 
 
-def ensure_pose_model() -> Optional[Any]:
-    """按需加载 Ultralytics pose；多流共用。失败则仅使用竖直带 fallback。"""
+def ensure_pose_model() -> Optional[str]:
+    """姿态权重可交给 inferd 时返回 onnx 路径。失败则仅使用竖直带 fallback。"""
     global _pose_model, _pose_load_attempted, _pose_load_fail_logged
     if not POSE_FOR_PHONE_ENABLED:
         return None
-    if _pose_model is not None:
+    if _pose_model:
         return _pose_model
     with _pose_load_lock:
-        if _pose_model is not None:
+        if _pose_model:
             return _pose_model
         if _pose_load_attempted:
             return None
         _pose_load_attempted = True
         try:
-            _pose_model = YOLO(POSE_MODEL)
-            logger.info("姿态模型加载完成: %s", POSE_MODEL)
+            _pose_model = ensure_onnx(POSE_MODEL)
+            if not _pose_model:
+                raise RuntimeError(f"找不到姿态权重: {POSE_MODEL}")
+            logger.info("姿态模型就绪: %s", _pose_model)
         except Exception as ex:  # noqa: BLE001
             _pose_model = None
             if not _pose_load_fail_logged:
                 _pose_load_fail_logged = True
                 logger.warning(
                     "姿态模型加载失败，「打电话/玩手机」仅用画面竖直比例粗分。"
-                    "请将 yolo26s-pose.pt 下载到 models/ 后配置 pose_model（见 docs/getting-started.md）"
-                    "（见 README / config.example.ini）。原因: %s",
+                    "请将 yolo26s-pose.pt 放到 models/ 后配置 pose_model。原因: %s",
                     ex,
                 )
     return _pose_model
 
 
 def infer_pose_skeletons(frame_bgr: Any) -> List[Dict[str, Any]]:
-    """整图推理，返回每个人体实例bbox + keypoints。"""
-    model = ensure_pose_model()
-    if model is None:
+    """整图推理，返回每个人体实例 bbox + keypoints。"""
+    if ensure_pose_model() is None:
         return []
-
     try:
-        dev = yolo_inference_device()
-        kw: dict[str, Any] = {"verbose": False}
-        if dev is not None:
-            kw["device"] = dev
-        results = model(frame_bgr, **kw)
+        from visionai.core.cpp_yolo import infer_boxes
+
+        boxes = infer_boxes(
+            POSE_MODEL,
+            frame_bgr,
+            conf=0.25,
+            task="pose",
+            num_classes=1,
+            labels="person",
+        )
     except Exception as ex:  # noqa: BLE001
         logger.debug("pose 推理失败: %s", ex)
         return []
 
     outs: List[Dict[str, Any]] = []
     min_c = PHONE_POSE_KP_MIN_CONF
-    for res in results:
-        if res.boxes is None or len(res.boxes) == 0:
+    for box in boxes:
+        kpt = list(box.keypoints or [])
+        if len(kpt) < 3:
             continue
-        kpv = getattr(res, "keypoints", None)
-        if kpv is None:
-            continue
-
-        xyxy = res.boxes.xyxy.cpu().numpy()
-        kp_xy_all = kpv.xy.cpu().numpy()
-
-        nk = kp_xy_all.shape[1] if kp_xy_all.ndim >= 2 else 0
-        n_inst = kp_xy_all.shape[0]
-
-        kp_conf_np = getattr(kpv, "conf", None)
-        if kp_conf_np is None and hasattr(kpv, "data"):
-            kd = kpv.data.cpu().numpy()
-            if kd.ndim == 3 and kd.shape[2] >= 3:
-                kp_conf_np = kd[..., 2]
-        if kp_conf_np is None:
-            kconf = np.ones((n_inst, max(17, nk)), dtype=np.float64)
-        else:
-            kconf = kp_conf_np.cpu().numpy() if hasattr(kp_conf_np, "cpu") else np.asarray(kp_conf_np)
-
-        ni = xyxy.shape[0]
-        for ii in range(ni):
-            if ii >= kp_xy_all.shape[0]:
-                break
-            kxy = kp_xy_all[ii]
-            nrow = ii if kconf.shape[0] > ii else 0
-            cf_slice = (
-                kconf[nrow]
-                if kconf.ndim >= 2 and nrow < kconf.shape[0]
-                else np.ones(kxy.shape[0], dtype=np.float64)
-            )
-            if cf_slice.shape[0] < kxy.shape[0]:
-                cf_slice = np.pad(
-                    cf_slice,
-                    (0, kxy.shape[0] - cf_slice.shape[0]),
-                    constant_values=1.0,
-                )
-            box_t = tuple(float(x) for x in xyxy[ii][:4])
-            outs.append(
-                {
-                    "xyxy": box_t,
-                    "keypoints_xy": np.asarray(kxy, dtype=np.float64),
-                    "kp_conf": np.asarray(cf_slice[: kxy.shape[0]], dtype=np.float64),
-                    "_min_conf": min_c,
-                }
-            )
-
+        n = len(kpt) // 3
+        xy = np.zeros((n, 2), dtype=np.float64)
+        conf = np.zeros((n,), dtype=np.float64)
+        for i in range(n):
+            xy[i, 0] = kpt[i * 3]
+            xy[i, 1] = kpt[i * 3 + 1]
+            conf[i] = kpt[i * 3 + 2]
+        outs.append(
+            {
+                "xyxy": (float(box.x1), float(box.y1), float(box.x2), float(box.y2)),
+                "keypoints_xy": xy,
+                "kp_conf": conf,
+                "_min_conf": min_c,
+            }
+        )
     return outs
 
 

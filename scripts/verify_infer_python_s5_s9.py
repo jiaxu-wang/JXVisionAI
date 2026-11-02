@@ -32,14 +32,15 @@ def main() -> int:
     endpoint = os.environ.get("INFER_ENDPOINT", "unix:///tmp/visionai-inferd.sock")
     client = InferClient(endpoint=endpoint)
     assert client.live(), "Live failed"
-    if not client.ready():
-        client.load_primary()
+    onnx = os.path.join(ROOT, "models/repo/primary/1/model.onnx")
+    assert os.path.isfile(onnx), onnx
+    client.load_model("primary", onnx, task="detect", num_classes=80, imgsz=640, labels="person")
     assert client.ready(), "Ready failed"
     print("S5 client Live/Ready OK")
 
     im = load_sample()
     sid = "py-s5"
-    client.open_session(sid, conf=0.25)
+    client.open_session(sid, conf=0.25, model_name="primary")
     r = client.infer(sid, im)
     assert r.ok, r.message
     print(f"S5 Infer OK dets={len(r.boxes)} infer_ms={r.infer_ms}")
@@ -56,7 +57,7 @@ def main() -> int:
     ms = []
     for i in range(4):
         s = f"s9-{i}"
-        client.open_session(s, conf=0.3)
+        client.open_session(s, conf=0.3, model_name="primary")
         rr = client.infer(s, im)
         assert rr.ok, rr.message
         ms.append(rr.infer_ms)

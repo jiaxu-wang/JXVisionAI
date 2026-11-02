@@ -20,5 +20,6 @@ std::vector<float> LetterboxBgrToNchw(const uint8_t* bgr, int width, int height,
 
 // Map box from letterbox/network space back to original image pixels.
 void MapBoxToOriginal(float* x1, float* y1, float* x2, float* y2, const LetterboxInfo& info);
+void MapPointToOriginal(float* x, float* y, const LetterboxInfo& info);
 
 }  // namespace visionai::inferd
